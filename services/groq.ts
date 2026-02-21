@@ -75,6 +75,9 @@ export const generateGroqCompletion = async (
 
   if (!response.ok) {
     const err = await response.text();
+    if (response.status === 429 || err.toLowerCase().includes('rate limit') || err.toLowerCase().includes('quota')) {
+      throw new Error('[QUOTA] Groq rate limit reached. Wait a minute and try again, or switch to Gemini.');
+    }
     throw new Error(`Groq API error (${response.status}): ${err}`);
   }
 

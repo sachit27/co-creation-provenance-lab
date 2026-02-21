@@ -280,21 +280,42 @@ export default function App() {
   }
 
   if (viewState === 'error') {
-     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-slate-200">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 text-2xl">⚠️</div>
-                <h2 className="text-xl font-bold text-slate-800 mb-2">Analysis Failed</h2>
-                <p className="text-slate-600 mb-6">{errorMsg}</p>
-                <button 
-                  onClick={() => setViewState('setup')}
-                  className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 transition-colors w-full"
-                >
-                  Back to Configuration
-                </button>
-            </div>
+    const isQuota = errorMsg.startsWith('[QUOTA]');
+    const displayMsg = isQuota ? errorMsg.replace('[QUOTA] ', '') : errorMsg;
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full text-center border border-slate-200">
+          {isQuota ? (
+            <>
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🚫</div>
+              <h2 className="text-xl font-bold text-slate-800 mb-2">API Quota Exhausted</h2>
+              <p className="text-slate-500 mb-5">{displayMsg}</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-left space-y-1.5">
+                <p className="text-sm font-semibold text-amber-800 mb-2">What you can do:</p>
+                <ul className="text-sm text-amber-700 space-y-1.5 list-disc list-inside">
+                  <li>Switch to <strong>Groq</strong> — completely free, no credit card required (console.groq.com)</li>
+                  <li>Switch to <strong>Local Ollama</strong> — runs on your machine, unlimited usage</li>
+                  <li>Wait and try again — Gemini free tier resets daily</li>
+                  <li>Enter a different API key with remaining quota</li>
+                </ul>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 text-2xl">⚠️</div>
+              <h2 className="text-xl font-bold text-slate-800 mb-2">Analysis Failed</h2>
+              <p className="text-slate-600 mb-6">{displayMsg}</p>
+            </>
+          )}
+          <button
+            onClick={() => setViewState('setup')}
+            className="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 transition-colors w-full"
+          >
+            Back to Configuration
+          </button>
         </div>
-     );
+      </div>
+    );
   }
 
   return (

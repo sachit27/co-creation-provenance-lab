@@ -153,6 +153,15 @@ export const generateEmbedding = async (text: string, model: string = 'text-embe
   }
 };
 
+/** Returns true for HTTP 429 / quota-exhausted errors from any provider. */
+const isQuotaError = (status?: number, body?: string): boolean => {
+  if (status === 429) return true;
+  const text = (body || '').toLowerCase();
+  return text.includes('quota') || text.includes('resource_exhausted') ||
+    text.includes('resource exhausted') || text.includes('rate limit') ||
+    text.includes('ratelimit') || text.includes('too many requests');
+};
+
 export const generateCompletion = async (
   prompt: string,
   systemInstruction?: string,
@@ -170,6 +179,10 @@ export const generateCompletion = async (
         const data = await res.json();
         return data.text || '';
       }
+      const errBody = await res.text().catch(() => '');
+      if (isQuotaError(res.status, errBody)) {
+        throw new Error('[QUOTA] Gemini API quota exhausted. Try again later, switch to Groq (free), or use a different API key.');
+      }
       console.warn('Gemini proxy complete failed, trying direct SDK');
     }
 
@@ -185,7 +198,13 @@ export const generateCompletion = async (
     }
 
     throw new Error('No Gemini backend available');
-  } catch (error) {
+  } catch (error: any) {
+    // Re-throw quota errors with clear prefix so the UI can show a specific message
+    if (error?.message?.startsWith('[QUOTA]')) throw error;
+    const msg = String(error?.message || error);
+    if (isQuotaError(error?.status, msg)) {
+      throw new Error('[QUOTA] Gemini API quota exhausted. Try again later, switch to Groq (free), or use a different API key.');
+    }
     console.error('Gemini Completion Error:', error);
     throw error;
   }
