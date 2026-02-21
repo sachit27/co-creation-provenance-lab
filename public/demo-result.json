@@ -1,0 +1,2675 @@
+{
+  "config": {
+    "datasetName": "Citizen Feedback Project",
+    "strategy": "balanced",
+    "aiProvider": "gemini",
+    "model": "gemini-2.5-flash",
+    "embeddingModel": "gemini-embedding-001",
+    "runLOO": true,
+    "summaryMethod": "ai",
+    "manualSummaryText": ""
+  },
+  "summary": "Participants overwhelmingly call for improved **accessibility and usability**, citing technical reporting tools, poor mobile functionality, lack of offline mode, and language barriers as significant deterrents. A strong desire for greater **inclusion and equity** emerged, with calls to integrate local and Indigenous ecological knowledge, enable shared decision-making (co-creation), and provide fair compensation or recognition for contributions.\n\nConcerns were also raised about the **data feedback loop**, including overly strict validation, lack of transparency on data use, and privacy for sensitive locations. Important minority points highlighted the need for long-term community relationships, open data access, and the integration of relevant local issues like pollution and invasive species tracking. Better training and less jargon are also desired to foster deeper engagement.",
+  "summarySentences": [
+    "Participants overwhelmingly call for improved **accessibility and usability**, citing technical reporting tools, poor mobile functionality, lack of offline mode, and language barriers as significant deterrents.",
+    "A strong desire for greater **inclusion and equity** emerged, with calls to integrate local and Indigenous ecological knowledge, enable shared decision-making (co-creation), and provide fair compensation or recognition for contributions.",
+    "Concerns were also raised about the **data feedback loop**, including overly strict validation, lack of transparency on data use, and privacy for sensitive locations.",
+    "Important minority points highlighted the need for long-term community relationships, open data access, and the integration of relevant local issues like pollution and invasive species tracking.",
+    "Better training and less jargon are also desired to foster deeper engagement."
+  ],
+  "summarySentenceSentiments": [
+    {
+      "score": -0.9,
+      "label": "negative"
+    },
+    {
+      "score": 0.9,
+      "label": "positive"
+    },
+    {
+      "score": -0.85,
+      "label": "negative"
+    },
+    {
+      "score": 0.1,
+      "label": "neutral"
+    },
+    {
+      "score": 0.85,
+      "label": "positive"
+    }
+  ],
+  "participants": [
+    {
+      "id": "Citizen_001",
+      "originalText": "We need more accessible reporting tools. Current forms are too technical for non-scientists.",
+      "representationScore": 0.7170040122921159,
+      "semanticIsolation": 0.16396958089075964,
+      "semanticCoords": {
+        "x": 0.0740606518494045,
+        "y": -0.030700116392396747
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.7900050153651448
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6960682620811013
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6736043248222061
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6399740866424679
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6239832704422299
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "reporting tools",
+        "report",
+        "current forms",
+        "more accessible",
+        "form",
+        "tools current",
+        "technical",
+        "accessible",
+        "current",
+        "nonscientist",
+        "more"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_002",
+      "originalText": "Local knowledge about bird migration patterns is being ignored by researchers.",
+      "representationScore": 0.6110398201036175,
+      "semanticIsolation": 0.20665095366323127,
+      "semanticCoords": {
+        "x": -0.4260283448109283,
+        "y": -0.02080185283120754
+      },
+      "clusterId": 1,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6747372751295218
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6347911280071125
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5695176651306626
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5663773771739606
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5545581659659309
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "bird migration",
+        "migration patterns",
+        "bird",
+        "migration",
+        "local",
+        "knowledge",
+        "pattern",
+        "ignor"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_003",
+      "originalText": "The mobile app crashes frequently when trying to upload observations in areas with poor connectivity.",
+      "representationScore": 0.5294672654951214,
+      "semanticIsolation": 0.23872982579707835,
+      "semanticCoords": {
+        "x": 0.18816302824156161,
+        "y": -0.16486540665469657
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6243340818689017
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6218677921168729
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6133275642497642
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5493791133975309
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.545995898018942
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "negative",
+      "keywords": [
+        "crashes frequently",
+        "poor connectivity",
+        "mobile",
+        "upload observations",
+        "crash",
+        "upload",
+        "connectivity",
+        "area",
+        "observation",
+        "frequent",
+        "poor"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_004",
+      "originalText": "Indigenous community members have valuable ecological knowledge but feel excluded from the process.",
+      "representationScore": 0.72338216649775,
+      "semanticIsolation": 0.17575973349169105,
+      "semanticCoords": {
+        "x": -0.3445214977948902,
+        "y": -0.04919568849134185
+      },
+      "clusterId": 1,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.7714152081221876
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.7196141285766403
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.639443473143187
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6267267840278054
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6181061563715562
+        }
+      ],
+      "topSentenceMatchIndex": 1,
+      "sentiment": "negative",
+      "keywords": [
+        "knowledge",
+        "community members",
+        "community",
+        "process",
+        "member",
+        "exclud",
+        "valuable"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_005",
+      "originalText": "Data validation is too strict - my observations keep getting rejected even though they're accurate.",
+      "representationScore": 0.6431164926676203,
+      "semanticIsolation": 0.20492816809376402,
+      "semanticCoords": {
+        "x": 0.20138830624655651,
+        "y": 0.0057139420417863605
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.7413956158345253
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6405002722534227
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.605886558416318
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5692450105268596
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5415607208425648
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "negative",
+      "keywords": [
+        "validation",
+        "they're accurate",
+        "reject",
+        "accurate",
+        "strict",
+        "observation",
+        "though",
+        "though they're",
+        "they're"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_006",
+      "originalText": "More training sessions needed. I don't understand how to identify species correctly.",
+      "representationScore": 0.5786970379571428,
+      "semanticIsolation": 0.2096434889966311,
+      "semanticCoords": {
+        "x": 0.07842443104707943,
+        "y": -0.26032728756150947
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6671212974464283
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6197776412303276
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6027635344114561
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.599389085867914
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.577151246016427
+        }
+      ],
+      "topSentenceMatchIndex": 4,
+      "sentiment": "negative",
+      "keywords": [
+        "species correctly",
+        "identify species",
+        "training sessions",
+        "more training",
+        "identify",
+        "train",
+        "session",
+        "more",
+        "don't",
+        "specy",
+        "correct"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_007",
+      "originalText": "The project focuses too much on data quantity over quality of engagement.",
+      "representationScore": 0.6175906654167557,
+      "semanticIsolation": 0.17017456754237315,
+      "semanticCoords": {
+        "x": 0.1676331971116614,
+        "y": 0.13128059407411485
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.7094883317709445
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6954082848491245
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6878531928400885
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6581094330302838
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.609700502576468
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "negative",
+      "keywords": [
+        "engagement",
+        "quantity",
+        "quality",
+        "focus"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_008",
+      "originalText": "We should have more say in research questions. Scientists decide everything unilaterally.",
+      "representationScore": 0.5466591228883098,
+      "semanticIsolation": 0.2100289249656615,
+      "semanticCoords": {
+        "x": -0.08781568472054567,
+        "y": 0.30386074312367767
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6476096178961014
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6315863432537867
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6095856072287706
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5880877525868071
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5871777056526661
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "scientists decide",
+        "questions scientists",
+        "scientist",
+        "decide",
+        "question",
+        "unilateral",
+        "more"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_009",
+      "originalText": "Young people are interested but the platform isn't mobile-friendly enough.",
+      "representationScore": 0.6312535805072704,
+      "semanticIsolation": 0.21455500031870622,
+      "semanticCoords": {
+        "x": 0.16730221600754505,
+        "y": -0.25476653915675807
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.726566975634088
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6921724805967889
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6102588036634056
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6069877415212873
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5943956023288994
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "isn't mobilefriendly",
+        "platform isn't",
+        "platform",
+        "mobilefriendly enough",
+        "mobilefriend",
+        "interest",
+        "isn't",
+        "people",
+        "enough"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_010",
+      "originalText": "Language barriers prevent non-English speakers from participating fully.",
+      "representationScore": 0.6563538214279898,
+      "semanticIsolation": 0.2148294983351412,
+      "semanticCoords": {
+        "x": 0.037600425922696516,
+        "y": -0.10109637045305704
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.7204422767849872
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6903773042799535
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6379263812910072
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6114239522613413
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5866946154928302
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "language barriers",
+        "barriers prevent",
+        "prevent nonenglish",
+        "prevent",
+        "nonenglish speakers",
+        "language",
+        "barrier",
+        "nonenglish",
+        "speaker",
+        "participat",
+        "participating fully",
+        "ful"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "la"
+    },
+    {
+      "id": "Citizen_011",
+      "originalText": "Recognition for contributors is important. We volunteer our time and expertise.",
+      "representationScore": 0.5314701470685417,
+      "semanticIsolation": 0.26033228744803694,
+      "semanticCoords": {
+        "x": 0.15963039658247277,
+        "y": 0.15713969244881634
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.614337683835677
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6107695849416238
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.5935089227062037
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5631536939586528
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5546066154224081
+        }
+      ],
+      "topSentenceMatchIndex": 4,
+      "sentiment": "positive",
+      "keywords": [
+        "contributor",
+        "volunteer",
+        "expertise",
+        "recognition",
+        "time"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_012",
+      "originalText": "The feedback loop is broken - I submit data but never hear if it was useful.",
+      "representationScore": 0.6474601849513113,
+      "semanticIsolation": 0.179486776949756,
+      "semanticCoords": {
+        "x": 0.2117482581275602,
+        "y": 0.1723853306376307
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.759325231189139
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6546062064594959
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.643704526829651
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6130509875557053
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5923290050735209
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "negative",
+      "keywords": [
+        "submit",
+        "broken",
+        "loop",
+        "useful",
+        "hear"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_013",
+      "originalText": "Privacy concerns about sharing exact locations of sensitive species.",
+      "representationScore": 0.7178355665760838,
+      "semanticIsolation": 0.2023470893319349,
+      "semanticCoords": {
+        "x": -0.0047541710139324634,
+        "y": -0.06070232459388867
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.7379194582201046
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.7047831425867244
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6136038673954349
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5921354922897837
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5614830657144971
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "positive",
+      "keywords": [
+        "sensitive species",
+        "privacy concerns",
+        "privacy",
+        "sensitive",
+        "sharing exact",
+        "location",
+        "concern",
+        "exact locations",
+        "specy",
+        "shar",
+        "exact"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "la"
+    },
+    {
+      "id": "Citizen_014",
+      "originalText": "More diverse participants needed. Current group doesn't represent our community demographics.",
+      "representationScore": 0.56032459022447,
+      "semanticIsolation": 0.19273234632518244,
+      "semanticCoords": {
+        "x": 0.09078689650107721,
+        "y": -0.0273039212975757
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6941557377805875
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6770833395377684
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.670890787566447
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6631994165883148
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.605243859590405
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "community demographics",
+        "more diverse",
+        "diverse",
+        "group doesn't",
+        "demographic",
+        "community",
+        "current group",
+        "group",
+        "represent",
+        "doesn't represent",
+        "doesn't",
+        "more",
+        "current"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_015",
+      "originalText": "Scientific jargon makes results inaccessible to those who collected the data.",
+      "representationScore": 0.6074919054819233,
+      "semanticIsolation": 0.1966028126222269,
+      "semanticCoords": {
+        "x": -0.03482862360032214,
+        "y": 0.04688187736434064
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.7165077389952613
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6644347169924606
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6222479382511403
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6065251196325495
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.589022642541568
+        }
+      ],
+      "topSentenceMatchIndex": 4,
+      "sentiment": "negative",
+      "keywords": [],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_016",
+      "originalText": "Seasonal observations are valuable but the project only runs during summer months.",
+      "representationScore": 0.5411147215728859,
+      "semanticIsolation": 0.1935018166654009,
+      "semanticCoords": {
+        "x": 0.006864763977447439,
+        "y": 0.053522553469507975
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6763934019661073
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6043714019424877
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5928495319902155
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5808014352610371
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5798567996879544
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "seasonal observations",
+        "summer months",
+        "seasonal",
+        "summer",
+        "month",
+        "observation",
+        "valuable"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_017",
+      "originalText": "Local environmental knowledge spans generations but isn't considered 'scientific' enough.",
+      "representationScore": 0.5932757356729339,
+      "semanticIsolation": 0.21138832095464732,
+      "semanticCoords": {
+        "x": -0.44747266542482467,
+        "y": -0.08178859783328815
+      },
+      "clusterId": 1,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6603446695911672
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6590772635524356
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5682249463779452
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5520238038006332
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5489962700351272
+        }
+      ],
+      "topSentenceMatchIndex": 1,
+      "sentiment": "negative",
+      "keywords": [
+        "'scientific' enough",
+        "'scientific'",
+        "environmental",
+        "spans generations",
+        "knowledge spans",
+        "generation",
+        "local",
+        "knowledge",
+        "isn't",
+        "enough",
+        "span"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "la"
+    },
+    {
+      "id": "Citizen_018",
+      "originalText": "The project should compensate participants for their time, especially from low-income communities.",
+      "representationScore": 0.6105264076253543,
+      "semanticIsolation": 0.19165913103159582,
+      "semanticCoords": {
+        "x": 0.023780536681448736,
+        "y": 0.1772950220205825
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.702443723817407
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6706906906041127
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6468000524256395
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6419030278137707
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6287261877062037
+        }
+      ],
+      "topSentenceMatchIndex": 1,
+      "sentiment": "negative",
+      "keywords": [
+        "compensate",
+        "lowincome communities",
+        "community",
+        "time especially",
+        "time",
+        "especial",
+        "lowincome"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_019",
+      "originalText": "Co-creation means shared decision-making, not just data collection by volunteers.",
+      "representationScore": 0.6295805484628046,
+      "semanticIsolation": 0.23800545858669808,
+      "semanticCoords": {
+        "x": -0.02677669744977291,
+        "y": 0.29341720768833934
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.7161423522451725
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6394496572878442
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6111501544525352
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6095380629257359
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5889740261933604
+        }
+      ],
+      "topSentenceMatchIndex": 1,
+      "sentiment": "positive",
+      "keywords": [
+        "shared decisionmaking",
+        "cocreation",
+        "volunteer",
+        "collection",
+        "decisionmak",
+        "shar"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_020",
+      "originalText": "Traditional ecological calendars should be integrated with scientific observation protocols.",
+      "representationScore": 0.6000967865214599,
+      "semanticIsolation": 0.22686261012389353,
+      "semanticCoords": {
+        "x": -0.43319086362753145,
+        "y": -0.00880680256347095
+      },
+      "clusterId": 1,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.675120983151825
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6591234315160127
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5653153062680747
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5478771735486351
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5377538618567314
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "positive",
+      "keywords": [
+        "ecological calendars",
+        "calendar",
+        "traditional ecological",
+        "scientific observation",
+        "observation protocols",
+        "traditional",
+        "observation",
+        "scientific",
+        "protocol",
+        "integrat"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_021",
+      "originalText": "I cannot read the small font on the map interface, please add accessibility settings for visually impaired users.",
+      "representationScore": 0.5682644902497949,
+      "semanticIsolation": 0.2484616353008442,
+      "semanticCoords": {
+        "x": 0.19008362427997816,
+        "y": -0.22905512245457224
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6728306128122435
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5974585481913264
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5917746668196111
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.5897364671310144
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5517860256156777
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "accessibility settings",
+        "visually impaired",
+        "font",
+        "accessibility",
+        "cannot read",
+        "map interface",
+        "map",
+        "interface please",
+        "read",
+        "interface",
+        "cannot",
+        "visual",
+        "please",
+        "impair"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_022",
+      "originalText": "There is no way to report pollution incidents alongside species data, which misses the context.",
+      "representationScore": 0.6598344461256641,
+      "semanticIsolation": 0.180804868374699,
+      "semanticCoords": {
+        "x": 0.03245544933401046,
+        "y": -0.1155657560794199
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.7232305576570801
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6526428681147548
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6403296433987671
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6151158585649267
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5898055952763547
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "report pollution",
+        "pollution incidents",
+        "pollution",
+        "alongside species",
+        "report",
+        "incident",
+        "incidents alongside",
+        "miss",
+        "context",
+        "specy",
+        "alongside"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_023",
+      "originalText": "We need an offline mode. I do my best work in the mountains where there is zero signal.",
+      "representationScore": 0.5874287590478381,
+      "semanticIsolation": 0.24870852202621407,
+      "semanticCoords": {
+        "x": 0.24001251095984036,
+        "y": 0.011688922103971109
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6249109488097976
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5995610874401047
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5974150302067633
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.5804576862009089
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5415090505055581
+        }
+      ],
+      "topSentenceMatchIndex": 0,
+      "sentiment": "negative",
+      "keywords": [
+        "offline mode",
+        "offline",
+        "zero signal",
+        "signal",
+        "mode",
+        "work",
+        "mountain",
+        "best work",
+        "zero",
+        "best"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_024",
+      "originalText": "Why is the data not open source? We collect it, but we have to pay to access the final reports.",
+      "representationScore": 0.579737828372272,
+      "semanticIsolation": 0.1994057139851413,
+      "semanticCoords": {
+        "x": 0.10581271996424892,
+        "y": 0.2143667568943172
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6559222854653398
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.655848892396058
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6501327322023901
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6020576446496569
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5856632180906279
+        }
+      ],
+      "topSentenceMatchIndex": 2,
+      "sentiment": "negative",
+      "keywords": [
+        "final reports",
+        "report",
+        "source?",
+        "access",
+        "pay",
+        "collect",
+        "why",
+        "final"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_025",
+      "originalText": "The gamification elements are distracting. I want to contribute to science, not earn badges.",
+      "representationScore": 0.5160515868265694,
+      "semanticIsolation": 0.1941465975092308,
+      "semanticCoords": {
+        "x": 0.19646906235606518,
+        "y": 0.1496152902506929
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6450644835332117
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6424383205850607
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6318592576597245
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6297217725758156
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6090237292604939
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "gamification elements",
+        "gamification",
+        "earn badges",
+        "science",
+        "contribute",
+        "earn",
+        "distract",
+        "element",
+        "badg"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_026",
+      "originalText": "Local schools want to get involved but the curriculum materials are too complex for children.",
+      "representationScore": 0.5904044466685838,
+      "semanticIsolation": 0.2048273851884702,
+      "semanticCoords": {
+        "x": 0.004756128510516679,
+        "y": -0.1744544962244687
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6848805583357298
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6476022079072362
+        },
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.636508049795918
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.5959964579480005
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5913822735768851
+        }
+      ],
+      "topSentenceMatchIndex": 4,
+      "sentiment": "negative",
+      "keywords": [
+        "local schools",
+        "curriculum materials",
+        "curriculum",
+        "children",
+        "school",
+        "local",
+        "complex",
+        "material",
+        "involv"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_027",
+      "originalText": "Researchers drop in for a week and leave. We need long-term relationship building with the town.",
+      "representationScore": 0.6105603306128922,
+      "semanticIsolation": 0.18009612545349818,
+      "semanticCoords": {
+        "x": -0.11996016417174352,
+        "y": 0.1453142872037985
+      },
+      "clusterId": 0,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.7132004132661152
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6590933345247235
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.62228566568691
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6145009382190959
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6003123301827726
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "town",
+        "longterm relationship",
+        "drop",
+        "week",
+        "relationship",
+        "longterm"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_028",
+      "originalText": "Can we track invasive species? That is the biggest issue destroying our local crops right now.",
+      "representationScore": 0.6318668479402225,
+      "semanticIsolation": 0.20966800127783514,
+      "semanticCoords": {
+        "x": -0.021570954973309037,
+        "y": -0.17500805551219825
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6757710599252782
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6075748182229517
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6062171320833375
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5834431811196925
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5454898122767363
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "track invasive",
+        "invasive species?",
+        "invasive",
+        "local crops",
+        "species?",
+        "crops right",
+        "crop",
+        "track",
+        "biggest issue",
+        "local",
+        "issue destroying",
+        "issue",
+        "destroy",
+        "right",
+        "biggest"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_029",
+      "originalText": "The automated image recognition AI is biased towards common species and mislabels rare ones.",
+      "representationScore": 0.5434688333905937,
+      "semanticIsolation": 0.2173043115208333,
+      "semanticCoords": {
+        "x": 0.013941795983117204,
+        "y": -0.24019108829505456
+      },
+      "clusterId": 2,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6512110417382422
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.6066991278038383
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.6015659762009565
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.5845582166988527
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.5637863224593547
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "mislabels rare",
+        "automated image",
+        "image recognition",
+        "recognition",
+        "common species",
+        "mislabel",
+        "image",
+        "bias",
+        "rare ones",
+        "biased towards",
+        "rare",
+        "common",
+        "towards common",
+        "automat",
+        "toward"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    },
+    {
+      "id": "Citizen_030",
+      "originalText": "Funding should be allocated for local community leaders to organize the fieldwork, not just for university staff.",
+      "representationScore": 0.6265880831060606,
+      "semanticIsolation": 0.19971908557723772,
+      "semanticCoords": {
+        "x": -0.24399473209648903,
+        "y": 0.13214720707332892
+      },
+      "clusterId": 1,
+      "sentenceMatches": [
+        {
+          "sentenceIndex": 3,
+          "similarity": 0.6879226038825756
+        },
+        {
+          "sentenceIndex": 1,
+          "similarity": 0.653156620764231
+        },
+        {
+          "sentenceIndex": 4,
+          "similarity": 0.6303977812516979
+        },
+        {
+          "sentenceIndex": 0,
+          "similarity": 0.6129454469216024
+        },
+        {
+          "sentenceIndex": 2,
+          "similarity": 0.5718105381000408
+        }
+      ],
+      "topSentenceMatchIndex": 3,
+      "sentiment": "negative",
+      "keywords": [
+        "community leaders",
+        "university staff",
+        "local community",
+        "fund",
+        "fieldwork",
+        "organize",
+        "staff",
+        "community",
+        "university",
+        "local",
+        "leader",
+        "allocat"
+      ],
+      "embeddingTier": "gemini",
+      "detectedLanguage": "en"
+    }
+  ],
+  "metrics": {
+    "giniCoefficient": 0.049451343028097616,
+    "inputDiversity": 0.3825994519485191,
+    "coverageUniformity": 0.9505486569719024,
+    "distinctRepresentationGap": 0.04821315972160878,
+    "totalParticipants": 30
+  },
+  "clusters": [
+    {
+      "id": 0,
+      "label": "Cluster 1",
+      "color": "#3b82f6"
+    },
+    {
+      "id": 1,
+      "label": "Cluster 2",
+      "color": "#f97316"
+    },
+    {
+      "id": 2,
+      "label": "Cluster 3",
+      "color": "#10b981"
+    }
+  ],
+  "sensitivityAnalysis": [
+    {
+      "participantId": "Citizen_011",
+      "shiftScore": 2.265869845867833,
+      "semanticDelta": 0.0004250146537813082,
+      "representationDelta": 0.0026021170341329336
+    },
+    {
+      "participantId": "Citizen_023",
+      "shiftScore": 1.7987288826390457,
+      "semanticDelta": 0.0004091726324092493,
+      "representationDelta": 0.0006725097245020573
+    },
+    {
+      "participantId": "Citizen_021",
+      "shiftScore": 1.788717127261236,
+      "semanticDelta": 0.0004088331065377204,
+      "representationDelta": 0.001333346579606931
+    },
+    {
+      "participantId": "Citizen_003",
+      "shiftScore": 1.3909567012917579,
+      "semanticDelta": 0.00039534396800100513,
+      "representationDelta": 0.0026711819159750405
+    },
+    {
+      "participantId": "Citizen_019",
+      "shiftScore": 1.3611118867104275,
+      "semanticDelta": 0.0003943318491168579,
+      "representationDelta": -0.0007810002553243489
+    },
+    {
+      "participantId": "Citizen_020",
+      "shiftScore": 0.8978700311868196,
+      "semanticDelta": 0.0003786220570983767,
+      "representationDelta": 0.0002356811909287604
+    },
+    {
+      "participantId": "Citizen_029",
+      "shiftScore": 0.49427025821523335,
+      "semanticDelta": 0.0003649348904132266,
+      "representationDelta": 0.0021883692299242696
+    },
+    {
+      "participantId": "Citizen_010",
+      "shiftScore": 0.38883617724869324,
+      "semanticDelta": 0.0003613593337922216,
+      "representationDelta": -0.0017042165644686191
+    },
+    {
+      "participantId": "Citizen_009",
+      "shiftScore": 0.3771161628417561,
+      "semanticDelta": 0.00036096187620804354,
+      "representationDelta": -0.0008386910154783989
+    },
+    {
+      "participantId": "Citizen_017",
+      "shiftScore": 0.24158233732981535,
+      "semanticDelta": 0.00035636555533402614,
+      "representationDelta": 0.0004708898408779527
+    },
+    {
+      "participantId": "Citizen_008",
+      "shiftScore": 0.18320401095963088,
+      "semanticDelta": 0.0003543857874120926,
+      "representationDelta": 0.0020783592472444212
+    },
+    {
+      "participantId": "Citizen_028",
+      "shiftScore": 0.16768444830029966,
+      "semanticDelta": 0.00035385947680632857,
+      "representationDelta": -0.000859838168338789
+    },
+    {
+      "participantId": "Citizen_006",
+      "shiftScore": 0.16663268177473772,
+      "semanticDelta": 0.0003538238085410983,
+      "representationDelta": 0.0009736035552156963
+    },
+    {
+      "participantId": "Citizen_002",
+      "shiftScore": 0.03763814465575864,
+      "semanticDelta": 0.00034944925273294736,
+      "representationDelta": -0.00014166479466271031
+    },
+    {
+      "participantId": "Citizen_005",
+      "shiftScore": -0.03688027763578049,
+      "semanticDelta": 0.00034692213023357343,
+      "representationDelta": -0.001247756952042156
+    },
+    {
+      "participantId": "Citizen_026",
+      "shiftScore": -0.04124564332017337,
+      "semanticDelta": 0.00034677408880301464,
+      "representationDelta": 0.0005698998065452043
+    },
+    {
+      "participantId": "Citizen_013",
+      "shiftScore": -0.14887401854217844,
+      "semanticDelta": 0.00034312411769210627,
+      "representationDelta": -0.003824276741989263
+    },
+    {
+      "participantId": "Citizen_030",
+      "shiftScore": -0.26334079699030544,
+      "semanticDelta": 0.00033924223771730766,
+      "representationDelta": -0.0006778117947470186
+    },
+    {
+      "participantId": "Citizen_024",
+      "shiftScore": -0.27701971544043225,
+      "semanticDelta": 0.00033877834836593124,
+      "representationDelta": 0.0009377142305559971
+    },
+    {
+      "participantId": "Citizen_015",
+      "shiftScore": -0.3996403345684063,
+      "semanticDelta": 0.00033461994946326623,
+      "representationDelta": -0.000019322911156138822
+    },
+    {
+      "participantId": "Citizen_025",
+      "shiftScore": -0.5075045037562037,
+      "semanticDelta": 0.0003309619819372722,
+      "representationDelta": 0.0031337915252354076
+    },
+    {
+      "participantId": "Citizen_016",
+      "shiftScore": -0.5358840784978931,
+      "semanticDelta": 0.0003299995533236899,
+      "representationDelta": 0.002269545499500425
+    },
+    {
+      "participantId": "Citizen_014",
+      "shiftScore": -0.5697857255882398,
+      "semanticDelta": 0.00032884985620862395,
+      "representationDelta": 0.001607136235652562
+    },
+    {
+      "participantId": "Citizen_018",
+      "shiftScore": -0.6171327835575735,
+      "semanticDelta": 0.0003272441886194022,
+      "representationDelta": -0.0001239609161020061
+    },
+    {
+      "participantId": "Citizen_022",
+      "shiftScore": -1.100107137403375,
+      "semanticDelta": 0.0003108652138814616,
+      "representationDelta": -0.001824238105767817
+    },
+    {
+      "participantId": "Citizen_027",
+      "shiftScore": -1.131904365777683,
+      "semanticDelta": 0.00030978688333216375,
+      "representationDelta": -0.00012513067429298363
+    },
+    {
+      "participantId": "Citizen_012",
+      "shiftScore": -1.1592676188023667,
+      "semanticDelta": 0.00030885892095389167,
+      "representationDelta": -0.0013975394445832068
+    },
+    {
+      "participantId": "Citizen_004",
+      "shiftScore": -1.3271533828132378,
+      "semanticDelta": 0.00030316545780062487,
+      "representationDelta": -0.00401553880825356
+    },
+    {
+      "participantId": "Citizen_007",
+      "shiftScore": -1.5803949749985116,
+      "semanticDelta": 0.00029457734622084786,
+      "representationDelta": -0.00036755601235716195
+    },
+    {
+      "participantId": "Citizen_001",
+      "shiftScore": -1.8640833385907065,
+      "semanticDelta": 0.0002849567017627619,
+      "representationDelta": -0.0037956024563352564
+    }
+  ],
+  "bridgingOpportunities": [
+    {
+      "participantId": "Citizen_003",
+      "issue": "Isolation 0.24 | Rep 0.53",
+      "suggestion": "Participant Citizen_003 introduces distinct concepts (crashes frequently, poor connectivity, mobile) that are missing. Integrating these would bridge a semantic gap.",
+      "facilitationPrompt": "To the group: \"Citizen_003 mentioned concepts like 'crashes frequently, poor connectivity, mobile'. How can we adapt the current consensus to address this perspective?\""
+    },
+    {
+      "participantId": "Citizen_011",
+      "issue": "Isolation 0.26 | Rep 0.53",
+      "suggestion": "Participant Citizen_011 introduces distinct concepts (contributor, volunteer, expertise) that are missing. Integrating these would bridge a semantic gap.",
+      "facilitationPrompt": "To the group: \"Citizen_011 mentioned concepts like 'contributor, volunteer, expertise'. How can we adapt the current consensus to address this perspective?\""
+    },
+    {
+      "participantId": "Citizen_021",
+      "issue": "Isolation 0.25 | Rep 0.57",
+      "suggestion": "Participant Citizen_021 introduces distinct concepts (accessibility settings, visually impaired, font) that are missing. Integrating these would bridge a semantic gap.",
+      "facilitationPrompt": "To the group: \"Citizen_021 mentioned concepts like 'accessibility settings, visually impaired, font'. How can we adapt the current consensus to address this perspective?\""
+    }
+  ],
+  "conceptAnalysis": {
+    "preservedConcepts": [
+      "accessible reporting",
+      "local knowledge",
+      "indigenous community",
+      "indigenous",
+      "ecological knowledge",
+      "valuable ecological",
+      "ecological",
+      "scientific jargon",
+      "environmental knowledge",
+      "local environmental",
+      "reporting tools",
+      "report",
+      "technical",
+      "local",
+      "knowledge",
+      "poor connectivity",
+      "mobile",
+      "poor",
+      "community members",
+      "community",
+      "validation",
+      "strict",
+      "species correctly",
+      "identify species",
+      "training sessions",
+      "more training",
+      "train",
+      "specy",
+      "engagement",
+      "language barriers",
+      "barriers prevent",
+      "language",
+      "barrier",
+      "recognition",
+      "loop",
+      "sensitive species",
+      "privacy concerns",
+      "privacy",
+      "sensitive",
+      "sharing exact",
+      "location",
+      "concern",
+      "exact locations",
+      "shar",
+      "community demographics",
+      "knowledge spans",
+      "lowincome communities",
+      "shared decisionmaking",
+      "ecological calendars",
+      "traditional ecological",
+      "integrat",
+      "accessibility settings",
+      "accessibility",
+      "report pollution",
+      "pollution incidents",
+      "pollution",
+      "alongside species",
+      "offline mode",
+      "offline",
+      "mode",
+      "final reports",
+      "access",
+      "local schools",
+      "longterm relationship",
+      "relationship",
+      "track invasive",
+      "invasive species?",
+      "invasive",
+      "local crops",
+      "track",
+      "biggest issue",
+      "issue destroying",
+      "issue",
+      "image recognition",
+      "common species",
+      "community leaders",
+      "local community"
+    ],
+    "droppedConcepts": [
+      "inaccessibility of results",
+      "data collectors/participants",
+      "current forms",
+      "more accessible",
+      "form",
+      "tools current",
+      "accessible",
+      "current",
+      "nonscientist",
+      "more",
+      "bird migration",
+      "migration patterns",
+      "bird",
+      "migration",
+      "pattern",
+      "ignor",
+      "crashes frequently",
+      "upload observations",
+      "crash",
+      "upload",
+      "connectivity",
+      "area",
+      "observation",
+      "frequent",
+      "process",
+      "member",
+      "exclud",
+      "valuable",
+      "they're accurate",
+      "reject",
+      "accurate",
+      "though",
+      "though they're",
+      "they're",
+      "identify",
+      "session",
+      "don't",
+      "correct",
+      "quantity",
+      "quality",
+      "focus",
+      "scientists decide",
+      "questions scientists",
+      "scientist",
+      "decide",
+      "question",
+      "unilateral",
+      "isn't mobilefriendly",
+      "platform isn't",
+      "platform",
+      "mobilefriendly enough",
+      "mobilefriend",
+      "interest",
+      "isn't",
+      "people",
+      "enough",
+      "prevent nonenglish",
+      "prevent",
+      "nonenglish speakers",
+      "nonenglish",
+      "speaker",
+      "participat",
+      "participating fully",
+      "ful",
+      "contributor",
+      "volunteer",
+      "expertise",
+      "time",
+      "submit",
+      "broken",
+      "useful",
+      "hear",
+      "exact",
+      "more diverse",
+      "diverse",
+      "group doesn't",
+      "demographic",
+      "current group",
+      "group",
+      "represent",
+      "doesn't represent",
+      "doesn't",
+      "seasonal observations",
+      "summer months",
+      "seasonal",
+      "summer",
+      "month",
+      "'scientific' enough",
+      "'scientific'",
+      "environmental",
+      "spans generations",
+      "generation",
+      "span",
+      "compensate",
+      "time especially",
+      "especial",
+      "lowincome",
+      "cocreation",
+      "collection",
+      "decisionmak",
+      "calendar",
+      "scientific observation",
+      "observation protocols",
+      "traditional",
+      "scientific",
+      "protocol",
+      "visually impaired",
+      "font",
+      "cannot read",
+      "map interface",
+      "map",
+      "interface please",
+      "read",
+      "interface",
+      "cannot",
+      "visual",
+      "please",
+      "impair",
+      "incident",
+      "incidents alongside",
+      "miss",
+      "context",
+      "alongside",
+      "zero signal",
+      "signal",
+      "work",
+      "mountain",
+      "best work",
+      "zero",
+      "best",
+      "source?",
+      "pay",
+      "collect",
+      "why",
+      "final",
+      "gamification elements",
+      "gamification",
+      "earn badges",
+      "science",
+      "contribute",
+      "earn",
+      "distract",
+      "element",
+      "badg",
+      "curriculum materials",
+      "curriculum",
+      "children",
+      "school",
+      "complex",
+      "material",
+      "involv",
+      "town",
+      "drop",
+      "week",
+      "longterm",
+      "species?",
+      "crops right",
+      "crop",
+      "destroy",
+      "right",
+      "biggest",
+      "mislabels rare",
+      "automated image",
+      "mislabel",
+      "image",
+      "bias",
+      "rare ones",
+      "biased towards",
+      "rare",
+      "common",
+      "towards common",
+      "automat",
+      "toward",
+      "university staff",
+      "fund",
+      "fieldwork",
+      "organize",
+      "staff",
+      "university",
+      "leader",
+      "allocat"
+    ],
+    "addedConcepts": [
+      "indigenous ecological",
+      "shared decisionmaking",
+      "species tracking",
+      "knowledge enable",
+      "community relationships",
+      "local issues",
+      "improved accessibility",
+      "functionality lack",
+      "contributions concerns",
+      "decisionmaking cocreation",
+      "sensitive locations",
+      "relevant local",
+      "technical reporting",
+      "usability"
+    ],
+    "fidelityScore": 0.045454545454545456,
+    "participantMap": {
+      "0": {
+        "kept": [
+          "accessible reporting"
+        ],
+        "dropped": [
+          "reporting tools",
+          "report",
+          "current forms",
+          "more accessible",
+          "form",
+          "tools current",
+          "technical",
+          "accessible",
+          "current",
+          "nonscientist",
+          "more"
+        ]
+      },
+      "1": {
+        "kept": [
+          "local knowledge"
+        ],
+        "dropped": [
+          "bird migration",
+          "migration patterns",
+          "bird",
+          "migration",
+          "local",
+          "knowledge",
+          "pattern",
+          "ignor"
+        ]
+      },
+      "2": {
+        "kept": [],
+        "dropped": [
+          "crashes frequently",
+          "poor connectivity",
+          "mobile",
+          "upload observations",
+          "crash",
+          "upload",
+          "connectivity",
+          "area",
+          "observation",
+          "frequent",
+          "poor"
+        ]
+      },
+      "3": {
+        "kept": [
+          "indigenous community",
+          "indigenous",
+          "ecological knowledge",
+          "valuable ecological",
+          "ecological"
+        ],
+        "dropped": [
+          "knowledge",
+          "community members",
+          "community",
+          "process",
+          "member",
+          "exclud",
+          "valuable"
+        ]
+      },
+      "4": {
+        "kept": [],
+        "dropped": [
+          "validation",
+          "they're accurate",
+          "reject",
+          "accurate",
+          "strict",
+          "observation",
+          "though",
+          "though they're",
+          "they're"
+        ]
+      },
+      "5": {
+        "kept": [],
+        "dropped": [
+          "species correctly",
+          "identify species",
+          "training sessions",
+          "more training",
+          "identify",
+          "train",
+          "session",
+          "more",
+          "don't",
+          "specy",
+          "correct"
+        ]
+      },
+      "6": {
+        "kept": [],
+        "dropped": [
+          "engagement",
+          "quantity",
+          "quality",
+          "focus"
+        ]
+      },
+      "7": {
+        "kept": [],
+        "dropped": [
+          "scientists decide",
+          "questions scientists",
+          "scientist",
+          "decide",
+          "question",
+          "unilateral",
+          "more"
+        ]
+      },
+      "8": {
+        "kept": [],
+        "dropped": [
+          "isn't mobilefriendly",
+          "platform isn't",
+          "platform",
+          "mobilefriendly enough",
+          "mobilefriend",
+          "interest",
+          "isn't",
+          "people",
+          "enough"
+        ]
+      },
+      "9": {
+        "kept": [],
+        "dropped": [
+          "language barriers",
+          "barriers prevent",
+          "prevent nonenglish",
+          "prevent",
+          "nonenglish speakers",
+          "language",
+          "barrier",
+          "nonenglish",
+          "speaker",
+          "participat",
+          "participating fully",
+          "ful"
+        ]
+      },
+      "10": {
+        "kept": [],
+        "dropped": [
+          "contributor",
+          "volunteer",
+          "expertise",
+          "recognition",
+          "time"
+        ]
+      },
+      "11": {
+        "kept": [],
+        "dropped": [
+          "submit",
+          "broken",
+          "loop",
+          "useful",
+          "hear"
+        ]
+      },
+      "12": {
+        "kept": [],
+        "dropped": [
+          "sensitive species",
+          "privacy concerns",
+          "privacy",
+          "sensitive",
+          "sharing exact",
+          "location",
+          "concern",
+          "exact locations",
+          "specy",
+          "shar",
+          "exact"
+        ]
+      },
+      "13": {
+        "kept": [],
+        "dropped": [
+          "community demographics",
+          "more diverse",
+          "diverse",
+          "group doesn't",
+          "demographic",
+          "community",
+          "current group",
+          "group",
+          "represent",
+          "doesn't represent",
+          "doesn't",
+          "more",
+          "current"
+        ]
+      },
+      "14": {
+        "kept": [
+          "scientific jargon",
+          "inaccessibility of results",
+          "data collectors/participants"
+        ],
+        "dropped": []
+      },
+      "15": {
+        "kept": [],
+        "dropped": [
+          "seasonal observations",
+          "summer months",
+          "seasonal",
+          "summer",
+          "month",
+          "observation",
+          "valuable"
+        ]
+      },
+      "16": {
+        "kept": [
+          "environmental knowledge",
+          "local environmental"
+        ],
+        "dropped": [
+          "'scientific' enough",
+          "'scientific'",
+          "environmental",
+          "spans generations",
+          "knowledge spans",
+          "generation",
+          "local",
+          "knowledge",
+          "isn't",
+          "enough",
+          "span"
+        ]
+      },
+      "17": {
+        "kept": [],
+        "dropped": [
+          "compensate",
+          "lowincome communities",
+          "community",
+          "time especially",
+          "time",
+          "especial",
+          "lowincome"
+        ]
+      },
+      "18": {
+        "kept": [],
+        "dropped": [
+          "shared decisionmaking",
+          "cocreation",
+          "volunteer",
+          "collection",
+          "decisionmak",
+          "shar"
+        ]
+      },
+      "19": {
+        "kept": [
+          "ecological"
+        ],
+        "dropped": [
+          "ecological calendars",
+          "calendar",
+          "traditional ecological",
+          "scientific observation",
+          "observation protocols",
+          "traditional",
+          "observation",
+          "scientific",
+          "protocol",
+          "integrat"
+        ]
+      },
+      "20": {
+        "kept": [],
+        "dropped": [
+          "accessibility settings",
+          "visually impaired",
+          "font",
+          "accessibility",
+          "cannot read",
+          "map interface",
+          "map",
+          "interface please",
+          "read",
+          "interface",
+          "cannot",
+          "visual",
+          "please",
+          "impair"
+        ]
+      },
+      "21": {
+        "kept": [],
+        "dropped": [
+          "report pollution",
+          "pollution incidents",
+          "pollution",
+          "alongside species",
+          "report",
+          "incident",
+          "incidents alongside",
+          "miss",
+          "context",
+          "specy",
+          "alongside"
+        ]
+      },
+      "22": {
+        "kept": [],
+        "dropped": [
+          "offline mode",
+          "offline",
+          "zero signal",
+          "signal",
+          "mode",
+          "work",
+          "mountain",
+          "best work",
+          "zero",
+          "best"
+        ]
+      },
+      "23": {
+        "kept": [],
+        "dropped": [
+          "final reports",
+          "report",
+          "source?",
+          "access",
+          "pay",
+          "collect",
+          "why",
+          "final"
+        ]
+      },
+      "24": {
+        "kept": [],
+        "dropped": [
+          "gamification elements",
+          "gamification",
+          "earn badges",
+          "science",
+          "contribute",
+          "earn",
+          "distract",
+          "element",
+          "badg"
+        ]
+      },
+      "25": {
+        "kept": [],
+        "dropped": [
+          "local schools",
+          "curriculum materials",
+          "curriculum",
+          "children",
+          "school",
+          "local",
+          "complex",
+          "material",
+          "involv"
+        ]
+      },
+      "26": {
+        "kept": [],
+        "dropped": [
+          "town",
+          "longterm relationship",
+          "drop",
+          "week",
+          "relationship",
+          "longterm"
+        ]
+      },
+      "27": {
+        "kept": [],
+        "dropped": [
+          "track invasive",
+          "invasive species?",
+          "invasive",
+          "local crops",
+          "species?",
+          "crops right",
+          "crop",
+          "track",
+          "biggest issue",
+          "local",
+          "issue destroying",
+          "issue",
+          "destroy",
+          "right",
+          "biggest"
+        ]
+      },
+      "28": {
+        "kept": [],
+        "dropped": [
+          "mislabels rare",
+          "automated image",
+          "image recognition",
+          "recognition",
+          "common species",
+          "mislabel",
+          "image",
+          "bias",
+          "rare ones",
+          "biased towards",
+          "rare",
+          "common",
+          "towards common",
+          "automat",
+          "toward"
+        ]
+      },
+      "29": {
+        "kept": [],
+        "dropped": [
+          "community leaders",
+          "university staff",
+          "local community",
+          "fund",
+          "fieldwork",
+          "organize",
+          "staff",
+          "community",
+          "university",
+          "local",
+          "leader",
+          "allocat"
+        ]
+      }
+    }
+  },
+  "uncertaintyMetrics": {
+    "giniCI": {
+      "lower": 0.0342602911299361,
+      "upper": 0.06030958965965116,
+      "point": 0.047700680579355476
+    },
+    "avgRepresentationCI": {
+      "lower": 0.5883566351106146,
+      "upper": 0.6245906516012096,
+      "point": 0.6064040816741405
+    },
+    "gapCI": {
+      "lower": 0.0013002641096403096,
+      "upper": 0.07677170304878879,
+      "point": 0.04011988681440013
+    },
+    "bootstrapSamples": 200
+  },
+  "groupAnalysis": null,
+  "thresholdSensitivity": {
+    "representationCurve": [
+      {
+        "threshold": 0.1,
+        "metricValue": 0.1,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.14500000000000002,
+        "metricValue": 0.14500000000000002,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.19,
+        "metricValue": 0.19,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.23500000000000001,
+        "metricValue": 0.23500000000000001,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.28,
+        "metricValue": 0.28,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.32499999999999996,
+        "metricValue": 0.32499999999999996,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.37,
+        "metricValue": 0.37,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.41500000000000004,
+        "metricValue": 0.41500000000000004,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.45999999999999996,
+        "metricValue": 0.45999999999999996,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.505,
+        "metricValue": 0.505,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.5499999999999999,
+        "metricValue": 0.5499999999999999,
+        "affectedCount": 6
+      },
+      {
+        "threshold": 0.595,
+        "metricValue": 0.595,
+        "affectedCount": 13
+      },
+      {
+        "threshold": 0.64,
+        "metricValue": 0.64,
+        "affectedCount": 23
+      },
+      {
+        "threshold": 0.6849999999999999,
+        "metricValue": 0.6849999999999999,
+        "affectedCount": 27
+      },
+      {
+        "threshold": 0.73,
+        "metricValue": 0.73,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.7749999999999999,
+        "metricValue": 0.7749999999999999,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.82,
+        "metricValue": 0.82,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.865,
+        "metricValue": 0.865,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.9099999999999999,
+        "metricValue": 0.9099999999999999,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.955,
+        "metricValue": 0.955,
+        "affectedCount": 30
+      }
+    ],
+    "isolationCurve": [
+      {
+        "threshold": 0.1,
+        "metricValue": 0.1,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.14500000000000002,
+        "metricValue": 0.14500000000000002,
+        "affectedCount": 30
+      },
+      {
+        "threshold": 0.19,
+        "metricValue": 0.19,
+        "affectedCount": 24
+      },
+      {
+        "threshold": 0.23500000000000001,
+        "metricValue": 0.23500000000000001,
+        "affectedCount": 5
+      },
+      {
+        "threshold": 0.28,
+        "metricValue": 0.28,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.32499999999999996,
+        "metricValue": 0.32499999999999996,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.37,
+        "metricValue": 0.37,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.41500000000000004,
+        "metricValue": 0.41500000000000004,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.45999999999999996,
+        "metricValue": 0.45999999999999996,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.505,
+        "metricValue": 0.505,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.5499999999999999,
+        "metricValue": 0.5499999999999999,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.595,
+        "metricValue": 0.595,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.64,
+        "metricValue": 0.64,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.6849999999999999,
+        "metricValue": 0.6849999999999999,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.73,
+        "metricValue": 0.73,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.7749999999999999,
+        "metricValue": 0.7749999999999999,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.82,
+        "metricValue": 0.82,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.865,
+        "metricValue": 0.865,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.9099999999999999,
+        "metricValue": 0.9099999999999999,
+        "affectedCount": 0
+      },
+      {
+        "threshold": 0.955,
+        "metricValue": 0.955,
+        "affectedCount": 0
+      }
+    ]
+  },
+  "embeddingTierUsed": "gemini",
+  "languageAnalysis": {
+    "hasMultipleLanguages": true,
+    "languageCounts": {
+      "en": 27,
+      "la": 3
+    },
+    "languageRepresentation": {
+      "en": 0.6014993002990722,
+      "la": 0.6558217078923358
+    },
+    "hasEquityIssue": false,
+    "underrepresentedLanguages": []
+  }
+}

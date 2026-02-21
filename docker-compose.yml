@@ -1,0 +1,62 @@
+version: '3.9'
+
+# Co-Creation Provenance Lab — Docker Compose
+#
+# Starts two services:
+#   bge-m3    — Python/Flask embedding server (downloads ~2 GB model on first run)
+#   frontend  — Vite dev server (hot-reload)
+#
+# Usage:
+#   docker compose up
+#
+# The frontend will be available at http://localhost:5173
+# The BGE-M3 embedding server will be at http://localhost:5001
+
+services:
+
+  # ─── BGE-M3 Embedding Server ──────────────────────────────────────────────
+  bge-m3:
+    image: python:3.11-slim
+    container_name: cprov-bge-m3
+    working_dir: /app
+    volumes:
+      - ./embedding_server.py:/app/embedding_server.py:ro
+      - bge_model_cache:/root/.cache
+    command: >
+      bash -c "
+        pip install --quiet --no-cache-dir sentence-transformers flask flask-cors &&
+        python embedding_server.py
+      "
+    ports:
+      - "5001:5001"
+    environment:
+      - TRANSFORMERS_CACHE=/root/.cache
+      - SENTENCE_TRANSFORMERS_HOME=/root/.cache/sentence_transformers
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s   # first run downloads the model
+
+  # ─── Frontend Dev Server ──────────────────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: cprov-frontend
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - node_modules_cache:/app/node_modules
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BGE_M3_URL=http://bge-m3:5001
+    depends_on:
+      bge-m3:
+        condition: service_healthy
+
+volumes:
+  bge_model_cache:
+  node_modules_cache:

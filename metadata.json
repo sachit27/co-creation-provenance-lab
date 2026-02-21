@@ -1,0 +1,5 @@
+{
+  "name": "Co-Creation Provenance Tool",
+  "description": "A React-based platform for visualizing provenance, inclusivity, and explainability in collaborative decision-making processes.",
+  "requestFramePermissions": []
+}
