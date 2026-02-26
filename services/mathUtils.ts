@@ -220,9 +220,65 @@ export const calculateGini = (values: number[]): number => {
 };
 
 /**
- * K-Means clustering (Lloyd's algorithm)
+ * K-Means++ Initialization (Arthur & Vassilvitskii, 2007)
+ *
+ * Selects initial centroids with probability proportional to squared distance
+ * from existing centroids. This provably achieves O(log k) competitive ratio
+ * versus optimal clustering, and avoids the poor-convergence pathologies of
+ * naive (first-k or random) initialization.
+ *
+ * @param vectors - Input data points
+ * @param k - Number of clusters to initialise
+ * @returns Array of k centroid vectors
+ */
+const kMeansPlusPlusInit = (vectors: number[][], k: number): number[][] => {
+    const n = vectors.length;
+    // 1. Choose first centroid uniformly at random
+    const centroids: number[][] = [vectors[Math.floor(Math.random() * n)]];
+
+    for (let c = 1; c < k; c++) {
+        // 2. Compute D(x)² — squared Euclidean distance to nearest existing centroid
+        const distances = vectors.map(vec => {
+            let minDist = Infinity;
+            for (const centroid of centroids) {
+                const dist = vec.reduce((sum, v, j) => sum + (v - centroid[j]) ** 2, 0);
+                if (dist < minDist) minDist = dist;
+            }
+            return minDist;
+        });
+
+        // 3. Choose next centroid with probability proportional to D(x)²
+        const totalDist = distances.reduce((a, b) => a + b, 0);
+        if (totalDist === 0) {
+            // All points coincide — pick any remaining point
+            centroids.push([...vectors[c % n]]);
+            continue;
+        }
+
+        let r = Math.random() * totalDist;
+        for (let i = 0; i < n; i++) {
+            r -= distances[i];
+            if (r <= 0) {
+                centroids.push([...vectors[i]]);
+                break;
+            }
+        }
+
+        // Edge case: floating-point rounding didn't select anything
+        if (centroids.length <= c) {
+            centroids.push([...vectors[n - 1]]);
+        }
+    }
+
+    return centroids;
+};
+
+/**
+ * K-Means clustering (Lloyd's algorithm) with K-Means++ initialization
  *
  * Statistical Justification:
+ * - K-Means++ initialisation (Arthur & Vassilvitskii, 2007) gives O(log k)
+ *   approximation guarantee vs. optimal, avoiding poor local minima
  * - Lloyd's algorithm converges to local minimum in O(k * n * d * i) time
  * - 15 iterations typically sufficient for convergence in most practical cases
  * - Random centroid reinitialization handles empty cluster edge case
@@ -237,8 +293,7 @@ const runKMeansStep = (
     k: number,
     maxIterations: number = ANALYSIS_CONFIG.algorithms.kmeansIterations
 ): { assignments: number[], centroids: number[][] } => {
-    // K-Means++ style initialization: use first k distinct points
-    let centroids = vectors.slice(0, k);
+    let centroids = kMeansPlusPlusInit(vectors, k);
     let assignments = new Array(vectors.length).fill(0);
 
     for (let iter = 0; iter < maxIterations; iter++) {

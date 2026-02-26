@@ -89,8 +89,107 @@ export interface LanguageEquityReport {
   hasMultipleLanguages: boolean;
   languageCounts: Record<string, number>; // language code → count
   languageRepresentation: Record<string, number>; // language code → avg representation score
-  hasEquityIssue: boolean; // true if non-English inputs are underrepresented vs English
+  hasEquityIssue: boolean; // true if non-English inputs are statistically underrepresented vs English
   underrepresentedLanguages: string[];
+  /** Permutation test p-value for the gap between English and non-English scores.
+   *  null when sample sizes are too small for a meaningful test (< 3 per group). */
+  pValue?: number | null;
+}
+
+// ─── Feature #1: Facilitation Co-Pilot ────────────────────────────────────────
+
+export interface FacilitationWorkshopExercise {
+  title: string;
+  description: string;
+  targetGroup?: string;
+}
+
+export interface FacilitationGapBrief {
+  gapBrief: string;
+  followUpQuestions: string[];
+  workshopExercises: FacilitationWorkshopExercise[];
+  generatedAt: number;
+  modelUsed: string;
+}
+
+// ─── Feature #3: Bias Source Attribution ──────────────────────────────────────
+
+/**
+ * The primary diagnosed reason a participant's voice is underrepresented.
+ *
+ * embedding_gap    — The embedding model performs poorly on this input's language/script.
+ * topical_uniqueness — The perspective is genuinely novel; no other participant reinforced it.
+ * summarizer_bias  — The LLM omitted the perspective despite detectable semantic relevance.
+ * phrasing_mismatch — The participant expresses mainstream ideas in non-standard phrasing.
+ */
+export type BiasAttributionCause =
+  | 'embedding_gap'
+  | 'topical_uniqueness'
+  | 'summarizer_bias'
+  | 'phrasing_mismatch';
+
+export interface BiasAttributionFactor {
+  cause: BiasAttributionCause;
+  /** 0–1 confidence that this cause applies, based on observable evidence */
+  confidence: number;
+  /** Human-readable explanation of the evidence for this cause */
+  evidence: string;
+}
+
+export interface BiasAttribution {
+  primaryCause: BiasAttributionCause;
+  /** All detected factors, sorted by confidence descending */
+  factors: BiasAttributionFactor[];
+  /** Concrete, actionable recommendation for the facilitator */
+  actionableIntervention: string;
+}
+
+// ─── Feature #4: Feedback Calibration Analytics ───────────────────────────────
+
+export interface FeedbackCalibration {
+  /** Fraction of feedbacks where the label aligns with the expected direction of the score */
+  agreementRate: number;
+  /** Participant IDs: score >= 0.6 (well-represented) but feedback = "missed" or "distorted" */
+  falsePositives: string[];
+  /** Participant IDs: score < 0.5 (underrepresented) but feedback = "accurate" */
+  falseNegatives: string[];
+  totalFeedbacks: number;
+  /**
+   * Spearman rank correlation between representation score and feedback valence
+   * (accurate=1, missed=0, distorted=-0.5).
+   * Range −1 to 1; higher = algorithm and humans agree.
+   */
+  calibrationScore: number;
+}
+
+// ─── Feature #5: What-If Simulation ──────────────────────────────────────────
+
+export type WhatIfScenarioType = 'add_voices' | 'reweight_group';
+
+export interface WhatIfScenario {
+  type: WhatIfScenarioType;
+  /** Target cluster ID (for add_voices) */
+  clusterId?: number;
+  /** Target stakeholder group (for reweight_group) */
+  groupId?: StakeholderGroup;
+  /** Number of synthetic voices to add (1–10, for add_voices) */
+  additionalCount?: number;
+  /** Score multiplier for the target group (1.1–2.0, for reweight_group) */
+  weightBoost?: number;
+}
+
+export interface WhatIfResult {
+  scenario: WhatIfScenario;
+  projectedGini: number;
+  projectedAvgRep: number;
+  projectedBlindSpots: number;
+  projectedAtRisk: number;
+  deltaGini: number;
+  deltaAvgRep: number;
+  deltaBlindSpots: number;
+  deltaAtRisk: number;
+  /** Plain-language summary of the simulated outcome */
+  description: string;
 }
 
 export interface AnalysisResult {
@@ -198,6 +297,8 @@ export interface ParticipantAnalysis {
   // Methodological transparency
   embeddingTier?: 'bge-m3' | 'ollama' | 'gemini' | 'tfidf'; // Which embedding model scored this participant
   detectedLanguage?: string; // Detected script/language of the input text
+  // Feature #3: computed on-the-fly in UI for participants with score < 0.6
+  biasAttribution?: BiasAttribution;
 }
 
 export interface DiversityMetrics {

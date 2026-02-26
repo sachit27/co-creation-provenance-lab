@@ -93,9 +93,42 @@ const performConceptFidelityAnalysis = async (
     onProgress?.(`Analyzed concepts for ${Math.min(i + BATCH_SIZE, inputs.length)}/${inputs.length} inputs...`);
   }
 
-  // Calculate added concepts (hallucinations?)
+  // Calculate added concepts (potential hallucinations or AI-introduced framing).
+  // Use stemmed matching to avoid false positives from morphological variants
+  // (e.g. "communities" vs "community", "well-being" vs "wellbeing").
   const flatInputText = inputs.join(' ').toLowerCase();
-  const addedConcepts = summaryConcepts.filter(sc => !flatInputText.includes(sc.toLowerCase()));
+  const flatInputWords = new Set(
+    flatInputText
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2)
+  );
+  // Build a set of stemmed input words for fuzzy matching
+  const simpleStemWord = (w: string): string => {
+    if (w.length < 4) return w;
+    if (w.endsWith('ing') && w.length > 5) return w.slice(0, -3);
+    if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
+    if (w.endsWith('es') && w.length > 4 && !w.endsWith('ss')) return w.slice(0, -2);
+    if (w.endsWith('ed') && w.length > 4) return w.slice(0, -2);
+    if (w.endsWith('s') && w.length > 3 && !w.endsWith('ss')) return w.slice(0, -1);
+    return w;
+  };
+  const stemmedInputWords = new Set([...flatInputWords].map(simpleStemWord));
+
+  const addedConcepts = summaryConcepts.filter(sc => {
+    const scLower = sc.toLowerCase();
+    // Check 1: Direct substring match in combined inputs
+    if (flatInputText.includes(scLower)) return false;
+    // Check 2: Stem match — stem each word in the concept and check
+    const conceptWords = scLower.replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+    if (conceptWords.length === 0) return false;
+    const matchedParts = conceptWords.filter(w =>
+      flatInputWords.has(w) || stemmedInputWords.has(simpleStemWord(w))
+    );
+    // If > 60% of concept words have stemmed matches in inputs, it's not hallucinated
+    if (matchedParts.length / conceptWords.length > 0.6) return false;
+    return true; // Genuinely added concept
+  });
 
   /*
   // Aggregate preserved/dropped concepts across all participants
@@ -300,35 +333,67 @@ export const runAnalysis = async (
     }
   }
 
-  // Split sentences robustly - handles abbreviations like e.g., i.e., etc.
+  // Split sentences robustly — multilingual support.
+  //
+  // Handles:
+  // - English abbreviations (e.g., Dr., etc.)
+  // - CJK sentence-ending markers: 。(full stop), ！(exclamation), ？(question)
+  // - Arabic/Urdu sentence markers: ۔ (full stop), ؟ (question mark)
+  // - Devanagari: । (danda), ॥ (double danda)
+  // - Thai: no explicit sentence delimiter — falls through to Latin splitter
+  //   (Thai summaries from LLMs typically use Latin punctuation)
+  //
+  // Design: first split on non-Latin sentence markers, then apply the
+  // Latin abbreviation-aware splitter to each resulting segment.
   const splitIntoSentences = (text: string): string[] => {
-    // Temporarily replace common abbreviations to prevent false splits
-    const abbreviations = [
-      'e.g.', 'i.e.', 'etc.', 'vs.', 'cf.', 'al.', 'fig.', 'vol.',
-      'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'Sr.', 'Jr.',
-      'Inc.', 'Ltd.', 'Corp.', 'Co.', 'No.', 'approx.'
-    ];
+    // Step 1: Split on non-Latin sentence-ending punctuation
+    // These are unambiguous sentence boundaries — no abbreviation issue.
+    const nonLatinSentenceMarkers = /(?<=[。！？۔؟।॥])\s*/g;
+    const segments = text.split(nonLatinSentenceMarkers).filter(s => s.trim().length > 0);
 
-    let processed = text;
-    const placeholders: Map<string, string> = new Map();
+    const allSentences: string[] = [];
 
-    abbreviations.forEach((abbr, idx) => {
-      const placeholder = `__ABBR${idx}__`;
-      placeholders.set(placeholder, abbr);
-      processed = processed.split(abbr).join(placeholder);
-    });
+    for (const segment of segments) {
+      // If this segment contains only non-Latin characters and is already a
+      // sentence (came from a CJK/Arabic/Devanagari split), keep it as-is
+      const hasLatinPunctuation = /[.!?]/.test(segment);
 
-    // Split on sentence-ending punctuation followed by space and capital letter, or end of string
-    const sentences = processed.match(/[^.!?]+[.!?]+(?=\s+[A-Z]|$)/g) || [processed];
+      if (!hasLatinPunctuation) {
+        if (segment.trim().length > 0) allSentences.push(segment.trim());
+        continue;
+      }
 
-    // Restore abbreviations
-    return sentences.map(sent => {
-      let restored = sent;
-      placeholders.forEach((abbr, placeholder) => {
-        restored = restored.split(placeholder).join(abbr);
+      // Step 2: Latin abbreviation-aware splitting
+      const abbreviations = [
+        'e.g.', 'i.e.', 'etc.', 'vs.', 'cf.', 'al.', 'fig.', 'vol.',
+        'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'Sr.', 'Jr.',
+        'Inc.', 'Ltd.', 'Corp.', 'Co.', 'No.', 'approx.'
+      ];
+
+      let processed = segment;
+      const placeholders: Map<string, string> = new Map();
+
+      abbreviations.forEach((abbr, idx) => {
+        const placeholder = `__ABBR${idx}__`;
+        placeholders.set(placeholder, abbr);
+        processed = processed.split(abbr).join(placeholder);
       });
-      return restored.trim();
-    }).filter(s => s.length > 0);
+
+      // Split on sentence-ending punctuation followed by space and capital letter, or end of string
+      const sentences = processed.match(/[^.!?]+[.!?]+(?=\s+[A-Z]|$)/g) || [processed];
+
+      // Restore abbreviations
+      for (const sent of sentences) {
+        let restored = sent;
+        placeholders.forEach((abbr, placeholder) => {
+          restored = restored.split(placeholder).join(abbr);
+        });
+        const trimmed = restored.trim();
+        if (trimmed.length > 0) allSentences.push(trimmed);
+      }
+    }
+
+    return allSentences;
   };
 
   const summarySentences = splitIntoSentences(summaryText);
@@ -411,7 +476,34 @@ export const runAnalysis = async (
     // Sort matches by strength
     sentenceMatches.sort((a, b) => b.similarity - a.similarity);
 
-    const embeddingSimilarity = maxSim;
+    // Aggregate embedding similarity: capture distributed representation
+    // A participant's perspective may be spread across multiple summary sentences.
+    // Using only max-similarity penalises distributed representation.
+    // We take the top match at full weight, then add diminishing contributions
+    // from secondary matches (γ = 0.3 decay) so that a participant partially
+    // covered by 3 sentences scores higher than one covered by 0.
+    //
+    // Formula: S_emb = s_1 + γ·s_2 + γ²·s_3 + …  (clamped to [0, 1])
+    // where s_i are the sorted match similarities above the threshold.
+    //
+    // Justification: This follows the "coverage-aware scoring" approach used in
+    // multi-document summarisation evaluation (Radev et al., 2004). The decay
+    // factor prevents double-counting when multiple sentences paraphrase the
+    // same point.
+    const SECONDARY_DECAY = 0.3;
+    let embeddingSimilarity: number;
+
+    if (sentenceMatches.length <= 1) {
+      embeddingSimilarity = maxSim;
+    } else {
+      // sentenceMatches is already sorted descending by similarity
+      let aggregated = sentenceMatches[0].similarity;
+      for (let k = 1; k < sentenceMatches.length; k++) {
+        aggregated += sentenceMatches[k].similarity * Math.pow(SECONDARY_DECAY, k);
+      }
+      embeddingSimilarity = Math.min(1, aggregated);
+    }
+
     const conceptOverlap = computeConceptOverlapScore(input.text, summaryText);
 
     let representationScore: number;
@@ -425,7 +517,7 @@ export const runAnalysis = async (
     representationScore = Math.max(0, Math.min(1, representationScore));
 
     if (idx < 5) {
-      console.log(`[Analysis] ${input.id}: emb=${embeddingSimilarity.toFixed(2)}, concept=${conceptOverlap.toFixed(2)}, useLocal=${useLocalVectors} => final=${representationScore.toFixed(2)}`);
+      console.log(`[Analysis] ${input.id}: emb=${embeddingSimilarity.toFixed(2)} (maxSim=${maxSim.toFixed(2)}, matches=${sentenceMatches.length}), concept=${conceptOverlap.toFixed(2)}, useLocal=${useLocalVectors} => final=${representationScore.toFixed(2)}`);
     }
 
     const distanceToCenter = 1 - cosineSimilarity(embedding, globalCentroid);
@@ -488,7 +580,11 @@ export const runAnalysis = async (
   });
 
   const avgShift = shifts.reduce((a, b) => a + b, 0) / shifts.length;
-  const variance = shifts.reduce((a, b) => a + (b - avgShift) ** 2, 0) / shifts.length;
+  // Bessel's correction: divide by (n - 1) for sample variance.
+  // We are computing Z-scores from a sample of participants, not the full population,
+  // so unbiased sample variance is the correct estimator.
+  const n_loo = shifts.length;
+  const variance = shifts.reduce((a, b) => a + (b - avgShift) ** 2, 0) / Math.max(1, n_loo - 1);
   const stdDev = Math.sqrt(variance) || 1e-9;
 
   // representationDelta: how removing participant i changes the OTHER participants' avg representation.

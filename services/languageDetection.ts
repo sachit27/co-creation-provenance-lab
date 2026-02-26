@@ -126,6 +126,60 @@ export const getLanguageLabel = (code: string): string =>
 export const isNonEnglish = (code: string): boolean =>
   code !== 'en' && code !== 'un';
 
+// ─── Permutation test ─────────────────────────────────────────────────────────
+
+/**
+ * Two-sample permutation test for the difference in means.
+ *
+ * This is a non-parametric test that does not assume normality — appropriate
+ * here because representation scores are bounded on [0, 1] and sample sizes
+ * are typically small.
+ *
+ * H₀: The two groups are drawn from the same distribution.
+ * H₁: Group A has a higher mean than Group B (one-sided).
+ *
+ * Reference: Good (2005) "Permutation, Parametric, and Bootstrap Tests of
+ * Hypotheses", Springer. Chapter 2.
+ *
+ * @param groupA - Scores for group A (hypothesised higher, e.g. English)
+ * @param groupB - Scores for group B (hypothesised lower, e.g. non-English)
+ * @param nPermutations - Number of random permutations (default 10 000)
+ * @returns One-sided p-value (probability of observing a gap ≥ the actual gap under H₀)
+ */
+const permutationTestOneSided = (
+  groupA: number[],
+  groupB: number[],
+  nPermutations: number = 10_000
+): number => {
+  const nA = groupA.length;
+  const combined = [...groupA, ...groupB];
+  const n = combined.length;
+
+  const meanA = groupA.reduce((s, v) => s + v, 0) / nA;
+  const meanB = groupB.reduce((s, v) => s + v, 0) / groupB.length;
+  const observedDiff = meanA - meanB;
+
+  let countGreaterOrEqual = 0;
+
+  for (let p = 0; p < nPermutations; p++) {
+    // Fisher–Yates shuffle of combined array
+    const shuffled = [...combined];
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    const permMeanA = shuffled.slice(0, nA).reduce((s, v) => s + v, 0) / nA;
+    const permMeanB = shuffled.slice(nA).reduce((s, v) => s + v, 0) / groupB.length;
+
+    if (permMeanA - permMeanB >= observedDiff) {
+      countGreaterOrEqual++;
+    }
+  }
+
+  return countGreaterOrEqual / nPermutations;
+};
+
 // ─── Equity analysis ──────────────────────────────────────────────────────────
 
 /**
@@ -134,34 +188,66 @@ export const isNonEnglish = (code: string): boolean =>
  * Returns a report that flags if non-English inputs have meaningfully lower
  * average representation than English inputs — which would indicate a
  * language-related bias in the summarisation or embedding pipeline.
+ *
+ * An equity issue is flagged only when BOTH conditions are met:
+ * 1. The observed gap exceeds 10 percentage points (practical significance)
+ * 2. A permutation test rejects H₀ at α = 0.05 (statistical significance)
+ *
+ * When group sizes are too small for a meaningful test (< 3 per group),
+ * the practical-significance criterion alone is used, and pValue is null.
  */
 export const analyzeLanguageEquity = (
   participants: ParticipantAnalysis[]
 ): LanguageEquityReport => {
   // Count participants by language
   const languageCounts: Record<string, number> = {};
-  const languageRepresentationSum: Record<string, number> = {};
+  const languageScores: Record<string, number[]> = {};
 
   for (const p of participants) {
     const lang = p.detectedLanguage ?? 'un';
     languageCounts[lang] = (languageCounts[lang] ?? 0) + 1;
-    languageRepresentationSum[lang] = (languageRepresentationSum[lang] ?? 0) + p.representationScore;
+    if (!languageScores[lang]) languageScores[lang] = [];
+    languageScores[lang].push(p.representationScore);
   }
 
   const languageRepresentation: Record<string, number> = {};
-  for (const [lang, count] of Object.entries(languageCounts)) {
-    languageRepresentation[lang] = languageRepresentationSum[lang] / count;
+  for (const [lang, scores] of Object.entries(languageScores)) {
+    languageRepresentation[lang] = scores.reduce((a, b) => a + b, 0) / scores.length;
   }
 
   const hasMultipleLanguages = Object.keys(languageCounts).filter(l => l !== 'un').length > 1;
 
-  // Equity issue: any non-English language averages more than 10pp below English
-  const englishAvg = languageRepresentation['en'] ?? null;
+  const englishScores = languageScores['en'] ?? [];
+  const englishAvg = englishScores.length > 0
+    ? englishScores.reduce((a, b) => a + b, 0) / englishScores.length
+    : null;
+
   const underrepresentedLanguages: string[] = [];
+  let reportedPValue: number | null = null;
 
   if (englishAvg !== null) {
-    for (const [lang, avgRep] of Object.entries(languageRepresentation)) {
-      if (lang !== 'en' && lang !== 'un' && (englishAvg - avgRep) > 0.1) {
+    for (const [lang, scores] of Object.entries(languageScores)) {
+      if (lang === 'en' || lang === 'un') continue;
+
+      const langAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const gap = englishAvg - langAvg;
+
+      // Practical significance gate: gap must exceed 10pp
+      if (gap <= 0.1) continue;
+
+      // Statistical significance: permutation test when both groups have ≥ 3 members
+      if (englishScores.length >= 3 && scores.length >= 3) {
+        const pValue = permutationTestOneSided(englishScores, scores);
+        reportedPValue = pValue;
+
+        if (pValue < 0.05) {
+          underrepresentedLanguages.push(lang);
+        }
+        // If p ≥ 0.05, the gap is not statistically significant — do not flag
+      } else {
+        // Insufficient sample for permutation test — flag on practical significance
+        // alone but set pValue to null to signal low confidence
+        reportedPValue = null;
         underrepresentedLanguages.push(lang);
       }
     }
@@ -173,5 +259,6 @@ export const analyzeLanguageEquity = (
     languageRepresentation,
     hasEquityIssue: underrepresentedLanguages.length > 0,
     underrepresentedLanguages,
+    pValue: reportedPValue,
   };
 };

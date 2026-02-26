@@ -1,11 +1,9 @@
-# Deployment Guide
 
-Deploy the Co-Creation Provenance Lab to Vercel so the jury can access it via a URL.
 
 ## Security Architecture
 
 ```
-Browser (jury)  ──>  Vercel CDN (static frontend)
+Browser  ──>  Vercel CDN (static frontend)
                 ──>  /api/gemini-embed   (serverless, has API key)
                 ──>  /api/gemini-complete (serverless, has API key)
 ```
@@ -81,13 +79,7 @@ https://co-creation-provenance-lab-xxxxx.vercel.app
 
 In Vercel dashboard > Settings > Domains, you can add a custom domain or rename the `.vercel.app` subdomain.
 
-## What the Jury Sees
 
-1. They click the link
-2. The full dashboard loads instantly (demo data, no API calls)
-3. Blue banner: "Interactive Demo — Pre-computed analysis of 30 citizen science participants using BGE-M3 embeddings"
-4. They can explore all visualizations, click participants, export reports
-5. They can click "Try Your Own Data" to run a live analysis with Gemini
 
 ## API Key Protection
 
@@ -107,12 +99,7 @@ In Google AI Studio, you can add restrictions to your API key:
    - **HTTP referrer restrictions**: Only allow `https://your-app.vercel.app/*`
    - **API restrictions**: Only allow "Generative Language API"
 
-## Code Privacy
 
-- The GitHub repo is **private** — only you can see the source code
-- Vercel deploys from the private repo — the jury only sees the live URL
-- No source code is shared in the award submission
-- You control when/if to open-source the code
 
 ## Troubleshooting
 

@@ -24,7 +24,11 @@ import { downloadReport } from './services/reportExport';
 import { downloadProvenanceCertificate } from './services/provenanceExport';
 import { downloadVerificationPage } from './services/participantVerification';
 import { BeforeAfterComparison } from './components/ui/BeforeAfterComparison';
-import { ParticipantFeedback, SummarizationStrategy } from './types';
+import { BiasAttributionBadge } from './components/ui/BiasAttributionBadge';
+import { FeedbackAnalytics } from './components/ui/FeedbackAnalytics';
+import { FacilitationCoPilotPanel } from './components/ui/FacilitationCoPilotPanel';
+import { WhatIfSimulator } from './components/ui/WhatIfSimulator';
+import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from './types';
 
 // Icons
 const Icons = {
@@ -44,7 +48,7 @@ const Icons = {
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'strategies';
+type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -60,6 +64,10 @@ export default function App() {
   const [revisionDraft, setRevisionDraft] = useState('');
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [isApplyingRevision, setIsApplyingRevision] = useState(false);
+  // Feature #1: Facilitation Co-Pilot
+  const [facilitationPlan, setFacilitationPlan] = useState<FacilitationGapBrief | null>(null);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [showFacilitationPanel, setShowFacilitationPanel] = useState(false);
 
   // Load pre-computed demo data on startup (if available)
   useEffect(() => {
@@ -153,6 +161,29 @@ export default function App() {
     } finally {
       setIsApplyingRevision(false);
     }
+  };
+
+  /** Generate a facilitation plan using the Co-Pilot service */
+  const handleGenerateFacilitationPlan = async () => {
+    if (!data) return;
+    setIsGeneratingPlan(true);
+    setShowFacilitationPanel(true);
+    try {
+      const { generateFacilitationPlan } = await import('./services/facilitationCoPilot');
+      const plan = await generateFacilitationPlan(data, data.config, setProgressMsg);
+      setFacilitationPlan(plan);
+    } catch (e: any) {
+      console.error('Facilitation plan generation failed:', e);
+      alert(`Facilitation plan failed: ${e.message}`);
+      setShowFacilitationPanel(false);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  /** Handle import of participant responses from verification HTML export */
+  const handleImportParticipantResponses = (merged: Map<string, ParticipantFeedback>) => {
+    setFeedbacks(merged);
   };
 
   const startAnalysis = async (inputs: ParticipantInput[], config: AnalysisConfig) => {
@@ -368,6 +399,9 @@ export default function App() {
           <button onClick={() => setActiveTab('uncertainty')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'uncertainty' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Activity /> Uncertainty
           </button>
+          <button onClick={() => setActiveTab('whatif')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'whatif' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.CheckSquare /> Consultation Planner
+          </button>
           {data?.strategyComparison && data.strategyComparison.length > 0 && (
             <button onClick={() => setActiveTab('strategies')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'strategies' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
               <Icons.Layers /> Compare Strategies
@@ -395,6 +429,23 @@ export default function App() {
               title="Download standalone HTML page for participant verification"
             >
               ✅ Participant Verification
+            </button>
+          )}
+          {data && (
+            <button
+              onClick={handleGenerateFacilitationPlan}
+              disabled={isGeneratingPlan}
+              className="w-full bg-emerald-800/60 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-wait text-emerald-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-emerald-700/50"
+              title="Generate facilitation plan with follow-up questions and workshop exercises"
+            >
+              {isGeneratingPlan ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                  Generating…
+                </>
+              ) : (
+                '🧭 Facilitation Co-Pilot'
+              )}
             </button>
           )}
           {data && !isDemo && (
@@ -437,7 +488,10 @@ export default function App() {
                   <div className="font-bold text-amber-800 text-sm">Language Equity Issue Detected</div>
                   <p className="text-amber-700 text-xs mt-1">
                     Non-English inputs ({data.languageAnalysis.underrepresentedLanguages.join(', ').toUpperCase()}) are
-                    significantly underrepresented compared to English inputs. This may reflect embedding model bias
+                    underrepresented compared to English inputs
+                    {data.languageAnalysis.pValue != null
+                      ? ` (permutation test p = ${data.languageAnalysis.pValue.toFixed(3)})`
+                      : ' (sample too small for significance test — interpret with caution)'}. This may reflect embedding model bias
                     toward English. Consider using BGE-M3 (multilingual) or reviewing these inputs manually.
                   </p>
                 </div>
@@ -552,6 +606,25 @@ export default function App() {
                 after={revisedData}
                 onClose={() => setRevisedData(null)}
               />
+            )}
+
+            {/* Facilitation Co-Pilot Panel */}
+            {showFacilitationPanel && (facilitationPlan || isGeneratingPlan) && (
+              <div className="relative">
+                {facilitationPlan ? (
+                  <FacilitationCoPilotPanel
+                    plan={facilitationPlan}
+                    isGenerating={isGeneratingPlan}
+                    onRegenerate={handleGenerateFacilitationPlan}
+                    onClose={() => { setShowFacilitationPanel(false); setFacilitationPlan(null); }}
+                  />
+                ) : (
+                  <div className="bg-white border border-emerald-200 rounded-xl p-6 flex items-center justify-center gap-3 text-emerald-700 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                    <span className="text-sm font-medium">Generating facilitation plan…</span>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* What Was Missed - Actionable output */}
@@ -697,6 +770,12 @@ export default function App() {
                   </Card>
                 )}
 
+                {activeTab === 'whatif' && (
+                  <Card title="Consultation Planner" subtitle="Simulate adding voices or reweighting groups to project equity improvements." className="border-t-4 border-t-indigo-500">
+                    <WhatIfSimulator data={data} />
+                  </Card>
+                )}
+
                 {activeTab === 'strategies' && data.strategyComparison && (
                   <StrategyComparison
                     comparisons={data.strategyComparison}
@@ -838,6 +917,18 @@ export default function App() {
                                     </div>
                                 </div>
 
+                                {/* Bias Source Attribution — why is this participant underrepresented? */}
+                                {p.representationScore < 0.6 && (
+                                  <div className="mt-4">
+                                    <BiasAttributionBadge
+                                      participant={p}
+                                      allParticipants={data.participants}
+                                      summary={data.summary}
+                                      summarySentences={data.summarySentences}
+                                    />
+                                  </div>
+                                )}
+
                                 {/* Counterfactual Suggestions */}
                                 {p.representationScore < 0.7 && (
                                   <div className="mt-4">
@@ -885,6 +976,16 @@ export default function App() {
                             feedbacks={feedbacks}
                             totalParticipants={data.participants.length}
                           />
+                        )}
+                        {feedbacks.size >= 3 && (
+                          <div className="mt-3">
+                            <FeedbackAnalytics
+                              feedbacks={feedbacks}
+                              participants={data.participants}
+                              totalParticipants={data.participants.length}
+                              onImportResponses={handleImportParticipantResponses}
+                            />
+                          </div>
                         )}
                       </div>
                       <div className="flex-1 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>

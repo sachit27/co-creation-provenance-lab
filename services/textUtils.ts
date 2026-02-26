@@ -310,19 +310,38 @@ export const computeConceptFidelity = (inputs: string[], summary: string) => {
     participantMap[idx] = gap;
   });
 
-  // Added concepts = concepts in summary that weren't strong in inputs
+  // Added concepts = concepts in summary that weren't present in any input.
+  // Use stemmed matching (via analyzeConceptGap) rather than simple includes()
+  // to avoid false positives from morphological variants.
+  const flatInputText = inputs.join(' ');
   const addedConcepts: string[] = [];
-  const flatInputText = inputs.join(' ').toLowerCase();
   summaryConcepts.forEach(sc => {
-    if (!flatInputText.includes(sc)) {
+    // Treat the summary concept as "input" and inputs as "summary" —
+    // if the concept is "kept" (found in inputs), it's not hallucinated.
+    const check = analyzeConceptGap(sc, flatInputText);
+    if (check.kept.length === 0) {
       addedConcepts.push(sc);
     }
   });
 
-  // Filter "Preserved" to only show the top occurring ones across all inputs
+  // Categorise all unique concepts using the same stemmed/fuzzy matching
+  // as analyzeConceptGap to ensure consistency.
   const allConceptsArray = Array.from(allInputConcepts);
-  const preservedConcepts = allConceptsArray.filter(c => summary.toLowerCase().includes(c)).slice(0, 20);
-  const droppedConcepts = allConceptsArray.filter(c => !summary.toLowerCase().includes(c)).slice(0, 20);
+  const preservedConcepts: string[] = [];
+  const droppedConcepts: string[] = [];
+
+  for (const concept of allConceptsArray) {
+    const check = analyzeConceptGap(concept, summary);
+    if (check.kept.length > 0) {
+      preservedConcepts.push(concept);
+    } else {
+      droppedConcepts.push(concept);
+    }
+    if (preservedConcepts.length >= 20 && droppedConcepts.length >= 20) break;
+  }
+  // Trim to max 20 each
+  preservedConcepts.splice(20);
+  droppedConcepts.splice(20);
 
   return {
     preservedConcepts,

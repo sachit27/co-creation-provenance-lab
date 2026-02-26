@@ -418,9 +418,15 @@ const tfidfCosineSimilarity = (text1: string, text2: string): number => {
 
 /**
  * Quick local representation estimate using TF-IDF cosine similarity
- * 
+ *
  * This is a scientifically principled alternative to hardcoded semantic groups.
  * TF-IDF with sublinear scaling is a well-established IR technique.
+ *
+ * The score is a linear combination of TF-IDF cosine similarity (semantic
+ * overlap) and direct stem-match ratio (lexical overlap). No artificial
+ * floors are applied — the raw combined score is returned, clamped only to
+ * the valid [0, 1] range. This ensures that low representation is reported
+ * honestly rather than masked by hardcoded minimums.
  */
 export const quickLocalEstimate = (participantText: string, summary: string): number => {
   // Calculate base TF-IDF cosine similarity
@@ -441,23 +447,7 @@ export const quickLocalEstimate = (participantText: string, summary: string): nu
 
   // Combine scores: 60% cosine similarity, 40% direct match ratio
   // This balances semantic similarity with lexical overlap
-  let score = (cosineSim * 0.6) + (directMatchRatio * 0.4);
-
-  // Apply scaling to get reasonable representation scores
-  // Empirically, cosine similarity of 0.2+ indicates related content
-  if (cosineSim > 0.3) {
-    score = Math.max(0.6, score);
-  } else if (cosineSim > 0.15) {
-    score = Math.max(0.45, score);
-  }
-
-  // Boost if significant direct matches
-  if (directMatchRatio > 0.4) {
-    score = Math.max(0.65, score);
-  }
-
-  // Ensure reasonable bounds
-  score = Math.max(0.1, Math.min(0.95, score));
+  const score = Math.max(0, Math.min(1, (cosineSim * 0.6) + (directMatchRatio * 0.4)));
 
   console.log(`[RepEval] "${participantText.slice(0, 40)}..." -> cosine=${cosineSim.toFixed(3)}, directMatch=${directMatchRatio.toFixed(2)}, final=${score.toFixed(2)}`);
 
@@ -478,18 +468,13 @@ export const quickLocalEstimateAsync = async (
     if (await checkHuggingFaceAvailable()) {
       const similarity = await semanticSimilarityHF(participantText, summary);
 
-      // Scale similarity to representation score
-      // HuggingFace MiniLM typically gives 0.3-0.8 for related texts
-      let score = similarity;
-
-      if (similarity > 0.5) {
-        score = Math.max(0.7, similarity);
-      } else if (similarity > 0.3) {
-        score = Math.max(0.5, similarity);
-      }
+      // Use raw HuggingFace similarity score without artificial floors.
+      // MiniLM cosine similarity is already a principled semantic similarity
+      // measure — inflating it would mask real underrepresentation.
+      const score = Math.max(0, Math.min(1, similarity));
 
       console.log(`[RepEval] Tier 2 (HF): "${participantText.slice(0, 30)}..." -> similarity=${similarity.toFixed(3)}, score=${score.toFixed(2)}`);
-      return Math.max(0.1, Math.min(0.95, score));
+      return score;
     }
   } catch (e) {
     console.warn('[RepEval] HuggingFace unavailable, using TF-IDF fallback');

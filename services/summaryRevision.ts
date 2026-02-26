@@ -21,30 +21,50 @@ import { ANALYSIS_CONFIG } from '../constants';
 
 // ─── Sentence splitter (mirrors logic in analysis.ts) ─────────────────────────
 
+// Multilingual sentence splitter — mirrors the implementation in analysis.ts.
+// Handles CJK (。！？), Arabic (۔ ؟), Devanagari (। ॥), and Latin abbreviations.
 const splitIntoSentences = (text: string): string[] => {
-  const abbreviations = [
-    'e.g.', 'i.e.', 'etc.', 'vs.', 'cf.', 'al.', 'fig.', 'vol.',
-    'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'Sr.', 'Jr.',
-    'Inc.', 'Ltd.', 'Corp.', 'Co.', 'No.', 'approx.'
-  ];
+  // Step 1: Split on non-Latin sentence-ending punctuation
+  const nonLatinSentenceMarkers = /(?<=[。！？۔؟।॥])\s*/g;
+  const segments = text.split(nonLatinSentenceMarkers).filter(s => s.trim().length > 0);
 
-  let processed = text;
-  const placeholders = new Map<string, string>();
-  abbreviations.forEach((abbr, idx) => {
-    const placeholder = `__ABBR${idx}__`;
-    placeholders.set(placeholder, abbr);
-    processed = processed.split(abbr).join(placeholder);
-  });
+  const allSentences: string[] = [];
 
-  const sentences = processed.match(/[^.!?]+[.!?]+(?=\s+[A-Z]|$)/g) || [processed];
+  for (const segment of segments) {
+    const hasLatinPunctuation = /[.!?]/.test(segment);
 
-  return sentences.map(sent => {
-    let restored = sent;
-    placeholders.forEach((abbr, placeholder) => {
-      restored = restored.split(placeholder).join(abbr);
+    if (!hasLatinPunctuation) {
+      if (segment.trim().length > 10) allSentences.push(segment.trim());
+      continue;
+    }
+
+    const abbreviations = [
+      'e.g.', 'i.e.', 'etc.', 'vs.', 'cf.', 'al.', 'fig.', 'vol.',
+      'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'Sr.', 'Jr.',
+      'Inc.', 'Ltd.', 'Corp.', 'Co.', 'No.', 'approx.'
+    ];
+
+    let processed = segment;
+    const placeholders = new Map<string, string>();
+    abbreviations.forEach((abbr, idx) => {
+      const placeholder = `__ABBR${idx}__`;
+      placeholders.set(placeholder, abbr);
+      processed = processed.split(abbr).join(placeholder);
     });
-    return restored.trim();
-  }).filter(s => s.length > 10);
+
+    const sentences = processed.match(/[^.!?]+[.!?]+(?=\s+[A-Z]|$)/g) || [processed];
+
+    for (const sent of sentences) {
+      let restored = sent;
+      placeholders.forEach((abbr, placeholder) => {
+        restored = restored.split(placeholder).join(abbr);
+      });
+      const trimmed = restored.trim();
+      if (trimmed.length > 10) allSentences.push(trimmed);
+    }
+  }
+
+  return allSentences;
 };
 
 // ─── AI revision prompt ───────────────────────────────────────────────────────
@@ -213,14 +233,27 @@ export const recomputeWithNewSummary = async (
     }
     sentenceMatches.sort((a, b) => b.similarity - a.similarity);
 
+    // Aggregate embedding similarity with secondary match decay (see analysis.ts)
+    const SECONDARY_DECAY = 0.3;
+    let embeddingSimilarity: number;
+    if (sentenceMatches.length <= 1) {
+      embeddingSimilarity = maxSim;
+    } else {
+      let aggregated = sentenceMatches[0].similarity;
+      for (let k = 1; k < sentenceMatches.length; k++) {
+        aggregated += sentenceMatches[k].similarity * Math.pow(SECONDARY_DECAY, k);
+      }
+      embeddingSimilarity = Math.min(1, aggregated);
+    }
+
     const conceptOverlap = computeConceptOverlapScore(p.originalText, newSummary);
     const representationScore = Math.max(
       0,
       Math.min(
         1,
         isLocalVectors
-          ? (maxSim + conceptOverlap) / 2
-          : maxSim * 0.8 + conceptOverlap * 0.2
+          ? (embeddingSimilarity + conceptOverlap) / 2
+          : embeddingSimilarity * 0.8 + conceptOverlap * 0.2
       )
     );
 

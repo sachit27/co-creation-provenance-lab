@@ -27,37 +27,34 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     const participants = data.participants;
     const total = participants.length;
 
-    // Thresholds from config
-    const { representationTarget, matchingThreshold } = ANALYSIS_CONFIG.thresholds;
+    // Thresholds from config — using documented interpretation bands
+    const { representationTarget } = ANALYSIS_CONFIG.thresholds;
+    const { atRisk: atRiskThreshold, low: lowThreshold } = ANALYSIS_CONFIG.representationInterpretation;
 
     // Calculate key metrics
     const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
     const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
 
-    // At Risk: participants in the bottom quartile of representation scores
-    // Using relative (percentile-based) threshold rather than a fixed cutoff,
-    // so the metric adapts to the actual score distribution.
-    const sortedScores = participants.map(p => p.representationScore).sort((a, b) => a - b);
-    const q1Index = Math.floor(total * 0.25);
-    const q1Score = sortedScores[q1Index];
-    // At risk = bottom quartile, but only if their score is meaningfully below average
-    const atRiskThreshold = Math.min(q1Score, avgScore * 0.7);
-    const atRiskCount = participants.filter(p => p.representationScore <= atRiskThreshold).length;
+    // At Risk: score < 0.3 — genuinely at risk of being completely missed.
+    // Uses the documented atRisk threshold from representationInterpretation.
+    const atRiskCount = participants.filter(p => p.representationScore < atRiskThreshold).length;
 
-    // Blind spots: using median-based approach consistent with the BlindSpotPlot
-    // A blind spot = below-median centrality AND below-median representation AND below matching threshold
-    // This implies they are unique perspectives (low centrality) that were missed (low rep)
+    // Blind spots: unique perspectives that were genuinely missed.
+    // Requires BOTH conditions:
+    //   1. Below-median centrality (peripheral/unique perspective)
+    //   2. Score below the "low" threshold (0.5) — genuinely underrepresented
+    //
+    // This avoids the purely relative median-quadrant approach which always
+    // produces ~25% "blind spots" even when all participants are well represented.
+    // The BlindSpotPlot uses median quadrants for VISUALIZATION (coloring dots),
+    // but this count uses absolute thresholds for a meaningful headline metric.
     const centralityScores = participants.map(p => 1 - p.semanticIsolation).sort((a, b) => a - b);
-    const repScores = [...sortedScores];
     const mid = Math.floor(total / 2);
     const medianCentrality = centralityScores[mid];
-    const medianRep = repScores[mid];
 
     const blindSpots = participants.filter(p => {
       const centrality = 1 - p.semanticIsolation;
-      return centrality < medianCentrality &&
-        p.representationScore < medianRep &&
-        p.representationScore < matchingThreshold;
+      return centrality < medianCentrality && p.representationScore < lowThreshold;
     });
 
     // Calculate overall score (0-100)

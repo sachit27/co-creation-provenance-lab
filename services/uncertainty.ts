@@ -77,7 +77,28 @@ const computeGap = (participants: ParticipantAnalysis[]): number => {
 };
 
 /**
- * Main function: Compute uncertainty metrics using bootstrap resampling
+ * Compute uncertainty metrics using bootstrap resampling.
+ *
+ * IMPORTANT — what these CIs represent:
+ *
+ * The bootstrap resamples *participants* (with replacement) and recomputes
+ * aggregate metrics (Gini, mean representation, equity gap) on each resample.
+ * This quantifies **sampling variability**: "If we had drawn a different
+ * sample of participants from the same population, how much would these
+ * aggregate metrics change?"
+ *
+ * This does NOT capture:
+ * - Measurement uncertainty in individual representation scores (those are
+ *   deterministic given the embedding model and summary).
+ * - Model uncertainty (different embedding models would give different scores).
+ *
+ * Interpretation: a wide CI means the aggregate metric is sensitive to which
+ * particular participants happen to be in the dataset. A narrow CI means the
+ * metric is stable regardless of participant composition.
+ *
+ * Reference: Efron & Tibshirani (1993) "An Introduction to the Bootstrap",
+ * Chapter 13 (percentile intervals).
+ *
  * @param participants - The participant analysis results
  * @param numSamples - Number of bootstrap samples (default: 100)
  * @param confidenceLevel - Confidence level for intervals (default: 0.95)
@@ -158,7 +179,7 @@ export const getUncertaintyWarning = (metrics: UncertaintyMetrics): string | nul
 
   if (warnings.length === 0) return null;
 
-  return `⚠️ ${warnings.join('; ')}. Consider larger sample size for more reliable estimates.`;
+  return `⚠️ ${warnings.join('; ')}. These aggregate metrics are sensitive to participant composition — consider a larger sample for more stable estimates.`;
 };
 
 export default computeUncertaintyMetrics;

@@ -3,6 +3,7 @@ import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Responsive
 import { ParticipantAnalysis } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
 import { InfoIcon } from '../ui/MetricGlossary';
+import { ANALYSIS_CONFIG } from '../../constants';
 
 interface BlindSpotPlotProps {
   data: ParticipantAnalysis[];
@@ -15,7 +16,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
     needsExtraBottomMargin: true
   });
 
-  // Dynamic Thresholds (Medians)
+  // Dynamic Thresholds (Medians) — used for quadrant visualization
   const centralityScores = data.map(p => 1 - p.semanticIsolation).sort((a, b) => a - b);
   const repScores = data.map(p => p.representationScore).sort((a, b) => a - b);
 
@@ -23,10 +24,14 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
   const medianCentrality = centralityScores[mid];
   const medianRep = repScores[mid];
 
-  // Count blind spots
+  // Blind spot COUNT uses absolute threshold (consistent with ExecutiveSummary).
+  // A true blind spot = peripheral perspective (below-median centrality) AND
+  // genuinely underrepresented (score < 0.5, the "low" interpretation band).
+  // The quadrant COLORING still uses medians for relative visualization.
+  const LOW_THRESHOLD = ANALYSIS_CONFIG.representationInterpretation.low;
   const blindSpotCount = data.filter(p => {
     const centrality = 1 - p.semanticIsolation;
-    return centrality < medianCentrality && p.representationScore < medianRep;
+    return centrality < medianCentrality && p.representationScore < LOW_THRESHOLD;
   }).length;
 
   // Helper to categorize points
