@@ -190,7 +190,11 @@ const detectOutlierCluster = (
   zThreshold: number = 2
 ): { isOutlier: boolean; zScore: number } => {
   const mean = allScores.reduce((a, b) => a + b, 0) / allScores.length;
-  const variance = allScores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / allScores.length;
+  // Bessel's correction (÷n-1) for sample variance, consistent with the rest of the codebase
+  const n = allScores.length;
+  const variance = n > 1
+    ? allScores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / (n - 1)
+    : 0;
   const stdDev = Math.sqrt(variance) || 0.01;
 
   const zScore = Math.abs(representationScore - mean) / stdDev;

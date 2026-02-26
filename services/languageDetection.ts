@@ -238,7 +238,11 @@ export const analyzeLanguageEquity = (
       // Statistical significance: permutation test when both groups have ≥ 3 members
       if (englishScores.length >= 3 && scores.length >= 3) {
         const pValue = permutationTestOneSided(englishScores, scores);
-        reportedPValue = pValue;
+        // Keep the most significant (lowest) p-value across all language comparisons
+        // so the reported p-value reflects the strongest evidence of inequity.
+        if (reportedPValue === null || pValue < reportedPValue) {
+          reportedPValue = pValue;
+        }
 
         if (pValue < 0.05) {
           underrepresentedLanguages.push(lang);

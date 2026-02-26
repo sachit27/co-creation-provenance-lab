@@ -3,6 +3,7 @@ import {
   ParticipantAnalysis,
   ConceptFidelityResult
 } from '../types';
+import { ANALYSIS_CONFIG } from '../constants';
 
 /**
  * Counterfactual Probes Service
@@ -139,7 +140,8 @@ export const generateCounterfactualSuggestions = (
   const suggestions: CounterfactualSuggestion[] = [];
 
   // Only generate suggestions for under-represented participants
-  if (participant.representationScore >= 0.6) {
+  const { representationTarget } = ANALYSIS_CONFIG.thresholds;
+  if (participant.representationScore >= representationTarget) {
     return suggestions;
   }
 
