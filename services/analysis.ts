@@ -14,6 +14,7 @@ import { analyzeGroups } from './groupAnalysis';
 import { generateThresholdSensitivityData } from '../components/visualizations/ThresholdSensitivityMini';
 import { runStrategyComparison } from './strategyComparison';
 import { ANALYSIS_CONFIG } from '../constants';
+import { getCachedEmbedding, setCachedEmbedding } from './embeddingCache';
 import { detectLanguage, analyzeLanguageEquity } from './languageDetection';
 
 // --- Prompt Engineering ---
@@ -254,10 +255,30 @@ export const runAnalysis = async (
     localVectorizer = new LocalVectorizer(inputs.map(i => i.text));
     inputEmbeddings = inputs.map(i => localVectorizer!.embed(i.text));
   } else if (bgeM3Available) {
-    // BGE-M3: Use batch embedding for efficiency
-    onProgress?.("Generating BGE-M3 embeddings (batch)...");
+    // BGE-M3: Chunked batch embedding (32 texts/chunk) with in-session cache.
+    // Sending all texts in one request fails at 5000+ inputs due to payload size.
+    const BGE_CHUNK_SIZE = 32;
+    onProgress?.("Generating BGE-M3 embeddings...");
     try {
-      inputEmbeddings = await generateBgeM3EmbeddingsBatch(inputs.map(i => i.text));
+      const texts = inputs.map(i => i.text);
+      const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t));
+      const uncachedIndices = result.map((v, i) => v === null ? i : -1).filter(i => i >= 0);
+      if (uncachedIndices.length > 0) {
+        onProgress?.(`Embedding ${uncachedIndices.length} new inputs (${texts.length - uncachedIndices.length} cached)...`);
+        for (let chunkStart = 0; chunkStart < uncachedIndices.length; chunkStart += BGE_CHUNK_SIZE) {
+          const chunkIndices = uncachedIndices.slice(chunkStart, chunkStart + BGE_CHUNK_SIZE);
+          const chunkTexts = chunkIndices.map(i => texts[i]);
+          const chunkEmbeddings = await generateBgeM3EmbeddingsBatch(chunkTexts);
+          for (let j = 0; j < chunkIndices.length; j++) {
+            result[chunkIndices[j]] = chunkEmbeddings[j];
+            setCachedEmbedding(texts[chunkIndices[j]], chunkEmbeddings[j]);
+          }
+          onProgress?.(`BGE-M3: ${Math.min(chunkStart + BGE_CHUNK_SIZE, uncachedIndices.length)}/${uncachedIndices.length} embedded...`);
+        }
+      } else {
+        onProgress?.(`All ${texts.length} embeddings served from cache`);
+      }
+      inputEmbeddings = result.map(v => v ?? new Array(768).fill(0));
       onProgress?.(`Embedded ${inputEmbeddings.length} inputs with BGE-M3`);
     } catch (e) {
       console.warn('[Analysis] BGE-M3 batch failed, falling back:', e);
@@ -269,20 +290,41 @@ export const runAnalysis = async (
 
   // Per-item embedding if batch wasn't used or failed
   if (inputEmbeddings.length === 0 && !useLocalVectors) {
-    onProgress?.(`Generating embeddings...`);
+    const texts = inputs.map(i => i.text);
+    // Check cache first to avoid redundant API calls on re-runs
+    const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t));
+    const uncachedIndices = result.map((v, i) => v === null ? i : -1).filter(i => i >= 0);
     let failureCount = 0;
-    for (let i = 0; i < inputs.length; i++) {
-      if (i % 5 === 0) onProgress?.(`Embedding input ${i + 1}/${inputs.length}...`);
-      try {
-        const emb = await generateEmbedding(inputs[i].text, activeConfig);
-        if (emb.every(v => v === 0)) failureCount++;
-        inputEmbeddings.push(emb);
-      } catch (e) {
-        console.warn(`Embedding failed for ${inputs[i].id}`);
-        failureCount++;
-        inputEmbeddings.push(new Array(768).fill(0));
+
+    if (uncachedIndices.length > 0) {
+      onProgress?.(`Embedding ${uncachedIndices.length} inputs (${texts.length - uncachedIndices.length} cached)...`);
+      // Gemini/Groq: run up to 10 embeddings in parallel (rate-limited but fast).
+      // Ollama: sequential (local server serialises requests anyway).
+      const CONCURRENCY = activeConfig.aiProvider !== 'ollama' ? 10 : 1;
+
+      for (let start = 0; start < uncachedIndices.length; start += CONCURRENCY) {
+        const batch = uncachedIndices.slice(start, start + CONCURRENCY);
+        await Promise.all(batch.map(async (origIdx) => {
+          try {
+            const emb = await generateEmbedding(inputs[origIdx].text, activeConfig);
+            if (emb.every(v => v === 0)) failureCount++;
+            result[origIdx] = emb;
+            setCachedEmbedding(texts[origIdx], emb);
+          } catch (e) {
+            console.warn(`Embedding failed for ${inputs[origIdx].id}`);
+            failureCount++;
+            result[origIdx] = new Array(768).fill(0);
+          }
+        }));
+        if (start > 0 && start % (CONCURRENCY * 10) === 0) {
+          onProgress?.(`Embedded ${Math.min(start + CONCURRENCY, uncachedIndices.length)}/${uncachedIndices.length}...`);
+        }
       }
+    } else {
+      onProgress?.(`All ${texts.length} embeddings served from cache`);
     }
+
+    inputEmbeddings = result.map(v => v ?? new Array(768).fill(0));
 
     if (failureCount > inputs.length * 0.5) {
       onProgress?.("⚠️ High API failure. Switching to local vectors.");
@@ -297,6 +339,10 @@ export const runAnalysis = async (
     useLocalVectors ? 'tfidf' :
     bgeM3Available ? 'bge-m3' :
     activeConfig.aiProvider === 'ollama' ? 'ollama' : 'gemini';
+
+  // Pre-compute clustering — reused for hierarchical summarization (below) and participant analysis.
+  // Must run after embeddings are finalised.
+  const { assignments: clusterAssignments, k: numClusters } = computeAutoKMeans(inputEmbeddings);
 
   // 4. Generate Summary
   onProgress?.("Synthesizing summary...");
@@ -323,11 +369,59 @@ export const runAnalysis = async (
     // Take top 3-5 sentences
     summaryText = ranked.slice(0, 4).map(r => r.text).join(' ');
   } else {
-    // AI Mode
+    // AI Mode — hierarchical (map-reduce) for large inputs to avoid context window overflow.
+    // Threshold: 100+ inputs risk exceeding 128K token limits and degrade summary quality.
     try {
-      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\nProvide a summary (150 words).`;
-      const systemPrompt = getSystemPrompt(activeConfig.strategy);
-      summaryText = await generateCompletion(prompt, systemPrompt, activeConfig);
+      if (inputs.length > 100) {
+        onProgress?.(`Running hierarchical summarization (${inputs.length} inputs → ${numClusters} clusters)...`);
+
+        // Group input indices by cluster
+        const clusterGroups = new Map<number, number[]>();
+        for (let i = 0; i < inputs.length; i++) {
+          const cid = clusterAssignments[i];
+          if (!clusterGroups.has(cid)) clusterGroups.set(cid, []);
+          clusterGroups.get(cid)!.push(i);
+        }
+
+        // Phase 1: Summarize each cluster (up to 50 representative inputs per cluster)
+        const clusterSummaries: string[] = [];
+        const MAX_PER_CLUSTER = 50;
+
+        for (const [cid, clusterIndices] of clusterGroups) {
+          onProgress?.(`Summarizing cluster ${cid + 1}/${numClusters}...`);
+
+          let indicesToSummarize: number[];
+          if (clusterIndices.length > MAX_PER_CLUSTER) {
+            // Pick inputs closest to the cluster centroid (most representative)
+            const clusterCentroid = computeGlobalCentroid(clusterIndices.map(i => inputEmbeddings[i]));
+            const ranked = clusterIndices
+              .map(i => ({ idx: i, sim: cosineSimilarity(inputEmbeddings[i], clusterCentroid) }))
+              .sort((a, b) => b.sim - a.sim);
+            indicesToSummarize = ranked.slice(0, MAX_PER_CLUSTER).map(r => r.idx);
+          } else {
+            indicesToSummarize = clusterIndices;
+          }
+
+          try {
+            const clusterPrompt = `Here are ${indicesToSummarize.length} related contributions:\n${formatInputsForPrompt(indicesToSummarize.map(i => inputs[i]))}\n\nSummarize the key themes in 2-3 sentences.`;
+            const clusterSummary = await generateCompletion(clusterPrompt, getSystemPrompt(activeConfig.strategy), activeConfig);
+            clusterSummaries.push(`[Group ${cid + 1}]: ${clusterSummary}`);
+          } catch (e) {
+            // Fallback: use the most central input text directly
+            clusterSummaries.push(`[Group ${cid + 1}]: ${inputs[clusterIndices[0]].text}`);
+          }
+        }
+
+        // Phase 2: Synthesize cluster summaries into a single final summary
+        onProgress?.("Synthesizing final summary from cluster summaries...");
+        const synthesisPrompt = `These are summaries from ${numClusters} thematic groups in a co-creation session:\n\n${clusterSummaries.join('\n\n')}\n\nSynthesize these into a single coherent summary (150 words) that preserves the diversity of all perspectives.`;
+        summaryText = await generateCompletion(synthesisPrompt, getSystemPrompt(activeConfig.strategy), activeConfig);
+
+      } else {
+        // Direct summarization for small/medium inputs
+        const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\nProvide a summary (150 words).`;
+        summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
+      }
     } catch (e) {
       summaryText = "AI Generation Failed. " + inputs.slice(0, 3).map(i => i.text).join(' ');
     }
@@ -428,8 +522,6 @@ export const runAnalysis = async (
   const pcaVectors = computePCA(inputEmbeddings, 2);
   const coords = pcaVectors.map(vec => ({ x: vec[0], y: vec[1] }));
 
-  // DYNAMIC CLUSTERING: Determine optimal K (now uses PCA-5 internally)
-  const { assignments: clusterAssignments, k: numClusters } = computeAutoKMeans(inputEmbeddings);
   const clusterColors = ["#3b82f6", "#f97316", "#10b981", "#8b5cf6", "#ec4899"]; // Supports up to 5
 
   const globalCentroid = computeGlobalCentroid(inputEmbeddings);
