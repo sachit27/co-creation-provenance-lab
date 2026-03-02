@@ -207,7 +207,7 @@ const performConceptFidelityAnalysis = async (
 
 // --- Main Analysis Function ---
 
-export const runAnalysis = async (
+export const runCoreAnalysis = async (
   inputs: ParticipantInput[],
   config: AnalysisConfig,
   onProgress?: (msg: string) => void
@@ -392,49 +392,7 @@ export const runAnalysis = async (
     // Instead, select proportional cluster representatives — actual participant texts, not
     // abstractions — so the summary preserves authentic voice and scores stay accurate.
     try {
-      const MAX_PROMPT_INPUTS = 200;
-      let inputsForSummary = inputs;
-
-      if (inputs.length > MAX_PROMPT_INPUTS) {
-        onProgress?.(`Selecting ${MAX_PROMPT_INPUTS} diverse representatives from ${inputs.length} inputs...`);
-        // Distribute budget proportionally across clusters so minority clusters are
-        // not drowned out by majority clusters.
-        const clusterSizes = new Map<number, number>();
-        for (const a of clusterAssignments) clusterSizes.set(a, (clusterSizes.get(a) ?? 0) + 1);
-
-        const selected: ParticipantInput[] = [];
-        for (const [cid, size] of clusterSizes) {
-          const clusterIndices = clusterAssignments.map((a, i) => a === cid ? i : -1).filter(i => i >= 0);
-          const budget = Math.max(2, Math.round(MAX_PROMPT_INPUTS * size / inputs.length));
-          const centroid = computeGlobalCentroid(clusterIndices.map(i => inputEmbeddings[i]));
-
-          // Sort ascending by similarity to centroid:
-          //   - LOW similarity = far from centroid = OUTLIER / unique perspective
-          //   - HIGH similarity = close to centroid = TYPICAL / mainstream voice
-          const sortedAsc = clusterIndices
-            .map(i => ({ i, sim: cosineSimilarity(inputEmbeddings[i], centroid) }))
-            .sort((a, b) => a.sim - b.sim); // ascending: outliers first
-
-          // Take half the budget from the OUTLIER end (low sim) and half from the
-          // TYPICAL end (high sim). This ensures the LLM sees both marginal voices
-          // (which are most at risk of being excluded from the summary) and mainstream
-          // voices (which anchor the cluster's central theme).
-          // Scientific rationale: a summary that only reflects typical voices will
-          // systematically fail to represent outlier perspectives — exactly what this
-          // tool is designed to detect. The LLM must have the opportunity to include
-          // outlier voices; if it still excludes them, that is a true provenance finding.
-          const halfBudget = Math.ceil(budget / 2);
-          const outlierEnd = sortedAsc.slice(0, halfBudget);           // most marginal
-          const typicalEnd = sortedAsc.slice(-halfBudget);             // most typical
-          const dedupSet = new Set<number>();
-          for (const { i } of [...outlierEnd, ...typicalEnd]) {
-            if (!dedupSet.has(i)) { dedupSet.add(i); selected.push(inputs[i]); }
-          }
-        }
-        inputsForSummary = selected;
-      }
-
-      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputsForSummary)}\n\nProvide a summary (150 words).`;
+      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\nProvide a summary (150 words).`;
       summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
     } catch (e) {
       summaryText = "AI Generation Failed. " + inputs.slice(0, 3).map(i => i.text).join(' ');
@@ -540,14 +498,14 @@ export const runAnalysis = async (
 
   const globalCentroid = computeGlobalCentroid(inputEmbeddings);
 
-  // Concept Fidelity Analysis (Async)
-  const conceptFidelity = await performConceptFidelityAnalysis(
-    inputs.map(i => i.text),
-    summaryText,
-    activeConfig,
-    isConnected,
-    onProgress
-  );
+  // Concept Fidelity Analysis is deferred to Phase 2 (enrichAnalysisResult).
+  // participantMap is empty so keywords default to [] via the fallback on the
+  // line below: `conceptFidelity.participantMap[idx] || { kept: [], dropped: [] }`.
+  // Keywords are backfilled into participants by enrichAnalysisResult.
+  const conceptFidelity: ConceptFidelityResult = {
+    preservedConcepts: [], droppedConcepts: [], addedConcepts: [],
+    fidelityScore: 0, participantMap: {},
+  };
 
   // 6a. Hybrid Representation Scoring
   console.log(`[Analysis] Computing hybrid representation scores...`);
@@ -796,7 +754,8 @@ export const runAnalysis = async (
     clusters,
     sensitivityAnalysis,
     bridgingOpportunities,
-    conceptAnalysis: conceptFidelity,
+    conceptAnalysis: undefined,
+    enrichmentStatus: 'pending' as const,
     uncertaintyMetrics,
     groupAnalysis,
     thresholdSensitivity,
@@ -805,4 +764,59 @@ export const runAnalysis = async (
     embeddingTierUsed,
     languageAnalysis,
   };
+};
+
+// --- Phase 2: Concept Fidelity Enrichment ---
+
+/**
+ * Runs concept fidelity analysis in the background and merges the result
+ * into the core analysis. Called after runCoreAnalysis so the dashboard
+ * can render immediately without waiting for the N/5 LLM batches.
+ */
+export const enrichAnalysisResult = async (
+  coreResult: AnalysisResult,
+  inputs: ParticipantInput[],
+  config: AnalysisConfig,
+  onProgress?: (msg: string) => void
+): Promise<AnalysisResult> => {
+  // Re-check connection (same pattern as runCoreAnalysis)
+  let isConnected = false;
+  if (config.aiProvider === 'ollama') {
+    isConnected = await checkOllamaConnection();
+  } else if (config.aiProvider === 'groq') {
+    isConnected = checkGroqConnection();
+  } else {
+    isConnected = await checkAIConnection();
+  }
+
+  const conceptFidelity = await performConceptFidelityAnalysis(
+    inputs.map(i => i.text),
+    coreResult.summary,
+    { ...config, summaryMethod: config.summaryMethod },
+    isConnected,
+    onProgress
+  );
+
+  // Return new objects (not mutations) so React detects the state change.
+  // Backfill keywords (dropped concepts) into participant records.
+  return {
+    ...coreResult,
+    conceptAnalysis: conceptFidelity,
+    enrichmentStatus: 'complete' as const,
+    participants: coreResult.participants.map((p, i) => ({
+      ...p,
+      keywords: conceptFidelity.participantMap[i]?.dropped ?? p.keywords,
+    })),
+  };
+};
+
+// --- Backward-Compatible Wrapper (used by multi-question mode and other callers) ---
+
+export const runAnalysis = async (
+  inputs: ParticipantInput[],
+  config: AnalysisConfig,
+  onProgress?: (msg: string) => void
+): Promise<AnalysisResult> => {
+  const core = await runCoreAnalysis(inputs, config, onProgress);
+  return await enrichAnalysisResult(core, inputs, config, onProgress);
 };

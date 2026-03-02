@@ -244,6 +244,7 @@ export interface AnalysisResult {
   // Methodological transparency
   embeddingTierUsed?: 'bge-m3' | 'ollama' | 'gemini' | 'tfidf'; // Which tier was active for this analysis
   languageAnalysis?: LanguageEquityReport; // Language equity across participant inputs
+  enrichmentStatus?: 'pending' | 'complete'; // Phase 2 concept fidelity completion state
 }
 
 export interface ConceptFidelityResult {

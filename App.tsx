@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnalysisResult, ParticipantInput, AnalysisConfig, QuestionAnalysis, ColumnInfo, ColumnSelection } from './types';
-import { runAnalysis } from './services/analysis';
+import { runAnalysis, runCoreAnalysis, enrichAnalysisResult } from './services/analysis';
 import { Card } from './components/ui/Card';
 import { SemanticMap } from './components/visualizations/SemanticMap';
 import { RepresentationBar } from './components/visualizations/RepresentationBar';
@@ -72,6 +72,10 @@ export default function App() {
   const [facilitationPlan, setFacilitationPlan] = useState<FacilitationGapBrief | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [showFacilitationPanel, setShowFacilitationPanel] = useState(false);
+  // Phase 2 enrichment state (concept fidelity runs in background after dashboard renders)
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichProgressMsg, setEnrichProgressMsg] = useState('');
+  const analysisGenRef = useRef(0); // incremented on each new analysis; guards stale Phase 2 updates
 
   // Load pre-computed demo data on startup (if available)
   useEffect(() => {
@@ -203,6 +207,7 @@ export default function App() {
     try {
       if (multiQuestion && multiQuestion.selection.textColumnIndices.length > 1) {
         // ── Per-question mode: run one analysis per selected text column ──
+        // Each question runs full runAnalysis (both phases) sequentially.
         const perQResults = preprocessWithSelections(
           multiQuestion.rawCsvText,
           multiQuestion.selection,
@@ -248,10 +253,35 @@ export default function App() {
         setActiveQuestion(0);
         setViewState('dashboard');
       } else {
-        // ── Standard single / combined mode ──
-        const result = await runAnalysis(inputs, config, (msg) => setProgressMsg(msg));
-        setData(result);
+        // ── Standard single / combined mode: staged execution ──
+        // Phase 1: core analysis (embeddings, summary, scoring, all pure-math analyses).
+        // Renders the dashboard immediately without waiting for concept fidelity.
+        const gen = ++analysisGenRef.current;
+        const coreResult = await runCoreAnalysis(inputs, config, (msg) => setProgressMsg(msg));
+
+        if (gen !== analysisGenRef.current) return; // a newer analysis was started — discard
+
+        setData(coreResult);
         setViewState('dashboard');
+        setIsEnriching(true);
+        setEnrichProgressMsg('');
+
+        // Phase 2: concept fidelity runs in background, fills the Concepts tab.
+        enrichAnalysisResult(coreResult, inputs, config, (msg) => {
+          if (gen !== analysisGenRef.current) return;
+          setEnrichProgressMsg(msg);
+        }).then(enriched => {
+          if (gen !== analysisGenRef.current) return;
+          setData(enriched);
+          setIsEnriching(false);
+          setEnrichProgressMsg('');
+        }).catch(() => {
+          if (gen !== analysisGenRef.current) return;
+          // Enrichment failed — core results remain intact; clear the indicator
+          setIsEnriching(false);
+          setEnrichProgressMsg('');
+        });
+        return; // Phase 2 runs asynchronously — nothing more to do in startAnalysis
       }
     } catch (e: any) {
       console.error(e);
@@ -445,6 +475,7 @@ export default function App() {
           <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-4">Auditing</div>
           <button onClick={() => setActiveTab('concepts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'concepts' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Tag /> Concept Fidelity
+            {isEnriching && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
           </button>
           <button onClick={() => setActiveTab('sensitivity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'sensitivity' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Zap /> Sensitivity (LOO)
@@ -801,10 +832,22 @@ export default function App() {
                   </Card>
                 )}
 
-                {activeTab === 'concepts' && data.conceptAnalysis && (
-                  <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
-                    <ConceptDistortion data={data.conceptAnalysis} />
-                  </Card>
+                {activeTab === 'concepts' && (
+                  data.conceptAnalysis ? (
+                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
+                      <ConceptDistortion data={data.conceptAnalysis} />
+                    </Card>
+                  ) : (
+                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
+                      <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+                        <svg className="animate-spin h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        </svg>
+                        Running concept fidelity analysis in background…
+                      </div>
+                    </Card>
+                  )
                 )}
 
                 {activeTab === 'stats' && (
@@ -1114,6 +1157,17 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Phase 2 enrichment status bar — shown while concept fidelity runs in background */}
+      {isEnriching && (
+        <div className="fixed bottom-0 left-0 right-0 bg-indigo-50 border-t border-indigo-200 px-4 py-1.5 text-xs text-indigo-700 flex items-center gap-2 z-40">
+          <svg className="animate-spin h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+          <span>{enrichProgressMsg || 'Running concept fidelity analysis in background…'}</span>
+        </div>
+      )}
     </div>
   );
 }
