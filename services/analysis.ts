@@ -255,13 +255,14 @@ export const runAnalysis = async (
     localVectorizer = new LocalVectorizer(inputs.map(i => i.text));
     inputEmbeddings = inputs.map(i => localVectorizer!.embed(i.text));
   } else if (bgeM3Available) {
-    // BGE-M3: Chunked batch embedding (32 texts/chunk) with in-session cache.
+    // BGE-M3: Chunked batch embedding (32 texts/chunk) with model-keyed in-session cache.
     // Sending all texts in one request fails at 5000+ inputs due to payload size.
     const BGE_CHUNK_SIZE = 32;
+    const BGE_MODEL_KEY = 'bge-m3';
     onProgress?.("Generating BGE-M3 embeddings...");
     try {
       const texts = inputs.map(i => i.text);
-      const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t));
+      const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t, BGE_MODEL_KEY));
       const uncachedIndices = result.map((v, i) => v === null ? i : -1).filter(i => i >= 0);
       if (uncachedIndices.length > 0) {
         onProgress?.(`Embedding ${uncachedIndices.length} new inputs (${texts.length - uncachedIndices.length} cached)...`);
@@ -271,7 +272,7 @@ export const runAnalysis = async (
           const chunkEmbeddings = await generateBgeM3EmbeddingsBatch(chunkTexts);
           for (let j = 0; j < chunkIndices.length; j++) {
             result[chunkIndices[j]] = chunkEmbeddings[j];
-            setCachedEmbedding(texts[chunkIndices[j]], chunkEmbeddings[j]);
+            setCachedEmbedding(texts[chunkIndices[j]], BGE_MODEL_KEY, chunkEmbeddings[j]);
           }
           onProgress?.(`BGE-M3: ${Math.min(chunkStart + BGE_CHUNK_SIZE, uncachedIndices.length)}/${uncachedIndices.length} embedded...`);
         }
@@ -291,27 +292,37 @@ export const runAnalysis = async (
   // Per-item embedding if batch wasn't used or failed
   if (inputEmbeddings.length === 0 && !useLocalVectors) {
     const texts = inputs.map(i => i.text);
+    // Model key must match the actual embedding model so cached vectors from a
+    // different provider are never reused (they live in incomparable vector spaces).
+    const PER_ITEM_MODEL_KEY = activeConfig.aiProvider === 'ollama'
+      ? (activeConfig.embeddingModel || 'ollama')
+      : (activeConfig.embeddingModel || 'gemini');
     // Check cache first to avoid redundant API calls on re-runs
-    const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t));
+    const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t, PER_ITEM_MODEL_KEY));
     const uncachedIndices = result.map((v, i) => v === null ? i : -1).filter(i => i >= 0);
     let failureCount = 0;
 
     if (uncachedIndices.length > 0) {
       onProgress?.(`Embedding ${uncachedIndices.length} inputs (${texts.length - uncachedIndices.length} cached)...`);
-      // Gemini/Groq: run up to 10 embeddings in parallel (rate-limited but fast).
-      // Ollama: sequential (local server serialises requests anyway).
-      const CONCURRENCY = activeConfig.aiProvider !== 'ollama' ? 10 : 1;
+      // Run up to 10 embeddings in parallel for all providers.
+      // Ollama (local) handles concurrent requests fine; Gemini/Groq embedding
+      // API limits are typically 1500 RPM — well above 10 concurrent calls.
+      const CONCURRENCY = 10;
 
       for (let start = 0; start < uncachedIndices.length; start += CONCURRENCY) {
         const batch = uncachedIndices.slice(start, start + CONCURRENCY);
         await Promise.all(batch.map(async (origIdx) => {
           try {
             const emb = await generateEmbedding(inputs[origIdx].text, activeConfig);
-            if (emb.every(v => v === 0)) failureCount++;
+            if (emb.every(v => v === 0)) {
+              // Zero vector from API — counts as a failure; will produce score ≈ 0
+              console.warn(`[Embedding] Zero vector received for ${inputs[origIdx].id} — API may be failing`);
+              failureCount++;
+            }
             result[origIdx] = emb;
-            setCachedEmbedding(texts[origIdx], emb);
+            setCachedEmbedding(texts[origIdx], PER_ITEM_MODEL_KEY, emb);
           } catch (e) {
-            console.warn(`Embedding failed for ${inputs[origIdx].id}`);
+            console.warn(`[Embedding] API call failed for ${inputs[origIdx].id}`);
             failureCount++;
             result[origIdx] = new Array(768).fill(0);
           }
@@ -326,11 +337,18 @@ export const runAnalysis = async (
 
     inputEmbeddings = result.map(v => v ?? new Array(768).fill(0));
 
-    if (failureCount > inputs.length * 0.5) {
-      onProgress?.("⚠️ High API failure. Switching to local vectors.");
-      useLocalVectors = true;
-      localVectorizer = new LocalVectorizer(inputs.map(i => i.text));
-      inputEmbeddings = inputs.map(i => localVectorizer!.embed(i.text));
+    if (failureCount > 0) {
+      const pct = Math.round(failureCount / inputs.length * 100);
+      if (failureCount > inputs.length * 0.5) {
+        onProgress?.(`⚠️ ${pct}% of embeddings failed. Switching to local vectors to protect score integrity.`);
+        useLocalVectors = true;
+        localVectorizer = new LocalVectorizer(inputs.map(i => i.text));
+        inputEmbeddings = inputs.map(i => localVectorizer!.embed(i.text));
+      } else {
+        // Partial failure: scores for the affected participants will be unreliable.
+        // Surfacing this explicitly so the user is aware rather than silently wrong.
+        onProgress?.(`⚠️ ${failureCount} embeddings failed (${pct}%). Affected participants may show artificially low representation scores.`);
+      }
     }
   }
 
@@ -369,59 +387,55 @@ export const runAnalysis = async (
     // Take top 3-5 sentences
     summaryText = ranked.slice(0, 4).map(r => r.text).join(' ');
   } else {
-    // AI Mode — hierarchical (map-reduce) for large inputs to avoid context window overflow.
-    // Threshold: 100+ inputs risk exceeding 128K token limits and degrade summary quality.
+    // AI Mode
+    // For very large datasets, sending all inputs would overflow the LLM context window.
+    // Instead, select proportional cluster representatives — actual participant texts, not
+    // abstractions — so the summary preserves authentic voice and scores stay accurate.
     try {
-      if (inputs.length > 100) {
-        onProgress?.(`Running hierarchical summarization (${inputs.length} inputs → ${numClusters} clusters)...`);
+      const MAX_PROMPT_INPUTS = 200;
+      let inputsForSummary = inputs;
 
-        // Group input indices by cluster
-        const clusterGroups = new Map<number, number[]>();
-        for (let i = 0; i < inputs.length; i++) {
-          const cid = clusterAssignments[i];
-          if (!clusterGroups.has(cid)) clusterGroups.set(cid, []);
-          clusterGroups.get(cid)!.push(i);
-        }
+      if (inputs.length > MAX_PROMPT_INPUTS) {
+        onProgress?.(`Selecting ${MAX_PROMPT_INPUTS} diverse representatives from ${inputs.length} inputs...`);
+        // Distribute budget proportionally across clusters so minority clusters are
+        // not drowned out by majority clusters.
+        const clusterSizes = new Map<number, number>();
+        for (const a of clusterAssignments) clusterSizes.set(a, (clusterSizes.get(a) ?? 0) + 1);
 
-        // Phase 1: Summarize each cluster (up to 50 representative inputs per cluster)
-        const clusterSummaries: string[] = [];
-        const MAX_PER_CLUSTER = 50;
+        const selected: ParticipantInput[] = [];
+        for (const [cid, size] of clusterSizes) {
+          const clusterIndices = clusterAssignments.map((a, i) => a === cid ? i : -1).filter(i => i >= 0);
+          const budget = Math.max(2, Math.round(MAX_PROMPT_INPUTS * size / inputs.length));
+          const centroid = computeGlobalCentroid(clusterIndices.map(i => inputEmbeddings[i]));
 
-        for (const [cid, clusterIndices] of clusterGroups) {
-          onProgress?.(`Summarizing cluster ${cid + 1}/${numClusters}...`);
+          // Sort ascending by similarity to centroid:
+          //   - LOW similarity = far from centroid = OUTLIER / unique perspective
+          //   - HIGH similarity = close to centroid = TYPICAL / mainstream voice
+          const sortedAsc = clusterIndices
+            .map(i => ({ i, sim: cosineSimilarity(inputEmbeddings[i], centroid) }))
+            .sort((a, b) => a.sim - b.sim); // ascending: outliers first
 
-          let indicesToSummarize: number[];
-          if (clusterIndices.length > MAX_PER_CLUSTER) {
-            // Pick inputs closest to the cluster centroid (most representative)
-            const clusterCentroid = computeGlobalCentroid(clusterIndices.map(i => inputEmbeddings[i]));
-            const ranked = clusterIndices
-              .map(i => ({ idx: i, sim: cosineSimilarity(inputEmbeddings[i], clusterCentroid) }))
-              .sort((a, b) => b.sim - a.sim);
-            indicesToSummarize = ranked.slice(0, MAX_PER_CLUSTER).map(r => r.idx);
-          } else {
-            indicesToSummarize = clusterIndices;
+          // Take half the budget from the OUTLIER end (low sim) and half from the
+          // TYPICAL end (high sim). This ensures the LLM sees both marginal voices
+          // (which are most at risk of being excluded from the summary) and mainstream
+          // voices (which anchor the cluster's central theme).
+          // Scientific rationale: a summary that only reflects typical voices will
+          // systematically fail to represent outlier perspectives — exactly what this
+          // tool is designed to detect. The LLM must have the opportunity to include
+          // outlier voices; if it still excludes them, that is a true provenance finding.
+          const halfBudget = Math.ceil(budget / 2);
+          const outlierEnd = sortedAsc.slice(0, halfBudget);           // most marginal
+          const typicalEnd = sortedAsc.slice(-halfBudget);             // most typical
+          const dedupSet = new Set<number>();
+          for (const { i } of [...outlierEnd, ...typicalEnd]) {
+            if (!dedupSet.has(i)) { dedupSet.add(i); selected.push(inputs[i]); }
           }
-
-          try {
-            const clusterPrompt = `Here are ${indicesToSummarize.length} related contributions:\n${formatInputsForPrompt(indicesToSummarize.map(i => inputs[i]))}\n\nSummarize the key themes in 2-3 sentences.`;
-            const clusterSummary = await generateCompletion(clusterPrompt, getSystemPrompt(activeConfig.strategy), activeConfig);
-            clusterSummaries.push(`[Group ${cid + 1}]: ${clusterSummary}`);
-          } catch (e) {
-            // Fallback: use the most central input text directly
-            clusterSummaries.push(`[Group ${cid + 1}]: ${inputs[clusterIndices[0]].text}`);
-          }
         }
-
-        // Phase 2: Synthesize cluster summaries into a single final summary
-        onProgress?.("Synthesizing final summary from cluster summaries...");
-        const synthesisPrompt = `These are summaries from ${numClusters} thematic groups in a co-creation session:\n\n${clusterSummaries.join('\n\n')}\n\nSynthesize these into a single coherent summary (150 words) that preserves the diversity of all perspectives.`;
-        summaryText = await generateCompletion(synthesisPrompt, getSystemPrompt(activeConfig.strategy), activeConfig);
-
-      } else {
-        // Direct summarization for small/medium inputs
-        const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\nProvide a summary (150 words).`;
-        summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
+        inputsForSummary = selected;
       }
+
+      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputsForSummary)}\n\nProvide a summary (150 words).`;
+      summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
     } catch (e) {
       summaryText = "AI Generation Failed. " + inputs.slice(0, 3).map(i => i.text).join(' ');
     }

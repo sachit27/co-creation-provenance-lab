@@ -6,7 +6,9 @@
  * with the same inputs — e.g. changing strategy or summarization mode —
  * skips re-embedding and returns results immediately.
  *
- * Key: djb2 hash of the input text (fast, collision-resistant for typical lengths).
+ * Key: djb2 hash of (modelKey + ":" + text).
+ * The model key is REQUIRED to prevent returning vectors from a different
+ * embedding model — different models produce incomparable vector spaces.
  * Value: embedding vector (number[]).
  */
 
@@ -24,15 +26,15 @@ const cache = new Map<string, number[]>();
 let hits = 0;
 let misses = 0;
 
-export const getCachedEmbedding = (text: string): number[] | null => {
-  const val = cache.get(hashText(text));
+export const getCachedEmbedding = (text: string, modelKey: string): number[] | null => {
+  const val = cache.get(hashText(modelKey + ':' + text));
   if (val) { hits++; return val; }
   misses++;
   return null;
 };
 
-export const setCachedEmbedding = (text: string, embedding: number[]): void => {
-  cache.set(hashText(text), embedding);
+export const setCachedEmbedding = (text: string, modelKey: string, embedding: number[]): void => {
+  cache.set(hashText(modelKey + ':' + text), embedding);
 };
 
 export const getEmbeddingCacheStats = () => ({
