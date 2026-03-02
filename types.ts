@@ -1,6 +1,37 @@
 
 // === New Types for Enhanced Features ===
 
+// ─── Column Selection & Multi-Question Analysis ───────────────────────────────
+
+export type ColumnSuggestedType = 'id' | 'text' | 'group' | 'empty';
+
+export interface ColumnInfo {
+  index: number;
+  header: string;
+  headerShort: string;        // Truncated to 60 chars for display
+  nonEmptyCount: number;
+  totalCount: number;
+  sampleValues: string[];     // Up to 3 non-empty sample values
+  suggestedType: ColumnSuggestedType;
+}
+
+export interface ColumnSelection {
+  idColumnIndex: number;        // -1 = none
+  textColumnIndices: number[];  // At least one required
+  groupColumnIndex: number;     // -1 = none
+}
+
+export type MultiColumnMode = 'combined' | 'per_question';
+
+export interface QuestionAnalysis {
+  columnIndex: number;
+  questionLabel: string;
+  participantCount: number;
+  result: AnalysisResult;       // Forward ref — AnalysisResult defined below
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export type StakeholderGroup = 'community' | 'expert' | 'youth' | 'government' | 'business' | 'other';
 export type EntailmentLabel = 'entails' | 'neutral' | 'contradicts';
 export type FeedbackLabel = 'accurate' | 'missed' | 'distorted';

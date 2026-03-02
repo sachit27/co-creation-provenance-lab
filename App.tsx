@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AnalysisResult, ParticipantInput, AnalysisConfig } from './types';
+import { AnalysisResult, ParticipantInput, AnalysisConfig, QuestionAnalysis, ColumnInfo, ColumnSelection } from './types';
 import { runAnalysis } from './services/analysis';
 import { Card } from './components/ui/Card';
 import { SemanticMap } from './components/visualizations/SemanticMap';
@@ -29,6 +29,7 @@ import { FeedbackAnalytics } from './components/ui/FeedbackAnalytics';
 import { FacilitationCoPilotPanel } from './components/ui/FacilitationCoPilotPanel';
 import { WhatIfSimulator } from './components/ui/WhatIfSimulator';
 import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from './types';
+import { preprocessWithSelections, PreprocessResult } from './services/dataPreprocessor';
 
 // Icons
 const Icons = {
@@ -54,6 +55,9 @@ export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
   const [data, setData] = useState<AnalysisResult | null>(null);
   const [activeTab, setActiveTab] = useState<TabState>('map');
+  // Per-question mode state
+  const [questionResults, setQuestionResults] = useState<QuestionAnalysis[] | null>(null);
+  const [activeQuestion, setActiveQuestion] = useState<number>(0);
   const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
   const [progressMsg, setProgressMsg] = useState('Initializing...');
   const [errorMsg, setErrorMsg] = useState('');
@@ -186,13 +190,69 @@ export default function App() {
     setFeedbacks(merged);
   };
 
-  const startAnalysis = async (inputs: ParticipantInput[], config: AnalysisConfig) => {
+  const startAnalysis = async (
+    inputs: ParticipantInput[],
+    config: AnalysisConfig,
+    multiQuestion?: { rawCsvText: string; selection: ColumnSelection; columns: ColumnInfo[] }
+  ) => {
     setViewState('processing');
     setErrorMsg('');
+    setQuestionResults(null);
+    setActiveQuestion(0);
+
     try {
-      const result = await runAnalysis(inputs, config, (msg) => setProgressMsg(msg));
-      setData(result);
-      setViewState('dashboard');
+      if (multiQuestion && multiQuestion.selection.textColumnIndices.length > 1) {
+        // ── Per-question mode: run one analysis per selected text column ──
+        const perQResults = preprocessWithSelections(
+          multiQuestion.rawCsvText,
+          multiQuestion.selection,
+          'per_question',
+          multiQuestion.columns,
+        ) as PreprocessResult[];
+
+        const analyses: QuestionAnalysis[] = [];
+
+        for (let i = 0; i < multiQuestion.selection.textColumnIndices.length; i++) {
+          const colIdx = multiQuestion.selection.textColumnIndices[i];
+          const colInfo = multiQuestion.columns.find(c => c.index === colIdx)!;
+          const prep = perQResults[i];
+
+          if (prep.inputs.length < 3) {
+            console.warn(`Skipping Q${i + 1} "${colInfo.headerShort}": only ${prep.inputs.length} valid responses`);
+            continue;
+          }
+
+          setProgressMsg(
+            `Analyzing question ${i + 1} of ${multiQuestion.selection.textColumnIndices.length}: ` +
+            `"${colInfo.headerShort}" (${prep.inputs.length} responses)…`
+          );
+
+          const result = await runAnalysis(
+            prep.inputs,
+            { ...config, datasetName: `${config.datasetName} — Q${i + 1}` },
+            (msg) => setProgressMsg(`[Q${i + 1}/${multiQuestion.selection.textColumnIndices.length}] ${msg}`)
+          );
+
+          analyses.push({
+            columnIndex: colIdx,
+            questionLabel: colInfo.header,
+            participantCount: prep.inputs.length,
+            result,
+          });
+        }
+
+        if (analyses.length === 0) throw new Error('No questions had enough responses (minimum 3) to analyze.');
+
+        setQuestionResults(analyses);
+        setData(analyses[0].result);
+        setActiveQuestion(0);
+        setViewState('dashboard');
+      } else {
+        // ── Standard single / combined mode ──
+        const result = await runAnalysis(inputs, config, (msg) => setProgressMsg(msg));
+        setData(result);
+        setViewState('dashboard');
+      }
     } catch (e: any) {
       console.error(e);
       setErrorMsg(e.message || "An unexpected error occurred during analysis.");
@@ -360,6 +420,9 @@ export default function App() {
           </div>
           <p className="text-xs text-slate-500 font-medium">
             {data?.config.datasetName} • {data?.participants.length} Participants
+            {questionResults && questionResults.length > 1 && (
+              <span className="block text-blue-400 mt-0.5">Q{activeQuestion + 1} of {questionResults.length} questions</span>
+            )}
           </p>
           <div className="mt-4 px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-blue-300 border border-blue-900/50 flex justify-between">
             <span>Strategy:</span>
@@ -477,6 +540,35 @@ export default function App() {
                 >
                   Try Your Own Data
                 </button>
+              </div>
+            )}
+
+            {/* Question tab selector — shown only in per-question mode */}
+            {questionResults && questionResults.length > 1 && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-1.5 flex gap-1.5 overflow-x-auto">
+                {questionResults.map((qa, idx) => (
+                  <button
+                    key={qa.columnIndex}
+                    title={qa.questionLabel}
+                    onClick={() => {
+                      setActiveQuestion(idx);
+                      setData(qa.result);
+                      setSelectedParticipant(null);
+                    }}
+                    className={`flex-shrink-0 flex flex-col items-start px-4 py-3 rounded-lg text-left transition-all text-sm min-w-[160px] max-w-[240px] ${
+                      activeQuestion === idx
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${activeQuestion === idx ? 'text-blue-100' : 'text-slate-400'}`}>
+                      Q{idx + 1} · {qa.participantCount} responses
+                    </span>
+                    <span className="text-xs font-medium leading-snug line-clamp-2">
+                      {qa.questionLabel.length > 80 ? qa.questionLabel.slice(0, 80) + '…' : qa.questionLabel}
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
 

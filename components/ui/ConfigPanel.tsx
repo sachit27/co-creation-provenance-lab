@@ -1,14 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnalysisConfig, ParticipantInput, StakeholderGroup } from '../../types';
+import { AnalysisConfig, ParticipantInput, StakeholderGroup, ColumnInfo, ColumnSelection, MultiColumnMode } from '../../types';
 import { SAMPLE_DATA } from '../../constants';
 import { checkAIConnection, getGeminiModels, setRuntimeGeminiKey } from '../../services/gemini';
 import { checkOllamaConnection, getOllamaModels } from '../../services/ollama';
 import { checkBgeM3Connection, resetBgeM3Cache } from '../../services/bgeM3';
 import { checkGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GROQ_FREE_MODELS } from '../../services/groq';
+import { preprocessCSV, scanColumns, preprocessWithSelections, PreprocessReport, PreprocessResult } from '../../services/dataPreprocessor';
+import { ColumnSelector } from './ColumnSelector';
 
 interface ConfigPanelProps {
-  onRun: (inputs: ParticipantInput[], config: AnalysisConfig) => void;
+  onRun: (
+    inputs: ParticipantInput[],
+    config: AnalysisConfig,
+    multiQuestion?: { rawCsvText: string; selection: ColumnSelection; columns: ColumnInfo[] }
+  ) => void;
 }
 
 // Column detection result
@@ -41,6 +47,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [parsedPreview, setParsedPreview] = useState<ParticipantInput[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
+  const [preprocessReport, setPreprocessReport] = useState<PreprocessReport | null>(null);
+
+  // Column selection state (upload path only)
+  const [rawCsvText, setRawCsvText] = useState<string>('');
+  const [scannedColumns, setScannedColumns] = useState<ColumnInfo[]>([]);
+  const [columnSelection, setColumnSelection] = useState<ColumnSelection>({ idColumnIndex: -1, textColumnIndices: [], groupColumnIndex: -1 });
+  const [multiColumnMode, setMultiColumnMode] = useState<MultiColumnMode>('combined');
 
   // Pagination State
   const [previewPage, setPreviewPage] = useState(1);
@@ -261,69 +274,87 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     setColumnMapping(null);
+    setPreprocessReport(null);
+    setScannedColumns([]);
+    setRawCsvText('');
+    setInputs([]);
+    setParsedPreview([]);
+    setColumnSelection({ idColumnIndex: -1, textColumnIndices: [], groupColumnIndex: -1 });
+
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-        setUploadError("Invalid file type. Please upload a .csv file.");
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv') && !file.name.endsWith('.tsv') && !file.name.endsWith('.txt')) {
+      setUploadError("Invalid file type. Please upload a .csv, .tsv, or .txt file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const raw = evt.target?.result as string;
+        if (!raw || raw.trim().length === 0) { setUploadError("File appears empty."); return; }
+
+        const cols = scanColumns(raw);
+        if (cols.length === 0) { setUploadError("Could not parse column headers."); return; }
+
+        setRawCsvText(raw);
+        setScannedColumns(cols);
+
+        // Auto-suggest initial selections
+        const idCol = cols.find(c => c.suggestedType === 'id');
+        const textCols = cols.filter(c => c.suggestedType === 'text');
+        const groupCol = cols.find(c => c.suggestedType === 'group');
+        setColumnSelection({
+          idColumnIndex: idCol?.index ?? -1,
+          textColumnIndices: textCols.map(c => c.index),
+          groupColumnIndex: groupCol?.index ?? -1,
+        });
+      } catch {
+        setUploadError("Failed to parse file. Please check the format.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Called when user confirms column selection (step 2 → step 3)
+  const handleConfirmColumns = () => {
+    if (!rawCsvText || columnSelection.textColumnIndices.length === 0) return;
+    try {
+      // For preview always use combined (fast)
+      const result = preprocessWithSelections(rawCsvText, columnSelection, 'combined', scannedColumns) as PreprocessResult;
+      setPreprocessReport(result.report);
+      if (result.inputs.length === 0) {
+        setUploadError(`No valid responses after filtering. ${result.report.droppedRows.length} rows removed.`);
         return;
       }
+      setInputs(result.inputs);
+      setParsedPreview(result.inputs);
+      setPreviewPage(1);
+    } catch {
+      setUploadError("Column selection produced no valid data.");
+    }
+    setStep(3);
+  };
 
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        try {
-          const text = evt.target?.result as string;
-          const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const totalSteps = inputType === 'upload' && scannedColumns.length > 0 ? 3 : 2;
 
-          if (lines.length < 2) {
-            setUploadError("File appears empty or has insufficient rows.");
-            return;
-          }
-
-          // Detect columns from first row
-          const mapping = detectColumns(lines[0]);
-          setColumnMapping(mapping);
-
-          const startIdx = mapping.hasHeaders ? 1 : 0;
-
-          const parsed: ParticipantInput[] = lines.slice(startIdx).map((line, i) => {
-            if (!line.trim()) return null;
-
-            const parts = parseCSVRow(line);
-            if (parts.length === 0) return null;
-
-            // Extract fields based on mapping
-            const id = parts[mapping.idColumn]?.trim() || `Row_${i + 1}`;
-            const textContent = parts[mapping.textColumn]?.trim() || '';
-
-            if (textContent.length < 3) return null;
-
-            const result: ParticipantInput = { id, text: textContent };
-
-            // Add group if column exists
-            if (mapping.groupColumn !== null && parts[mapping.groupColumn]) {
-              result.group = parseGroup(parts[mapping.groupColumn]);
-            }
-
-            return result;
-          }).filter((p): p is ParticipantInput => p !== null && p.text.length > 5);
-
-          if (parsed.length === 0) {
-            setUploadError("Could not parse any valid rows. Check your CSV format.");
-          } else {
-            setInputs(parsed);
-            setParsedPreview(parsed);
-            setPreviewPage(1);
-          }
-        } catch (e) {
-          setUploadError("Failed to parse CSV file. Please check the format.");
-        }
-      };
-      reader.readAsText(file);
+  const handleNext = () => {
+    if (step === 1 && totalSteps === 3) {
+      setStep(2); // go to column selector
+    } else if (step === 2 && totalSteps === 3) {
+      handleConfirmColumns(); // confirm columns → step 3
+    } else {
+      setStep(step + 1);
     }
   };
 
-  const handleNext = () => {
-    setStep(step + 1);
+  const handleRunClick = () => {
+    if (inputType === 'upload' && multiColumnMode === 'per_question' && columnSelection.textColumnIndices.length > 1) {
+      onRun(inputs, config, { rawCsvText, selection: columnSelection, columns: scannedColumns });
+    } else {
+      onRun(inputs, config);
+    }
   };
   
   // Pagination helpers
@@ -365,9 +396,18 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${step >= 1 ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>1</div>
           <span className="font-semibold text-sm">Data Source</span>
         </div>
-        <div className={`w-16 h-[2px] mx-4 ${step >= 2 ? 'bg-blue-600' : 'bg-slate-200'}`} />
-        <div className={`flex items-center gap-2 ${step >= 2 ? 'text-blue-600' : 'text-slate-300'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${step >= 2 ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>2</div>
+        <div className={`w-12 h-[2px] mx-3 ${step >= 2 ? 'bg-blue-600' : 'bg-slate-200'}`} />
+        {totalSteps === 3 && (
+          <>
+            <div className={`flex items-center gap-2 ${step >= 2 ? 'text-blue-600' : 'text-slate-300'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${step >= 2 ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>2</div>
+              <span className="font-semibold text-sm">Columns</span>
+            </div>
+            <div className={`w-12 h-[2px] mx-3 ${step >= 3 ? 'bg-blue-600' : 'bg-slate-200'}`} />
+          </>
+        )}
+        <div className={`flex items-center gap-2 ${step >= totalSteps ? 'text-blue-600' : 'text-slate-300'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${step >= totalSteps ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>{totalSteps}</div>
           <span className="font-semibold text-sm">Configuration</span>
         </div>
       </div>
@@ -498,6 +538,48 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                                 <span className="text-xs text-green-600 font-medium bg-green-100 px-2 py-0.5 rounded-full">Valid</span>
                             </div>
                         </div>
+
+                        {/* Preprocessing report — only shown for CSV uploads */}
+                        {preprocessReport && preprocessReport.droppedRows.length > 0 && (
+                            <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs">
+                                <div className="font-semibold text-amber-800 mb-1">
+                                    Preprocessing: {preprocessReport.keptRows} of {preprocessReport.totalRows} rows kept
+                                </div>
+                                <div className="text-amber-700 space-y-0.5">
+                                    {(() => {
+                                        const counts = preprocessReport.droppedRows.reduce<Record<string, number>>((acc, r) => {
+                                            acc[r.reason] = (acc[r.reason] ?? 0) + 1;
+                                            return acc;
+                                        }, {});
+                                        return Object.entries(counts).map(([reason, count]) => (
+                                            <div key={reason}>
+                                                • {count} row{count > 1 ? 's' : ''} removed — {
+                                                    reason === 'missing_value' ? 'empty or null value (NA, blank, "no response", etc.)' :
+                                                    reason === 'too_short' ? 'too short to be meaningful (<10 characters)' :
+                                                    reason === 'no_content' ? 'no meaningful content (numbers only, repeated characters, punctuation)' :
+                                                    reason === 'duplicate_id' ? 'duplicate ID (renamed and kept)' : reason
+                                                }
+                                            </div>
+                                        ));
+                                    })()}
+                                    {preprocessReport.multiColumnsMerged && (
+                                        <div>• Multiple question columns detected and merged into one response per participant</div>
+                                    )}
+                                    {preprocessReport.bomStripped && (
+                                        <div>• UTF-8 BOM (Excel encoding marker) removed</div>
+                                    )}
+                                    {preprocessReport.separatorDetected !== ',' && (
+                                        <div>• {preprocessReport.separatorDetected === ';' ? 'Semicolon' : 'Tab'}-separated file detected and parsed correctly</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {preprocessReport && preprocessReport.droppedRows.length === 0 && (
+                            <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                                All {preprocessReport.totalRows} rows passed quality checks — no rows removed.
+                                {preprocessReport.multiColumnsMerged && ' Multiple question columns merged into one response per participant.'}
+                            </div>
+                        )}
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                             <div className="max-h-48 overflow-y-auto custom-scrollbar">
                                 <table className="w-full text-sm text-left">
@@ -568,7 +650,31 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
             </div>
           )}
 
-          {step === 2 && (
+          {/* Step 2 — Column Selector (only for CSV uploads) */}
+          {step === 2 && totalSteps === 3 && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-slate-800">Select Columns</h2>
+                <p className="text-slate-500 mt-2">
+                  {scannedColumns[0]?.totalCount ?? 0} rows found.
+                  Mark which columns to use as participant ID, text responses, and optional group.
+                </p>
+              </div>
+              <ColumnSelector
+                columns={scannedColumns}
+                selection={columnSelection}
+                onChange={setColumnSelection}
+                mode={multiColumnMode}
+                onModeChange={setMultiColumnMode}
+              />
+              {uploadError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{uploadError}</div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2 (2-step flow) or Step 3 (3-step flow) — Analysis Configuration */}
+          {((step === 2 && totalSteps === 2) || (step === 3 && totalSteps === 3)) && (
             <div className="space-y-8 animate-fadeIn">
                <div className="flex justify-between items-center">
                    <div className="text-left">
@@ -921,12 +1027,17 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
             Back
           </button>
           
-          <button 
-            onClick={() => step === 1 ? handleNext() : onRun(inputs, config)}
-            disabled={(step === 1 && inputs.length === 0) || (step === 2 && config.summaryMethod === 'manual' && !config.manualSummaryText)}
+          <button
+            onClick={() => step < totalSteps ? handleNext() : handleRunClick()}
+            disabled={
+              (step === 1 && inputType === 'upload' && scannedColumns.length === 0 && inputs.length === 0) ||
+              (step === 1 && inputType !== 'upload' && inputs.length === 0) ||
+              (step === 2 && totalSteps === 3 && columnSelection.textColumnIndices.length === 0) ||
+              (step === totalSteps && config.summaryMethod === 'manual' && !config.manualSummaryText)
+            }
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-bold shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:shadow-none transition-all active:scale-95 flex items-center gap-2"
           >
-            {step === 1 ? 'Next Step' : (
+            {step < totalSteps ? 'Next Step' : (
               <>
                 <span>Run Analysis</span>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
