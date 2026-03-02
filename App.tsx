@@ -810,9 +810,9 @@ export default function App() {
               <div className="xl:col-span-2 space-y-6">
                 
                 {activeTab === 'map' && (
-                  <Card title="Semantic Space" subtitle="Spatial arrangement of contributions. Outliers indicate distinct perspectives." className="border-t-4 border-t-blue-500">
-                    <SemanticMap 
-                      data={data.participants} 
+                  <Card title="Semantic Space" subtitle="Spatial arrangement of contributions. Outliers indicate distinct perspectives." className="border-t-4 border-t-blue-500" expandable>
+                    <SemanticMap
+                      data={data.participants}
                       clusters={data.clusters}
                       selectedId={selectedParticipant}
                       onSelect={setSelectedParticipant}
@@ -821,20 +821,20 @@ export default function App() {
                 )}
 
                 {activeTab === 'blindspot' && (
-                  <Card title="Blind Spot Analysis" subtitle="Identifying excluded voices by comparing Centrality vs. Representation." className="border-t-4 border-t-red-500">
+                  <Card title="Blind Spot Analysis" subtitle="Identifying excluded voices by comparing Centrality vs. Representation." className="border-t-4 border-t-red-500" expandable>
                     <BlindSpotPlot data={data.participants} onSelect={setSelectedParticipant} />
                   </Card>
                 )}
 
                 {activeTab === 'flow' && (
-                  <Card title="Contribution Lineage" subtitle="Traceability from raw input to summary sentences. Thicker lines indicate stronger semantic influence." className="border-t-4 border-t-blue-500">
+                  <Card title="Contribution Lineage" subtitle="Traceability from raw input to summary sentences. Thicker lines indicate stronger semantic influence." className="border-t-4 border-t-blue-500" expandable>
                     <ContributionLineage data={data.participants} sentences={data.summarySentences} />
                   </Card>
                 )}
 
                 {activeTab === 'concepts' && (
                   data.conceptAnalysis ? (
-                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
+                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500" expandable>
                       <ConceptDistortion data={data.conceptAnalysis} />
                     </Card>
                   ) : (
@@ -851,13 +851,13 @@ export default function App() {
                 )}
 
                 {activeTab === 'stats' && (
-                  <Card title="Equity Distribution Plot" subtitle="Sorted representation scores. A flat line indicates equal semantic coverage." className="border-t-4 border-t-blue-500">
+                  <Card title="Equity Distribution Plot" subtitle="Sorted representation scores. A flat line indicates equal semantic coverage." className="border-t-4 border-t-blue-500" expandable>
                     <RepresentationBar data={data.participants} />
                   </Card>
                 )}
 
                 {activeTab === 'sensitivity' && (
-                  <Card title="Semantic Leverage (LOO)" subtitle="Which inputs pull the conversation's semantic center the most?" className="border-t-4 border-t-rose-500">
+                  <Card title="Semantic Leverage (LOO)" subtitle="Which inputs pull the conversation's semantic center the most?" className="border-t-4 border-t-rose-500" expandable>
                     {data.sensitivityAnalysis && data.sensitivityAnalysis.length > 0 ? (
                        <SensitivityChart data={data.sensitivityAnalysis} />
                     ) : (
@@ -867,13 +867,13 @@ export default function App() {
                 )}
 
                 {activeTab === 'groups' && data.groupAnalysis && (
-                  <Card title="Stakeholder Group Equity" subtitle="Comparing representation across different stakeholder groups." className="border-t-4 border-t-indigo-500">
+                  <Card title="Stakeholder Group Equity" subtitle="Comparing representation across different stakeholder groups." className="border-t-4 border-t-indigo-500" expandable>
                     <GroupEquityChart data={data.groupAnalysis} />
                   </Card>
                 )}
 
                 {activeTab === 'uncertainty' && data.uncertaintyMetrics && (
-                  <Card title="Uncertainty Analysis" subtitle="Bootstrap confidence intervals for key metrics (95% CI)." className="border-t-4 border-t-purple-500">
+                  <Card title="Uncertainty Analysis" subtitle="Bootstrap confidence intervals for key metrics (95% CI)." className="border-t-4 border-t-purple-500" expandable>
                     <UncertaintyViz data={data.uncertaintyMetrics} />
                     {data.thresholdSensitivity && (
                       <div className="mt-4 border-t pt-4">
