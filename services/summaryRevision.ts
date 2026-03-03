@@ -13,7 +13,7 @@ import { AnalysisResult, AnalysisConfig } from '../types';
 import { generateCompletion as generateGeminiCompletion } from './gemini';
 import { generateOllamaCompletion, generateOllamaEmbedding } from './ollama';
 import { checkBgeM3Connection, generateBgeM3EmbeddingsBatch } from './bgeM3';
-import { generateEmbedding as generateGeminiEmbedding } from './gemini';
+import { generateEmbedding } from './analysis';
 import { cosineSimilarity, calculateGini } from './mathUtils';
 import { computeConceptOverlapScore } from './textUtils';
 import { LocalVectorizer } from './vectorizer';
@@ -159,48 +159,75 @@ export const recomputeWithNewSummary = async (
   }
 
   const inputEmbeddings = originalData.inputEmbeddings;
-  const newSentences = splitIntoSentences(newSummary);
+  const inputDim = inputEmbeddings[0]?.length ?? 0;
 
+  const newSentences = splitIntoSentences(newSummary);
   onProgress?.('Embedding revised summary sentences…');
 
-  // Embed new summary sentences using the best available tier
+  // ── Embedding tier selection ───────────────────────────────────────────────
+  // CRITICAL: sentence embeddings MUST use the same dimensionality as the
+  // stored input embeddings. Mixing dimensions (e.g. 1024-dim BGE-M3 inputs
+  // vs 150-dim TF-IDF sentences) causes dotProduct to return NaN and
+  // cosineSimilarity to collapse to 0 for all participants.
+  //
+  // Strategy:
+  //   1. Try BGE-M3 (1024-dim) — accept only if inputDim matches.
+  //   2. Try configured provider — accept only if dimension matches.
+  //   3. TF-IDF (150-dim) — may not match if inputs were BGE-M3/OpenAI.
+  //      If mismatch, re-embed ALL inputs using TF-IDF so dimensions align.
+  // ───────────────────────────────────────────────────────────────────────────
+
   let newSentenceEmbeddings: number[][] | null = null;
   let tierUsed = originalData.embeddingTierUsed ?? 'tfidf';
+  let effectiveInputEmbeddings = inputEmbeddings; // may be replaced if we re-embed with TF-IDF
 
   // Tier 1: BGE-M3
-  if (tierUsed === 'bge-m3' || await checkBgeM3Connection()) {
+  const tryBgeM3 = tierUsed === 'bge-m3' || await checkBgeM3Connection();
+  if (tryBgeM3) {
     try {
-      newSentenceEmbeddings = await generateBgeM3EmbeddingsBatch(newSentences);
-      tierUsed = 'bge-m3';
+      const candidate = await generateBgeM3EmbeddingsBatch(newSentences);
+      if (candidate[0]?.length === inputDim || inputDim === 0) {
+        newSentenceEmbeddings = candidate;
+        tierUsed = 'bge-m3';
+      } else {
+        console.warn(`[Revision] BGE-M3 dim ${candidate[0]?.length} ≠ input dim ${inputDim} — skipping`);
+      }
     } catch {
       console.warn('[Revision] BGE-M3 failed, falling back');
     }
   }
 
-  // Tier 2: Configured AI provider
+  // Tier 2: Configured embedding provider
   if (!newSentenceEmbeddings) {
     try {
-      if (config.aiProvider === 'ollama') {
-        newSentenceEmbeddings = await Promise.all(
-          newSentences.map(s => generateOllamaEmbedding(s, config.embeddingModel))
-        );
-        tierUsed = 'ollama';
+      const candidate = await Promise.all(
+        newSentences.map(s => generateEmbedding(s, config))
+      );
+      if (candidate[0]?.length === inputDim || inputDim === 0) {
+        newSentenceEmbeddings = candidate;
+        tierUsed = config.embeddingProvider;
       } else {
-        newSentenceEmbeddings = await Promise.all(
-          newSentences.map(s => generateGeminiEmbedding(s, config.embeddingModel))
-        );
-        tierUsed = 'gemini';
+        console.warn(`[Revision] Provider dim ${candidate[0]?.length} ≠ input dim ${inputDim} — skipping`);
       }
     } catch {
       console.warn('[Revision] Provider embedding failed, falling back to TF-IDF');
     }
   }
 
-  // Tier 3: Local TF-IDF (always available)
+  // Tier 3: TF-IDF — always available, always produces 150-dim vectors
   if (!newSentenceEmbeddings) {
     const inputTexts = originalData.participants.map(p => p.originalText);
     const vectorizer = new LocalVectorizer(inputTexts);
     newSentenceEmbeddings = newSentences.map(s => vectorizer.embed(s));
+
+    if (inputDim !== 150 && inputDim !== 0) {
+      // Input embeddings are higher-dimensional (BGE-M3 / OpenAI / Gemini).
+      // Re-embed inputs with TF-IDF so both sides are 150-dim.
+      console.warn(`[Revision] Falling back to TF-IDF (150-dim) but inputs are ${inputDim}-dim. ` +
+        `Re-embedding inputs with TF-IDF for consistent comparison.`);
+      onProgress?.('Re-embedding inputs for consistent comparison (TF-IDF fallback)…');
+      effectiveInputEmbeddings = inputTexts.map(t => vectorizer.embed(t));
+    }
     tierUsed = 'tfidf';
   }
 
@@ -209,11 +236,11 @@ export const recomputeWithNewSummary = async (
   const { matchingThreshold } = ANALYSIS_CONFIG.thresholds;
   const { isolationPercentile } = ANALYSIS_CONFIG.thresholds;
 
-  // Detect whether inputs were embedded with local TF-IDF (dim = 150)
-  const isLocalVectors = inputEmbeddings[0]?.length === 150;
+  // Both embedding sets are now guaranteed to have the same dimensionality.
+  const isLocalVectors = effectiveInputEmbeddings[0]?.length === 150;
 
   const updatedParticipants = originalData.participants.map((p, idx) => {
-    const embedding = inputEmbeddings[idx];
+    const embedding = effectiveInputEmbeddings[idx];
     if (!embedding) return p;
 
     let maxSim = 0;

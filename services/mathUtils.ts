@@ -30,24 +30,30 @@ export const computeGlobalCentroid = (vectors: number[][]): number[] => {
 // Calculate average pairwise cosine distance (1 - similarity)
 export const computeAveragePairwiseDistance = (vectors: number[][]): number => {
     if (vectors.length < 2) return 0;
-    
+
     // Optimization: Sampling for large datasets (>100)
     let targetVectors = vectors;
     if (vectors.length > 100) {
-        // Simple random sample
-        targetVectors = vectors.filter(() => Math.random() > 0.5); 
+        // Deterministic stride-based systematic sampling (≤ ~50 vectors).
+        // Using Math.random() would produce non-deterministic results on the
+        // same data — a reproducibility concern for repeated analyses.
+        // Stride sampling: take every k-th vector so the sample is always the
+        // same for the same input, and coverage is uniform across the dataset.
+        const targetSize = 50;
+        const stride = Math.ceil(vectors.length / targetSize);
+        targetVectors = vectors.filter((_, i) => i % stride === 0);
     }
 
     let totalDist = 0;
     let count = 0;
-    
+
     for (let i = 0; i < targetVectors.length; i++) {
         for (let j = i + 1; j < targetVectors.length; j++) {
             totalDist += (1 - cosineSimilarity(targetVectors[i], targetVectors[j]));
             count++;
         }
     }
-    
+
     return count === 0 ? 0 : totalDist / count;
 };
 
@@ -91,25 +97,25 @@ export const computePCA = (vectors: number[][], k: number = 2): number[][] => {
 
         // Power iteration: converges to dominant eigenvector
         for (let iter = 0; iter < pcaIterations; iter++) {
-             const scores = residualData.map(vec => dotProduct(vec, pc));
-             const newPc = new Array(dimensions).fill(0);
-             for (let i = 0; i < residualData.length; i++) {
-                 for (let j = 0; j < dimensions; j++) {
-                     newPc[j] += residualData[i][j] * scores[i];
-                 }
-             }
-             mag = magnitude(newPc);
-             if (mag < 1e-6) break; // Convergence check
-             pc = newPc.map(v => v / mag);
+            const scores = residualData.map(vec => dotProduct(vec, pc));
+            const newPc = new Array(dimensions).fill(0);
+            for (let i = 0; i < residualData.length; i++) {
+                for (let j = 0; j < dimensions; j++) {
+                    newPc[j] += residualData[i][j] * scores[i];
+                }
+            }
+            mag = magnitude(newPc);
+            if (mag < 1e-6) break; // Convergence check
+            pc = newPc.map(v => v / mag);
         }
 
         // Project data onto this component and deflate residual
-        for(let i=0; i<vectors.length; i++) {
+        for (let i = 0; i < vectors.length; i++) {
             const score = dotProduct(residualData[i], pc);
             projectedData[i][componentIdx] = score;
 
             // Deflation: remove this component's contribution
-            for(let j=0; j<dimensions; j++) {
+            for (let j = 0; j < dimensions; j++) {
                 residualData[i][j] -= score * pc[j];
             }
         }
@@ -126,6 +132,14 @@ export const computePCA = (vectors: number[][], k: number = 2): number[][] => {
  * - Elbow method uses within-cluster variance (WCSS) to find optimal k
  * - 15% improvement threshold balances model complexity vs. fit (parsimony principle)
  * - Max k=5 ensures interpretability while allowing meaningful segmentation
+ *
+ * Stability note:
+ * - K-Means++ initialization (Arthur & Vassilvitskii, 2007) gives O(log k)
+ *   approximation guarantee vs. optimal and dramatically reduces sensitivity to
+ *   initial centroid placement. In practice, for N=5–30 participants and k≤5,
+ *   cluster assignments are near-deterministic across repeated runs.
+ * - For full reproducibility across sessions, a seeded PRNG (e.g., `seedrandom`)
+ *   could be added, but the current approach is sufficient for interactive use.
  *
  * References:
  * - Thorndike (1953) for elbow method
@@ -158,7 +172,7 @@ export const computeAutoKMeans = (vectors: number[][]): { assignments: number[],
         let totalVariance = 0;
         pcaVectors.forEach((vec, i) => {
             const c = centroids[assignments[i]];
-            const distSq = vec.reduce((sum, v, j) => sum + (v - c[j])**2, 0);
+            const distSq = vec.reduce((sum, v, j) => sum + (v - c[j]) ** 2, 0);
             totalVariance += distSq;
         });
 

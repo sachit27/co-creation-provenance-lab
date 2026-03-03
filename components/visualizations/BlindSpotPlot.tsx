@@ -54,6 +54,22 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
     };
   });
 
+  // Quadrant counts for large-N annotation
+  const quadrantCounts = {
+    coreIncluded: plotData.filter(d => d.status === 'Included Majority').length,
+    edgeIncluded: plotData.filter(d => d.status === 'Included Minority').length,
+    coreExcluded: plotData.filter(d => d.status === 'Excluded Majority').length,
+    blindSpot: plotData.filter(d => d.status === 'Blind Spot').length,
+  };
+
+  // Large-N scaling: smaller points so they don't overlap
+  const isLargeN = data.length > 200;
+  const isVeryLargeN = data.length > 500;
+  const pointRadius = isVeryLargeN ? 3 : isLargeN ? 4 : 5;
+  const blindSpotRadius = isVeryLargeN ? 4 : isLargeN ? 5 : 7;
+  const pointStrokeWidth = isVeryLargeN ? 0.3 : isLargeN ? 0.5 : 1;
+  const blindSpotStrokeWidth = isVeryLargeN ? 0.8 : isLargeN ? 1 : 2;
+
   const getColor = (status: string) => {
     switch (status) {
       case 'Included Majority': return '#10b981';
@@ -230,8 +246,8 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
                   key={`cell-${index}`}
                   fill={getColor(entry.status)}
                   stroke="#fff"
-                  strokeWidth={entry.status === 'Blind Spot' ? 2 : 1}
-                  r={entry.status === 'Blind Spot' ? 7 : 5}
+                  strokeWidth={entry.status === 'Blind Spot' ? blindSpotStrokeWidth : pointStrokeWidth}
+                  r={entry.status === 'Blind Spot' ? blindSpotRadius : pointRadius}
                 />
               ))}
             </Scatter>
@@ -242,16 +258,16 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
         {width > 500 && (
           <>
             <div className="absolute top-3 right-3 text-[10px] font-bold text-green-700 bg-green-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-green-200">
-              ✓ Core Included
+              ✓ Core Included {isLargeN && <span className="text-green-500 ml-1">({quadrantCounts.coreIncluded})</span>}
             </div>
             <div className="absolute bottom-16 left-16 text-[10px] font-bold text-red-700 bg-red-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-red-200">
-              ⚠️ Blind Spots
+              ⚠️ Blind Spots {isLargeN && <span className="text-red-500 ml-1">({quadrantCounts.blindSpot})</span>}
             </div>
             <div className="absolute top-3 left-16 text-[10px] font-medium text-blue-600 bg-blue-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-blue-200">
-              Edge Included
+              Edge Included {isLargeN && <span className="text-blue-400 ml-1">({quadrantCounts.edgeIncluded})</span>}
             </div>
             <div className="absolute bottom-16 right-3 text-[10px] font-medium text-amber-600 bg-amber-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-amber-200">
-              Core Excluded
+              Core Excluded {isLargeN && <span className="text-amber-400 ml-1">({quadrantCounts.coreExcluded})</span>}
             </div>
           </>
         )}

@@ -99,17 +99,19 @@ export const BiasAttributionBadge: React.FC<BiasAttributionBadgeProps> = ({
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-xs">{fm.icon}</span>
                   <span className={`text-[11px] font-semibold ${fm.color}`}>{fm.label}</span>
-                  <span className="text-[10px] text-slate-400 ml-auto">
-                    {Math.round(factor.confidence * 100)}% confidence
+                  <span
+                    className="text-[10px] text-slate-400 ml-auto"
+                    title="Not a calibrated probability. Indicates strength of observable evidence for this cause."
+                  >
+                    {Math.round(factor.confidence * 100)}% evidence strength
                   </span>
                 </div>
                 {/* Confidence bar */}
                 <div className="h-1 bg-slate-200 rounded-full mb-1.5">
                   <div
-                    className={`h-full rounded-full ${
-                      factor.confidence > 0.7 ? 'bg-red-500' :
-                      factor.confidence > 0.4 ? 'bg-amber-500' : 'bg-slate-400'
-                    }`}
+                    className={`h-full rounded-full ${factor.confidence > 0.7 ? 'bg-red-500' :
+                        factor.confidence > 0.4 ? 'bg-amber-500' : 'bg-slate-400'
+                      }`}
                     style={{ width: `${factor.confidence * 100}%` }}
                   />
                 </div>

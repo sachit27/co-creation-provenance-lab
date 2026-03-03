@@ -2,19 +2,23 @@ import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, 
 import { checkAIConnection, generateCompletion as generateGeminiCompletion, generateEmbedding as generateGeminiEmbedding } from './gemini';
 import { checkOllamaConnection, generateOllamaCompletion, generateOllamaEmbedding } from './ollama';
 import { checkGroqConnection, generateGroqCompletion } from './groq';
+import { checkOpenAIConnection, generateOpenAICompletion, generateOpenAIEmbedding } from './openai';
+import { checkClaudeConnection, generateClaudeCompletion } from './claude';
+import { checkApertusConnection, generateApertusCompletion } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
 import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid } from './mathUtils';
 // Note: analyzeSentimentAI has built-in 3-tier fallback (AI → HuggingFace → NLP)
 // so we always use it regardless of AI connection status
 import { analyzeSentimentAI, analyzeConceptGapAI, extractKeywordsAI } from './aiAnalysis';
 import { LocalVectorizer } from './vectorizer';
-import { computeConceptFidelity, computeConceptOverlapScore, extractKeywords } from './textUtils';
+import { analyzeConceptGap, computeConceptFidelity, computeConceptOverlapScore, extractKeywords } from './textUtils';
 import { computeUncertaintyMetrics } from './uncertainty';
 import { analyzeGroups } from './groupAnalysis';
+import { checkHuggingFaceAvailable, analyzeSentimentBatchHF } from './huggingface';
 import { generateThresholdSensitivityData } from '../components/visualizations/ThresholdSensitivityMini';
 import { runStrategyComparison } from './strategyComparison';
 import { ANALYSIS_CONFIG } from '../constants';
-import { getCachedEmbedding, setCachedEmbedding } from './embeddingCache';
+import { getCachedEmbedding, setCachedEmbedding, prewarmCache, getCachedEmbeddingAsync } from './embeddingCache';
 import { detectLanguage, analyzeLanguageEquity } from './languageDetection';
 
 // --- Prompt Engineering ---
@@ -38,24 +42,160 @@ const formatInputsForPrompt = (inputs: ParticipantInput[]): string => {
 // BGE-M3 is used for embeddings regardless of which provider handles text generation
 let bgeM3Available: boolean | null = null;
 
-const generateEmbedding = async (text: string, config: AnalysisConfig): Promise<number[]> => {
-  // Try BGE-M3 first (state-of-the-art, local, free)
-  if (bgeM3Available) {
-    try {
+/**
+ * Route an embedding call to the correct provider based on config.embeddingProvider.
+ * Falls back to Gemini if provider is somehow unrecognised.
+ */
+export const generateEmbedding = async (text: string, config: AnalysisConfig): Promise<number[]> => {
+  switch (config.embeddingProvider) {
+    case 'bge-m3':
       return await generateBgeM3Embedding(text);
-    } catch (e) {
-      console.warn('[Embedding] BGE-M3 call failed, falling back to provider:', e);
-    }
+    case 'openai':
+      return await generateOpenAIEmbedding(text, config.embeddingModel);
+    case 'ollama':
+      return await generateOllamaEmbedding(text, config.embeddingModel);
+    case 'tfidf':
+      throw new Error('TF-IDF embeddings are computed locally — generateEmbedding() should not be called for tfidf provider');
+    case 'gemini':
+    default:
+      return await generateGeminiEmbedding(text, config.embeddingModel);
   }
-  // Fallback to configured provider
-  if (config.aiProvider === 'ollama') return await generateOllamaEmbedding(text, config.embeddingModel);
-  return await generateGeminiEmbedding(text, config.embeddingModel);
 };
 
 const generateCompletion = async (prompt: string, system: string, config: AnalysisConfig): Promise<string> => {
   if (config.aiProvider === 'ollama') return await generateOllamaCompletion(prompt, system, config.model);
   if (config.aiProvider === 'groq') return await generateGroqCompletion(prompt, system, config.model);
+  if (config.aiProvider === 'openai') return await generateOpenAICompletion(prompt, system, config.model);
+  if (config.aiProvider === 'claude') return await generateClaudeCompletion(prompt, system, config.model);
+  if (config.aiProvider === 'apertus') return await generateApertusCompletion(prompt, system, config.model);
   return await generateGeminiCompletion(prompt, system, config.model);
+};
+
+// ── Batched sentiment analysis ───────────────────────────────────────────────
+// Instead of 1 AI call per input (N calls), we batch into chunks of 100.
+// Each chunk asks the LLM to return a JSON array of {score, label} objects.
+// Fallback: individual analyzeSentimentAI for any inputs that fail parsing;
+//           if AI is disconnected, HuggingFace Transformer → NLP.
+type SentimentResult = { score: number; label: 'positive' | 'negative' | 'neutral' };
+
+const SENTIMENT_BATCH_SIZE = 100;
+
+const batchAnalyzeSentiment = async (
+  texts: string[],
+  config: AnalysisConfig,
+  isConnected: boolean,
+  onProgress?: (msg: string) => void
+): Promise<SentimentResult[]> => {
+  const results: SentimentResult[] = new Array(texts.length).fill(null);
+  const startTime = Date.now();
+
+  if (isConnected && config.summaryMethod === 'ai') {
+    // Batched AI path — 100 inputs per prompt
+    for (let i = 0; i < texts.length; i += SENTIMENT_BATCH_SIZE) {
+      const chunk = texts.slice(i, i + SENTIMENT_BATCH_SIZE);
+      const chunkNum = Math.floor(i / SENTIMENT_BATCH_SIZE) + 1;
+      const totalChunks = Math.ceil(texts.length / SENTIMENT_BATCH_SIZE);
+
+      // ETA calculation
+      const elapsed = (Date.now() - startTime) / 1000;
+      const etaStr = chunkNum > 1
+        ? ` (~${Math.round(elapsed / (chunkNum - 1) * (totalChunks - chunkNum + 1))}s remaining)`
+        : '';
+      onProgress?.(`Sentiment analysis: batch ${chunkNum}/${totalChunks}${etaStr}`);
+
+      try {
+        const numberedInputs = chunk.map((text, idx) =>
+          `[${idx}] "${text.slice(0, 250).replace(/"/g, '\\"')}"`
+        ).join('\n');
+
+        const prompt = `You are analyzing participant responses from a co-creation or deliberative research session.
+Participants are sharing their opinions and experiences about a social/policy/education topic.
+Sentiment here means their overall ATTITUDE (positive = supportive/optimistic, negative = critical/concerned, neutral = balanced/descriptive).
+Do NOT penalize factual or academic language — "accelerates", "enables", "supports", "fosters" are POSITIVE.
+Terms like "barrier", "concern", "risk" are NEGATIVE only if the participant is directly expressing concern — not if they say these things are PREVENTED or OVERCOME.
+
+Analyze the sentiment of each numbered participant response below.
+
+RESPONSES:
+${numberedInputs}
+
+Return a JSON array (one entry per input, in the same order, index 0 = first response):
+[{"score": <-1.0 to 1.0>, "label": "<positive|negative|neutral>"}, ...]
+
+Rules:
+- score > 0.1 → label must be "positive"
+- score < -0.1 → label must be "negative"
+- otherwise → label must be "neutral"
+- Return ONLY the JSON array, no explanation.`;
+
+        const response = await generateCompletion(
+          prompt,
+          'You are a sentiment analysis expert. Respond only with a valid JSON array.',
+          config
+        );
+
+        const match = response.match(/\[[\s\S]*\]/);
+        if (match) {
+          const parsed = JSON.parse(match[0]) as any[];
+          for (let j = 0; j < chunk.length; j++) {
+            if (parsed[j]?.label && typeof parsed[j]?.score === 'number') {
+              const label = ['positive', 'negative', 'neutral'].includes(parsed[j].label)
+                ? parsed[j].label : 'neutral';
+              results[i + j] = {
+                score: Math.max(-1, Math.min(1, parsed[j].score)),
+                label,
+              };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[Sentiment] Batch ${chunkNum} failed:`, e);
+      }
+    }
+  }
+
+  // Fill any remaining nulls with batched HuggingFace (or NLP) fallback
+  // This executes when AI is disconnected or when specific batches failed above.
+  const missingIndices = results.map((r, i) => r === null ? i : -1).filter(i => i >= 0);
+
+  if (missingIndices.length > 0) {
+    onProgress?.(`Sentiment fallback for ${missingIndices.length} inputs...`);
+    const missingTexts = missingIndices.map(idx => texts[idx]);
+
+    try {
+      // Try local Transformer batching first (much faster than individual calls)
+      if (await checkHuggingFaceAvailable()) {
+        const hfStartTime = Date.now();
+        const hfResults = await analyzeSentimentBatchHF(missingTexts, (processed, total) => {
+          const elapsed = (Date.now() - hfStartTime) / 1000;
+          const eta = processed < total
+            ? ` (~${Math.round(elapsed / processed * (total - processed))}s remaining)`
+            : '';
+          onProgress?.(`Local sentiment models classifying ${processed}/${total}${eta}`);
+        });
+
+        // Map back to original indices
+        for (let j = 0; j < missingIndices.length; j++) {
+          results[missingIndices[j]] = hfResults[j];
+        }
+      } else {
+        throw new Error("HuggingFace not available");
+      }
+    } catch (e) {
+      console.warn(`[Sentiment] Batched HF fallback failed, using individual NLP:`, e);
+      for (let j = 0; j < missingIndices.length; j++) {
+        const origIdx = missingIndices[j];
+        try {
+          // Will fall through to Tier 3 NLP since HF failed
+          results[origIdx] = await analyzeSentimentAI(texts[origIdx], config);
+        } catch {
+          results[origIdx] = { score: 0, label: 'neutral' };
+        }
+      }
+    }
+  }
+
+  return results as SentimentResult[];
 };
 
 // --- Concept Fidelity (AI & Manual) ---
@@ -76,23 +216,76 @@ const performConceptFidelityAnalysis = async (
   let totalConcepts = 0;
   let retainedCount = 0;
 
-  // Process in parallel with rate limiting if needed (batch of 5)
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
-    const batch = inputs.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async (text, batchIdx) => {
-      const actualIdx = i + batchIdx;
-      // Use analyzeConceptGapAI which has built-in 3-tier fallback
-      const gap = await analyzeConceptGapAI(text, summary, config);
-      participantMap[actualIdx] = gap;
+  // ── Batched concept gap analysis ──────────────────────────────────────────
+  // Instead of 1 AI call per participant (N calls = slow + expensive), we batch
+  // multiple participants into a single AI call. For 30 inputs with CHUNK_SIZE=15
+  // that's only 2 API round-trips instead of 30, while preserving semantic
+  // accuracy. Any participant that fails JSON parsing falls back to local NLP.
+  const AI_CHUNK_SIZE = 15; // Max participants per AI call (keeps prompt under context window)
 
-      gap.kept.forEach(c => allExampleConcepts.add(c));
-      gap.dropped.forEach(c => allExampleConcepts.add(c));
-      totalConcepts += (gap.kept.length + gap.dropped.length);
-      retainedCount += gap.kept.length;
-    }));
-    onProgress?.(`Analyzed concepts for ${Math.min(i + BATCH_SIZE, inputs.length)}/${inputs.length} inputs...`);
+  if (isConnected && config.summaryMethod === 'ai') {
+    for (let i = 0; i < inputs.length; i += AI_CHUNK_SIZE) {
+      const chunk = inputs.slice(i, i + AI_CHUNK_SIZE);
+      onProgress?.(`Analyzing concepts (batch ${Math.floor(i / AI_CHUNK_SIZE) + 1}/${Math.ceil(inputs.length / AI_CHUNK_SIZE)})...`);
+
+      try {
+        const numberedInputs = chunk.map((text, idx) => `[${idx}] "${text.slice(0, 300)}"`).join('\n');
+        const prompt = `Compare the key concepts in each numbered INPUT to those in the SUMMARY.
+
+SUMMARY: "${summary.slice(0, 1500)}"
+
+INPUTS:
+${numberedInputs}
+
+For EACH input, identify which concepts are kept in the SUMMARY and which are dropped.
+Respond with ONLY a JSON array where index matches input number:
+[{"kept": ["concept1", ...], "dropped": ["concept1", ...]}, ...]`;
+
+        const response = await generateCompletion(prompt, 'You are a concept analysis expert. Respond only with a valid JSON array.', config);
+        const match = response.match(/\[[\s\S]*\]/);
+        if (match) {
+          const parsed = JSON.parse(match[0]) as { kept: string[], dropped: string[] }[];
+          for (let j = 0; j < chunk.length; j++) {
+            const actualIdx = i + j;
+            if (parsed[j]?.kept && parsed[j]?.dropped) {
+              participantMap[actualIdx] = {
+                kept: parsed[j].kept.map((k: string) => String(k).toLowerCase()),
+                dropped: parsed[j].dropped.map((k: string) => String(k).toLowerCase()),
+              };
+            } else {
+              // AI didn't return valid data for this participant — use NLP fallback
+              participantMap[actualIdx] = analyzeConceptGap(chunk[j], summary);
+            }
+          }
+        } else {
+          // JSON parse failed — fall back to NLP for entire chunk
+          for (let j = 0; j < chunk.length; j++) {
+            participantMap[i + j] = analyzeConceptGap(chunk[j], summary);
+          }
+        }
+      } catch (e) {
+        console.warn(`[ConceptFidelity] Batched AI call failed for chunk at ${i}, falling back to NLP:`, e);
+        for (let j = 0; j < chunk.length; j++) {
+          participantMap[i + j] = analyzeConceptGap(chunk[j], summary);
+        }
+      }
+    }
+  } else {
+    // No AI connection — use fast local NLP for all participants
+    onProgress?.("Using local NLP concept analysis...");
+    for (let i = 0; i < inputs.length; i++) {
+      participantMap[i] = analyzeConceptGap(inputs[i], summary);
+    }
   }
+
+  // Aggregate concept counts
+  Object.values(participantMap).forEach(gap => {
+    gap.kept.forEach(c => allExampleConcepts.add(c));
+    gap.dropped.forEach(c => allExampleConcepts.add(c));
+    totalConcepts += (gap.kept.length + gap.dropped.length);
+    retainedCount += gap.kept.length;
+  });
+  onProgress?.(`Concept analysis complete for ${inputs.length} inputs`);
 
   // Calculate added concepts (potential hallucinations or AI-introduced framing).
   // Use stemmed matching to avoid false positives from morphological variants
@@ -183,8 +376,7 @@ const performConceptFidelityAnalysis = async (
   // Check all unique concepts found
   const allFound = new Set([...preservedSet, ...droppedSet]);
 
-  // Use the robust checker (textUtils)
-  const { analyzeConceptGap } = await import('./textUtils');
+  // analyzeConceptGap is imported at the top level from './textUtils'
 
   for (const concept of allFound) {
     const res = analyzeConceptGap(concept, summary);
@@ -213,26 +405,48 @@ export const runCoreAnalysis = async (
   onProgress?: (msg: string) => void
 ): Promise<AnalysisResult> => {
 
-  // 1. Connection Check
+  // 0. Minimum sample size guard
+  // Analysis requires at least 2 participants for any meaningful pairwise metric
+  // (Gini, pairwise distance, LOO sensitivity). A single participant produces
+  // degenerate results (Gini = 0, distance = 0).
+  if (inputs.length < 2) {
+    throw new Error(
+      `Analysis requires at least 2 participant inputs, but only ${inputs.length} was provided. ` +
+      `Please add more contributions before running the analysis.`
+    );
+  }
+
   onProgress?.(`Checking availability...`);
   let isConnected = false;
   if (config.aiProvider === 'ollama') {
     isConnected = await checkOllamaConnection();
   } else if (config.aiProvider === 'groq') {
     isConnected = checkGroqConnection();
+  } else if (config.aiProvider === 'openai') {
+    isConnected = checkOpenAIConnection();
+  } else if (config.aiProvider === 'claude') {
+    isConnected = checkClaudeConnection();
+  } else if (config.aiProvider === 'apertus') {
+    isConnected = checkApertusConnection();
   } else {
     isConnected = await checkAIConnection();
   }
+
+  // If AI is selected but offline, force fallback (but keep embeddings via local)
+  let activeConfig = { ...config };
 
   // Check BGE-M3 availability (independent of AI provider — used for embeddings only)
   bgeM3Available = await checkBgeM3Connection();
   if (bgeM3Available) {
     onProgress?.("BGE-M3 embedding server detected");
     console.log('[Analysis] BGE-M3 available — using state-of-the-art embeddings');
+  } else if (activeConfig.embeddingProvider === 'bge-m3') {
+    // User selected BGE-M3 but it's not running
+    onProgress?.('⚠️ BGE-M3 not detected. Switching to TF-IDF fallback.');
+    console.warn('[Analysis] BGE-M3 not available — falling back to TF-IDF');
+    activeConfig = { ...activeConfig, embeddingProvider: 'tfidf' };
   }
 
-  // If AI is selected but offline, force fallback (but keep embeddings via local)
-  let activeConfig = { ...config };
   if (!isConnected && activeConfig.summaryMethod === 'ai') {
     console.warn("AI Connection failed. Switching to extractive.");
     onProgress?.("⚠️ AI Offline. Switching to Extractive Summary.");
@@ -241,10 +455,8 @@ export const runCoreAnalysis = async (
     activeConfig.runLOO = false;
   }
 
-  // 2. Determine Embedding Strategy
-  // Priority: BGE-M3 → Ollama/Gemini → Local TF-IDF
-  const hasEmbeddingSource = bgeM3Available || isConnected;
-  let useLocalVectors = !hasEmbeddingSource;
+  // 2. Determine Embedding Strategy based on user-selected embeddingProvider
+  let useLocalVectors = activeConfig.embeddingProvider === 'tfidf';
 
   // 3. Generate Embeddings
   let inputEmbeddings: number[][] = [];
@@ -254,7 +466,7 @@ export const runCoreAnalysis = async (
     onProgress?.("Generating local vector space...");
     localVectorizer = new LocalVectorizer(inputs.map(i => i.text));
     inputEmbeddings = inputs.map(i => localVectorizer!.embed(i.text));
-  } else if (bgeM3Available) {
+  } else if (activeConfig.embeddingProvider === 'bge-m3') {
     // BGE-M3: Chunked batch embedding (32 texts/chunk) with model-keyed in-session cache.
     // Sending all texts in one request fails at 5000+ inputs due to payload size.
     const BGE_CHUNK_SIZE = 32;
@@ -294,20 +506,26 @@ export const runCoreAnalysis = async (
     const texts = inputs.map(i => i.text);
     // Model key must match the actual embedding model so cached vectors from a
     // different provider are never reused (they live in incomparable vector spaces).
-    const PER_ITEM_MODEL_KEY = activeConfig.aiProvider === 'ollama'
-      ? (activeConfig.embeddingModel || 'ollama')
-      : (activeConfig.embeddingModel || 'gemini');
-    // Check cache first to avoid redundant API calls on re-runs
+    const PER_ITEM_MODEL_KEY = `${activeConfig.embeddingProvider}::${activeConfig.embeddingModel}`;
+
+    // Pre-warm L1 from IndexedDB (L2) — batch-loads previously cached vectors
+    // so they don't need individual async lookups in the hot loop below.
+    const prewarmed = await prewarmCache(texts, PER_ITEM_MODEL_KEY);
+    if (prewarmed > 0) {
+      onProgress?.(`Pre-loaded ${prewarmed} embeddings from persistent cache`);
+    }
+
+    // Check L1 cache (now includes any L2-promoted entries)
     const result: (number[] | null)[] = texts.map(t => getCachedEmbedding(t, PER_ITEM_MODEL_KEY));
     const uncachedIndices = result.map((v, i) => v === null ? i : -1).filter(i => i >= 0);
     let failureCount = 0;
 
     if (uncachedIndices.length > 0) {
       onProgress?.(`Embedding ${uncachedIndices.length} inputs (${texts.length - uncachedIndices.length} cached)...`);
-      // Run up to 10 embeddings in parallel for all providers.
-      // Ollama (local) handles concurrent requests fine; Gemini/Groq embedding
-      // API limits are typically 1500 RPM — well above 10 concurrent calls.
-      const CONCURRENCY = 10;
+      // Adaptive concurrency: provider-specific limits from ANALYSIS_CONFIG.
+      // OpenAI (high rate limits) → 40 concurrent, Ollama (local CPU) → 5 concurrent.
+      const CONCURRENCY = ANALYSIS_CONFIG.providerConcurrency[activeConfig.embeddingProvider] || 10;
+      const embStartTime = Date.now();
 
       for (let start = 0; start < uncachedIndices.length; start += CONCURRENCY) {
         const batch = uncachedIndices.slice(start, start + CONCURRENCY);
@@ -315,20 +533,31 @@ export const runCoreAnalysis = async (
           try {
             const emb = await generateEmbedding(inputs[origIdx].text, activeConfig);
             if (emb.every(v => v === 0)) {
-              // Zero vector from API — counts as a failure; will produce score ≈ 0
+              // Zero vector from API — this participant's embedding failed.
+              // We flag it explicitly so the UI can show a warning badge and
+              // exclude it from aggregate metrics rather than silently scoring it ~0.
               console.warn(`[Embedding] Zero vector received for ${inputs[origIdx].id} — API may be failing`);
               failureCount++;
+              result[origIdx] = emb;
+              // Mark as failed — do NOT cache a zero vector (would poison future runs)
+            } else {
+              result[origIdx] = emb;
+              setCachedEmbedding(texts[origIdx], PER_ITEM_MODEL_KEY, emb);
             }
-            result[origIdx] = emb;
-            setCachedEmbedding(texts[origIdx], PER_ITEM_MODEL_KEY, emb);
           } catch (e) {
             console.warn(`[Embedding] API call failed for ${inputs[origIdx].id}`);
             failureCount++;
             result[origIdx] = new Array(768).fill(0);
           }
         }));
-        if (start > 0 && start % (CONCURRENCY * 10) === 0) {
-          onProgress?.(`Embedded ${Math.min(start + CONCURRENCY, uncachedIndices.length)}/${uncachedIndices.length}...`);
+        // Progress update with ETA
+        const processed = Math.min(start + CONCURRENCY, uncachedIndices.length);
+        if (processed % 50 === 0 || processed === uncachedIndices.length) {
+          const embElapsed = (Date.now() - embStartTime) / 1000;
+          const embEta = processed < uncachedIndices.length
+            ? ` (~${Math.round(embElapsed / processed * (uncachedIndices.length - processed))}s remaining)`
+            : '';
+          onProgress?.(`Embedded ${processed}/${uncachedIndices.length}${embEta}`);
         }
       }
     } else {
@@ -353,10 +582,7 @@ export const runCoreAnalysis = async (
   }
 
   // Determine which embedding tier was ultimately used (after all fallbacks are resolved)
-  const embeddingTierUsed: 'bge-m3' | 'ollama' | 'gemini' | 'tfidf' =
-    useLocalVectors ? 'tfidf' :
-    bgeM3Available ? 'bge-m3' :
-    activeConfig.aiProvider === 'ollama' ? 'ollama' : 'gemini';
+  const embeddingTierUsed = activeConfig.embeddingProvider;
 
   // Pre-compute clustering — reused for hierarchical summarization (below) and participant analysis.
   // Must run after embeddings are finalised.
@@ -507,7 +733,17 @@ export const runCoreAnalysis = async (
     fidelityScore: 0, participantMap: {},
   };
 
-  // 6a. Hybrid Representation Scoring
+  // 6a. Pre-compute sentiment for ALL participants in batches (before the per-participant loop).
+  // This reduces N individual AI calls down to N/100 batched calls.
+  onProgress?.('Analyzing participant sentiment...');
+  const allSentiments = await batchAnalyzeSentiment(
+    inputs.map(i => i.text),
+    activeConfig,
+    isConnected,
+    onProgress
+  );
+
+  // 6b. Hybrid Representation Scoring
   console.log(`[Analysis] Computing hybrid representation scores...`);
   onProgress?.("Computing representation scores...");
 
@@ -570,12 +806,29 @@ export const runCoreAnalysis = async (
 
     const conceptOverlap = computeConceptOverlapScore(input.text, summaryText);
 
+    // --- Hybrid Representation Score ---
+    // Combines dense embedding similarity (primary signal, captures semantics)
+    // with TF-IDF keyword concept overlap (safety net for keyword-level matches).
+    //
+    // Weights rationale (from ANALYSIS_CONFIG.algorithms.representationWeights):
+    //   When using neural embeddings (BGE-M3 / Gemini / Ollama / OpenAI), the embedding
+    //   captures richer semantic relationships than keyword overlap, so it receives
+    //   higher weight (default 0.8). TF-IDF is a sparser signal that acts as a
+    //   "safety net" to catch direct keyword matches the embedding may miss (0.2).
+    //
+    //   When falling back to local TF-IDF vectors, both signals are derived from the
+    //   same sparse term counts and are equally informative, so we use equal weights
+    //   (0.5 / 0.5).
+    const { embeddingWeight, conceptOverlapWeight } = ANALYSIS_CONFIG.algorithms.representationWeights;
+
     let representationScore: number;
 
     if (useLocalVectors) {
+      // Both signals are TF-IDF-based — equal weighting is appropriate.
       representationScore = (embeddingSimilarity + conceptOverlap) / 2;
     } else {
-      representationScore = embeddingSimilarity * 0.8 + conceptOverlap * 0.2;
+      // Neural embedding dominant; concept overlap acts as safety net.
+      representationScore = embeddingSimilarity * embeddingWeight + conceptOverlap * conceptOverlapWeight;
     }
 
     representationScore = Math.max(0, Math.min(1, representationScore));
@@ -584,13 +837,30 @@ export const runCoreAnalysis = async (
       console.log(`[Analysis] ${input.id}: emb=${embeddingSimilarity.toFixed(2)} (maxSim=${maxSim.toFixed(2)}, matches=${sentenceMatches.length}), concept=${conceptOverlap.toFixed(2)}, useLocal=${useLocalVectors} => final=${representationScore.toFixed(2)}`);
     }
 
+    // --- Semantic Isolation: Distance from Global Centroid ---
+    //
+    // Design note: The global centroid is the arithmetic mean of all participant
+    // embeddings, making it inherently majority-weighted. This is intentional:
+    // the tool measures how far a voice is from the *consensus center*, which by
+    // definition is dominated by the majority perspective. Isolation therefore
+    // correctly flags participants whose views diverge from the mainstream.
+    //
+    // Limitation: In multi-cluster datasets, a participant in a legitimate
+    // minority cluster may appear "isolated" even when surrounded by like-minded
+    // peers. For such datasets, the intra-cluster distance (computed by
+    // computeAutoKMeans) provides complementary context.
     const distanceToCenter = 1 - cosineSimilarity(embedding, globalCentroid);
 
-    // Sentiment Analysis - always use tiered function
-    // It automatically falls back: AI → HuggingFace → improved NLP
-    const sentiment = await analyzeSentimentAI(input.text, activeConfig);
+    // Sentiment — already pre-computed in batch above
+    const sentiment = allSentiments[idx];
 
     const concepts = conceptFidelity.participantMap[idx] || { kept: [], dropped: [] };
+
+    // Detect whether this participant's embedding was a zero-vector failure.
+    // A zero vector is the sentinel returned when the embedding API fails or
+    // times out. We explicitly flag it so the UI can show a warning badge
+    // and the aggregate metrics can exclude the participant.
+    const embeddingFailed = embedding.every(v => v === 0);
 
     return {
       id: input.id,
@@ -605,18 +875,30 @@ export const runCoreAnalysis = async (
       keywords: concepts.dropped,
       embeddingTier: embeddingTierUsed,
       detectedLanguage: detectLanguage(input.text),
+      embeddingFailed: embeddingFailed || undefined, // only set when true
     };
   }));
 
   // Aggregate Metrics
-  const repScores = participants.map(p => p.representationScore);
+  // Exclude participants with failed embeddings from aggregate metrics.
+  // Including them (score ≈ 0) would artificially inflate the Gini coefficient
+  // and depress average representation — misrepresenting the true equity picture.
+  const validParticipants = participants.filter(p => !p.embeddingFailed);
+  const failedCount = participants.length - validParticipants.length;
+  if (failedCount > 0) {
+    console.warn(
+      `[Analysis] ${failedCount} participant(s) have failed embeddings and are excluded from aggregate metrics ` +
+      `(Gini, avg representation, distinctGap). Their scores display as "⚠ Unreliable" in the UI.`
+    );
+  }
+  const repScores = validParticipants.map(p => p.representationScore);
   const gini = calculateGini(repScores);
   const inputDiversity = computeAveragePairwiseDistance(inputEmbeddings);
 
   const { isolationPercentile } = ANALYSIS_CONFIG.thresholds;
 
-  const sortedByIsolation = [...participants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
-  const splitIndex = Math.floor(participants.length * isolationPercentile);
+  const sortedByIsolation = [...validParticipants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
+  const splitIndex = Math.floor(validParticipants.length * isolationPercentile);
   let distinctGap = 0;
   if (splitIndex > 0) {
     const distinctGroup = sortedByIsolation.slice(0, splitIndex);

@@ -58,10 +58,9 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
             <span className="text-slate-400">Isolation:</span>
             <span className="font-mono text-right text-slate-300">{formatMetric(d.semanticIsolation)}</span>
             <span className="text-slate-400">Sentiment:</span>
-            <span className={`text-right capitalize ${
-              d.sentiment === 'positive' ? 'text-green-400' :
-              d.sentiment === 'negative' ? 'text-red-400' : 'text-slate-400'
-            }`}>{d.sentiment}</span>
+            <span className={`text-right capitalize ${d.sentiment === 'positive' ? 'text-green-400' :
+                d.sentiment === 'negative' ? 'text-red-400' : 'text-slate-400'
+              }`}>{d.sentiment}</span>
           </div>
           <p className="text-slate-300 leading-relaxed line-clamp-2 italic">
             "{d.originalText}"
@@ -72,11 +71,17 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
     return null;
   };
 
-  // Dynamic point size based on representation score
+  // Dynamic point size based on representation score and dataset size
+  // At 200+ points, reduce sizes to prevent overlap; at 500+, further reduce
+  const scaleFactor = data.length > 500 ? 0.35 : data.length > 200 ? 0.55 : 1;
   const getPointSize = (score: number) => {
     const baseSize = isMobile ? 50 : isCompact ? 70 : 100;
-    return baseSize + (score * (isMobile ? 100 : 200));
+    return (baseSize + (score * (isMobile ? 100 : 200))) * scaleFactor;
   };
+
+  // Dynamic opacity for large datasets
+  const pointOpacity = data.length > 500 ? 0.45 : data.length > 200 ? 0.6 : 0.85;
+  const fadedOpacity = data.length > 500 ? 0.1 : data.length > 200 ? 0.15 : 0.35;
 
   // Dynamic margins based on size
   const margins = {
@@ -89,13 +94,11 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
   return (
     <div ref={containerRef} className="w-full relative bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-slate-200 shadow-inner" style={{ height: '380px' }}>
       {/* Legend */}
-      <div className={`absolute z-10 bg-white/95 rounded-lg backdrop-blur-sm border border-slate-200 shadow-md ${
-        isMobile ? 'top-2 right-2 p-2' : 'top-3 right-3 p-3'
-      }`}>
+      <div className={`absolute z-10 bg-white/95 rounded-lg backdrop-blur-sm border border-slate-200 shadow-md ${isMobile ? 'top-2 right-2 p-2' : 'top-3 right-3 p-3'
+        }`}>
         <div className="flex items-center justify-between gap-2 mb-2 border-b border-slate-100 pb-1.5">
-          <span className={`font-semibold text-slate-600 uppercase tracking-wider ${
-            isMobile ? 'text-[8px]' : 'text-[10px]'
-          }`}>
+          <span className={`font-semibold text-slate-600 uppercase tracking-wider ${isMobile ? 'text-[8px]' : 'text-[10px]'
+            }`}>
             Topic Clusters
           </span>
           <span className="text-[9px] text-slate-400">{data.length} points</span>
@@ -104,9 +107,8 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
           {clusterStats.map(c => (
             <div
               key={c.id}
-              className={`flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded transition-colors ${
-                isMobile ? 'text-[10px]' : 'text-xs'
-              }`}
+              className={`flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded transition-colors ${isMobile ? 'text-[10px]' : 'text-xs'
+                }`}
             >
               <div className="flex items-center gap-1.5">
                 <span
@@ -176,8 +178,8 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
                 key={`cell-${index}`}
                 fill={getColor(entry.clusterId)}
                 stroke={entry.id === selectedId ? '#1e40af' : '#fff'}
-                strokeWidth={entry.id === selectedId ? 3 : 1.5}
-                opacity={selectedId && selectedId !== entry.id ? 0.35 : 0.85}
+                strokeWidth={entry.id === selectedId ? 3 : data.length > 500 ? 0.5 : 1.5}
+                opacity={selectedId && selectedId !== entry.id ? fadedOpacity : pointOpacity}
               />
             ))}
           </Scatter>

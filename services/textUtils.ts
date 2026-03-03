@@ -133,15 +133,20 @@ const cleanAndStem = (w: string): string | null => {
 
 export const extractKeywords = (text: string, max: number = 8): string[] => {
   const words = text.toLowerCase()
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "")
+    .replace(/[.,/#!$%^&*;:{}=\\-_`~()]/g, "")
     .split(/\s+/);
 
   const freq: Record<string, number> = {};
-  const stemmedWords: (string | null)[] = words.map(cleanAndStem);
+  // Track stem → first original word seen, so we return readable words not stems
+  const stemToOriginal: Record<string, string> = {};
 
-  // 1. Unigram Extraction
-  stemmedWords.forEach(w => {
-    if (w) freq[w] = (freq[w] || 0) + 1;
+  // 1. Unigram Extraction — use stems for grouping, originals for display
+  words.forEach(w => {
+    const stem = cleanAndStem(w);
+    if (stem) {
+      freq[stem] = (freq[stem] || 0) + 1;
+      if (!stemToOriginal[stem]) stemToOriginal[stem] = w; // keep first original
+    }
   });
 
   // 2. Bigram Extraction (Phrases)
@@ -154,13 +159,14 @@ export const extractKeywords = (text: string, max: number = 8): string[] => {
       const bigram = `${w1} ${w2}`;
       // Weight bigrams slightly higher than unigrams, but don't let them dominate unless frequent
       freq[bigram] = (freq[bigram] || 0) + 1.2;
+      stemToOriginal[bigram] = bigram; // bigrams are already readable
     }
   }
 
   return Object.entries(freq)
     .sort((a, b) => b[1] - a[1]) // Sort by frequency desc
     .slice(0, max)
-    .map(([w]) => w);
+    .map(([stem]) => stemToOriginal[stem] ?? stem); // return original word, not stem
 };
 
 // Returns concepts found in input that are MISSING from summary

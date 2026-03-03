@@ -1,25 +1,78 @@
-// Service for interacting with local Ollama instance.
-// In development the Vite proxy rewrites /api/ollama → http://localhost:11434
-// so the browser never makes a cross-origin request (which Ollama blocks by default).
-const OLLAMA_HOST = '/api/ollama';
+/**
+ * Ollama Service
+ *
+ * Supports both local and remote Ollama instances:
+ *
+ * ── Local development (npm run dev) ─────────────────────────────────────────
+ * The Vite dev server proxies /api/ollama → http://localhost:11434.
+ * This avoids CORS issues because the browser talks to the same origin.
+ *
+ * ── Deployed on Vercel (or any CDN) ─────────────────────────────────────────
+ * The Vite proxy does NOT exist in production. Requests to /api/ollama would
+ * 404. Instead, the user must provide their Ollama host URL directly
+ * (e.g., http://localhost:11434 with CORS enabled, or a tunneled URL via
+ * Cloudflare Tunnel / ngrok).
+ *
+ * Enable CORS on Ollama:
+ *   OLLAMA_ORIGINS="*" ollama serve
+ *   or: launchctl setenv OLLAMA_ORIGINS "*" (macOS)
+ *
+ * The runtime host is stored in sessionStorage and defaults to the Vite proxy
+ * path (/api/ollama) so local dev works with zero configuration.
+ */
+
+const VITE_PROXY_HOST = '/api/ollama';
+const OLLAMA_HOST_STORAGE = 'cprov_ollama_host';
+
+/** Returns the currently active Ollama host URL.
+ *  Falls back to the Vite dev proxy if the user hasn't set a custom host. */
+const getOllamaHost = (): string =>
+  sessionStorage.getItem(OLLAMA_HOST_STORAGE) || VITE_PROXY_HOST;
+
+/** Set a custom Ollama host URL (e.g. http://localhost:11434 for Vercel users).
+ *  Pass an empty string to reset to the Vite proxy default. */
+export const setOllamaHost = (host: string): void => {
+  const trimmed = host.trim().replace(/\/$/, ''); // remove trailing slash
+  if (trimmed) {
+    sessionStorage.setItem(OLLAMA_HOST_STORAGE, trimmed);
+  } else {
+    sessionStorage.removeItem(OLLAMA_HOST_STORAGE);
+  }
+};
+
+export const getOllamaHostUrl = (): string => getOllamaHost();
+
+/** Returns true if using the default Vite proxy (local dev mode). */
+export const isUsingViteProxy = (): boolean =>
+  !sessionStorage.getItem(OLLAMA_HOST_STORAGE);
 
 export const checkOllamaConnection = async (): Promise<boolean> => {
   try {
-    // We try to fetch tags to see if the server is responsive and we have access
-    const response = await fetch(`${OLLAMA_HOST}/api/tags`, {
+    const response = await fetch(`${getOllamaHost()}/api/tags`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(5000), // 5s timeout to prevent hanging
     });
     return response.ok;
   } catch (e) {
-    console.warn("Ollama connection check failed. Ensure `ollama serve` is running and `OLLAMA_ORIGINS=\"*\"` is set if using from a browser.");
+    if (isUsingViteProxy()) {
+      // On Vercel this path always fails — the proxy doesn't exist.
+      // Suppress the error; the UI will show the "Enter Ollama URL" prompt.
+    } else {
+      console.warn(
+        "Ollama connection check failed. Ensure `OLLAMA_ORIGINS=\"*\" ollama serve` is running " +
+        "and the URL is reachable from your browser."
+      );
+    }
     return false;
   }
 };
 
 export const getOllamaModels = async (): Promise<string[]> => {
   try {
-    const response = await fetch(`${OLLAMA_HOST}/api/tags`);
+    const response = await fetch(`${getOllamaHost()}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!response.ok) return [];
     const data = await response.json();
     return data.models?.map((m: any) => m.name) || [];
@@ -31,18 +84,18 @@ export const getOllamaModels = async (): Promise<string[]> => {
 
 export const generateOllamaEmbedding = async (text: string, model: string): Promise<number[]> => {
   try {
-    const response = await fetch(`${OLLAMA_HOST}/api/embeddings`, {
+    const response = await fetch(`${getOllamaHost()}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: model, 
+        model: model,
         prompt: text
       })
     });
 
     if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Ollama Embedding Failed: ${errText}`);
+      const errText = await response.text();
+      throw new Error(`Ollama Embedding Failed: ${errText}`);
     }
     const data = await response.json();
     return data.embedding;
@@ -53,17 +106,12 @@ export const generateOllamaEmbedding = async (text: string, model: string): Prom
 };
 
 export const generateOllamaCompletion = async (
-  prompt: string, 
+  prompt: string,
   systemInstruction: string,
   model: string
 ): Promise<string> => {
   try {
-    // Using the generate endpoint. 
-    // Note: 'system' parameter is supported in recent Ollama versions or via modelfile, 
-    // but sending it as part of prompt or 'system' field depends on model.
-    // We will use the 'system' field in the JSON body which is standard for Ollama API.
-    
-    const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
+    const response = await fetch(`${getOllamaHost()}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -79,8 +127,8 @@ export const generateOllamaCompletion = async (
     });
 
     if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Ollama Generation Failed: ${errText}`);
+      const errText = await response.text();
+      throw new Error(`Ollama Generation Failed: ${errText}`);
     }
     const data = await response.json();
     return data.response;

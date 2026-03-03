@@ -58,15 +58,20 @@ const detectEmbeddingGap = (
   const scriptInfo = participant.detectedLanguage
     ? `"${participant.detectedLanguage}" script`
     : nonLatin
-    ? 'non-Latin script'
-    : 'this input';
+      ? 'non-Latin script'
+      : 'this input';
 
   return {
     cause: 'embedding_gap',
     confidence,
-    evidence: `Input contains ${scriptInfo} but was vectorized using the TF-IDF fallback (150-dim), ` +
-      `which cannot capture cross-lingual semantic relationships. ` +
-      `Representation scores based on TF-IDF are less reliable for non-Latin inputs.`,
+    // Note: this cause only fires when embeddingTier === 'tfidf' (line 53 above),
+    // so it is never triggered when using BGE-M3, Gemini, Ollama, or OpenAI embeddings.
+    // This prevents false positives where a well-embedded non-Latin input would be
+    // misattributed to an embedding failure.
+    evidence: `Input contains ${scriptInfo} but was processed using the TF-IDF fallback ` +
+      `(150-dim bag-of-words), which cannot capture cross-lingual semantic relationships. ` +
+      `Representation scores are less reliable for non-Latin inputs under TF-IDF. ` +
+      `Re-run with BGE-M3 embeddings for a more accurate assessment.`,
   };
 };
 

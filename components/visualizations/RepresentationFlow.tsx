@@ -11,8 +11,14 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
   const [hoveredInput, setHoveredInput] = useState<string | null>(null);
   const [hoveredSentence, setHoveredSentence] = useState<number | null>(null);
   const [selectedInput, setSelectedInput] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
+
+  // Pagination: show 50 participants per page to prevent SVG explosion
+  const PAGE_SIZE = 50;
+  const totalPages = Math.ceil(data.length / PAGE_SIZE);
+  const needsPagination = data.length > PAGE_SIZE;
 
   // ResizeObserver for responsive width
   useEffect(() => {
@@ -45,6 +51,12 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
     });
   }, [data]);
 
+  // Paginated view: only render the current page of participants
+  const visibleInputs = useMemo(() => {
+    if (!needsPagination) return sortedInputs;
+    return sortedInputs.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  }, [sortedInputs, currentPage, needsPagination]);
+
   // Calculate connection statistics
   const connectionStats = useMemo(() => {
     const totalConnections = data.reduce((sum, p) => sum + p.sentenceMatches.length, 0);
@@ -63,9 +75,9 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
   const isMobile = containerWidth < 500;
   const isCompact = containerWidth < 600;
   const inputRowHeight = isMobile ? 26 : 30;
-  const sentenceRowHeight = Math.max(55, (sortedInputs.length * inputRowHeight) / Math.max(1, sentences.length));
+  const sentenceRowHeight = Math.max(55, (visibleInputs.length * inputRowHeight) / Math.max(1, sentences.length));
   const containerHeight = Math.max(
-    sortedInputs.length * inputRowHeight,
+    visibleInputs.length * inputRowHeight,
     sentences.length * sentenceRowHeight,
     400
   ) + 60;
@@ -121,6 +133,30 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
             <span className="text-slate-500">Weak (&lt;0.5)</span>
           </span>
         </div>
+
+        {/* Pagination controls */}
+        {needsPagination && (
+          <div className="flex items-center gap-2 mt-2 bg-slate-100 rounded px-3 py-1.5">
+            <button
+              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+              disabled={currentPage === 0}
+              className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:text-slate-300 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white transition-colors"
+            >
+              ← Prev
+            </button>
+            <span className="text-[10px] text-slate-500 flex-1 text-center">
+              Showing {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, data.length)} of {data.length} participants
+              {' '}(Page {currentPage + 1}/{totalPages})
+            </span>
+            <button
+              onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+              disabled={currentPage >= totalPages - 1}
+              className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:text-slate-300 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white transition-colors"
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Flow Diagram */}
@@ -149,7 +185,7 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
               </linearGradient>
             </defs>
 
-            {sortedInputs.map((p, inputIndex) => {
+            {visibleInputs.map((p, inputIndex) => {
               const startY = (inputIndex * inputRowHeight) + (inputRowHeight / 2) + 30;
               const startX = leftColWidth;
 
@@ -194,7 +230,7 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
             className="absolute top-[30px] left-0 flex flex-col gap-0"
             style={{ width: leftColWidth, zIndex: 10 }}
           >
-            {sortedInputs.map((p) => {
+            {visibleInputs.map((p) => {
               const isHovered = hoveredInput === p.id;
               const isSelected = selectedInput === p.id;
               const hasConnection = hoveredSentence !== null && p.sentenceMatches.some(m => m.sentenceIndex === hoveredSentence);
@@ -217,11 +253,10 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
                     {truncateText(p.id, labelTruncateLength)}
                   </span>
                   <span
-                    className={`px-1.5 rounded font-mono ${
-                      p.representationScore >= 0.6 ? 'bg-green-100 text-green-700' :
+                    className={`px-1.5 rounded font-mono ${p.representationScore >= 0.6 ? 'bg-green-100 text-green-700' :
                       p.representationScore >= 0.4 ? 'bg-amber-100 text-amber-700' :
-                      'bg-red-100 text-red-700'
-                    }`}
+                        'bg-red-100 text-red-700'
+                      }`}
                     style={{ fontSize: scoreFontSize }}
                   >
                     {formatMetric(p.representationScore)}
@@ -250,7 +285,7 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
               const isHovered = hoveredSentence === i;
               const connectedInput = hoveredInput || selectedInput;
               const hasConnection = connectedInput &&
-                sortedInputs.find(p => p.id === connectedInput)?.sentenceMatches.some(m => m.sentenceIndex === i);
+                visibleInputs.find(p => p.id === connectedInput)?.sentenceMatches.some(m => m.sentenceIndex === i);
 
               return (
                 <div

@@ -28,8 +28,11 @@ import { BiasAttributionBadge } from './components/ui/BiasAttributionBadge';
 import { FeedbackAnalytics } from './components/ui/FeedbackAnalytics';
 import { FacilitationCoPilotPanel } from './components/ui/FacilitationCoPilotPanel';
 import { WhatIfSimulator } from './components/ui/WhatIfSimulator';
+import { ProvenanceTrail } from './components/ui/ProvenanceTrail';
+import { interpretGini, interpretEquityGap } from './services/plainLanguage';
 import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from './types';
 import { preprocessWithSelections, PreprocessResult } from './services/dataPreprocessor';
+import { OnboardingOverlay } from './components/ui/OnboardingOverlay';
 
 // Icons
 const Icons = {
@@ -45,11 +48,11 @@ const Icons = {
   Users: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>,
   Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>,
   CheckSquare: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>,
-  Layers: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+  Layers: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies';
+type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies' | 'provenance';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -292,7 +295,7 @@ export default function App() {
 
   const handleNextParticipant = () => {
     if (!data || !selectedParticipant) return;
-    const sorted = [...data.participants].sort((a,b) => a.representationScore - b.representationScore);
+    const sorted = [...data.participants].sort((a, b) => a.representationScore - b.representationScore);
     const currIdx = sorted.findIndex(p => p.id === selectedParticipant);
     const nextIdx = (currIdx + 1) % sorted.length;
     setSelectedParticipant(sorted[nextIdx].id);
@@ -300,7 +303,7 @@ export default function App() {
 
   const handlePrevParticipant = () => {
     if (!data || !selectedParticipant) return;
-    const sorted = [...data.participants].sort((a,b) => a.representationScore - b.representationScore);
+    const sorted = [...data.participants].sort((a, b) => a.representationScore - b.representationScore);
     const currIdx = sorted.findIndex(p => p.id === selectedParticipant);
     const prevIdx = (currIdx - 1 + sorted.length) % sorted.length;
     setSelectedParticipant(sorted[prevIdx].id);
@@ -317,78 +320,87 @@ export default function App() {
     };
 
     return (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Card className="border-l-4 border-l-blue-500 hover:shadow-md transition-shadow" allowOverflow={true}>
-            <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-              Avg Representation <InfoIcon metricKey="representation" />
-            </div>
-            <div className={`text-2xl font-bold mt-1 ${avgScore >= 0.6 ? 'text-green-600' : avgScore >= 0.5 ? 'text-amber-600' : 'text-red-600'}`}>
-              {avgScore.toFixed(2)}
-            </div>
-            <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
-              <span className={`px-1 rounded ${avgScore >= 0.6 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                Target: {'>'}0.6
+          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
+            Avg Representation <InfoIcon metricKey="representation" />
+          </div>
+          <div className={`text-2xl font-bold mt-1 ${avgScore >= 0.6 ? 'text-green-600' : avgScore >= 0.5 ? 'text-amber-600' : 'text-red-600'}`}>
+            {avgScore.toFixed(2)}
+          </div>
+          <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
+            <span className={`px-1 rounded ${avgScore >= 0.6 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+              Target: {'>'}0.6
+            </span>
+            {uncertaintyMetrics?.avgRepresentationCI && (
+              <span className="text-slate-400 text-[10px]">
+                CI: {formatCI(uncertaintyMetrics.avgRepresentationCI)}
               </span>
-              {uncertaintyMetrics?.avgRepresentationCI && (
-                <span className="text-slate-400 text-[10px]">
-                  CI: {formatCI(uncertaintyMetrics.avgRepresentationCI)}
-                </span>
-              )}
-            </div>
+            )}
+          </div>
         </Card>
         <Card className="border-l-4 border-l-purple-500 hover:shadow-md transition-shadow" allowOverflow={true}>
-            <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-              Gini Coefficient <InfoIcon metricKey="gini" />
-            </div>
-            <div className={`text-2xl font-bold mt-1 ${metrics.giniCoefficient <= 0.2 ? 'text-green-600' : metrics.giniCoefficient <= 0.35 ? 'text-amber-600' : 'text-red-600'}`}>
-              {metrics.giniCoefficient.toFixed(3)}
-            </div>
-            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
-              <span>Inequality {metrics.giniCoefficient <= 0.2 ? '(Low)' : metrics.giniCoefficient <= 0.35 ? '(Moderate)' : '(High)'}</span>
-            </div>
+          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
+            Gini Coefficient <InfoIcon metricKey="gini" />
+          </div>
+          <div className={`text-2xl font-bold mt-1 ${metrics.giniCoefficient <= 0.2 ? 'text-green-600' : metrics.giniCoefficient <= 0.35 ? 'text-amber-600' : 'text-red-600'}`}>
+            {metrics.giniCoefficient.toFixed(3)}
+          </div>
+          <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
+            <span className={`px-1.5 rounded text-[10px] font-medium ${interpretGini(metrics.giniCoefficient).severity === 'good' ? 'bg-green-100 text-green-700' :
+              interpretGini(metrics.giniCoefficient).severity === 'moderate' ? 'bg-amber-100 text-amber-700' :
+                'bg-red-100 text-red-700'
+              }`}>
+              {interpretGini(metrics.giniCoefficient).interpretation.split('.')[0]}
+            </span>
+          </div>
+          <div className="text-xs text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
+            <span>Inequality {metrics.giniCoefficient <= 0.2 ? '(Low)' : metrics.giniCoefficient <= 0.35 ? '(Moderate)' : '(High)'}</span>
+          </div>
         </Card>
         <Card className="border-l-4 border-l-amber-500 hover:shadow-md transition-shadow" allowOverflow={true}>
-            <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-              Equity Gap <InfoIcon metricKey="gap" />
-            </div>
-            <div className={`text-2xl font-bold mt-1 ${Math.abs(metrics.distinctRepresentationGap) <= 0.1 ? 'text-green-600' : 'text-red-600'}`}>
-                {metrics.distinctRepresentationGap.toFixed(2)}
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              {metrics.distinctRepresentationGap > 0.1 ? '⚠️ Distinct voices underrepresented' : '✓ Balanced coverage'}
-            </div>
+          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
+            Equity Gap <InfoIcon metricKey="gap" />
+          </div>
+          <div className={`text-2xl font-bold mt-1 ${Math.abs(metrics.distinctRepresentationGap) <= 0.1 ? 'text-green-600' : 'text-red-600'}`}>
+            {metrics.distinctRepresentationGap.toFixed(2)}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">
+            {metrics.distinctRepresentationGap > 0.1 ? '⚠️ Distinct voices underrepresented' : '✓ Balanced coverage'}
+          </div>
         </Card>
         <Card className="border-l-4 border-l-teal-500 hover:shadow-md transition-shadow" allowOverflow={true}>
-            <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-              Coverage Stats <InfoIcon metricKey="diversity" />
-            </div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-2xl font-bold text-slate-800">{participants.length}</span>
-              <span className="text-sm text-slate-500">inputs</span>
-            </div>
-            <div className="text-xs mt-1 flex items-center gap-2 flex-wrap">
-              {atRiskCount > 0 ? (
-                <span className="bg-red-100 text-red-700 px-1.5 rounded flex items-center gap-1">
-                  {atRiskCount} at risk <InfoIcon metricKey="atRisk" />
-                </span>
-              ) : (
-                <span className="bg-green-100 text-green-700 px-1.5 rounded">All covered</span>
-              )}
-              <span className="text-slate-400">Div: {metrics.inputDiversity.toFixed(2)}</span>
-            </div>
+          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
+            Coverage Stats <InfoIcon metricKey="diversity" />
+          </div>
+          <div className="flex items-baseline gap-2 mt-1">
+            <span className="text-2xl font-bold text-slate-800">{participants.length}</span>
+            <span className="text-sm text-slate-500">inputs</span>
+          </div>
+          <div className="text-xs mt-1 flex items-center gap-2 flex-wrap">
+            {atRiskCount > 0 ? (
+              <span className="bg-red-100 text-red-700 px-1.5 rounded flex items-center gap-1">
+                {atRiskCount} at risk <InfoIcon metricKey="atRisk" />
+              </span>
+            ) : (
+              <span className="bg-green-100 text-green-700 px-1.5 rounded">All covered</span>
+            )}
+            <span className="text-slate-400">Div: {metrics.inputDiversity.toFixed(2)}</span>
+          </div>
         </Card>
-        </div>
+      </div>
     );
   };
 
   if (viewState === 'setup') {
     return (
       <div className="min-h-screen bg-slate-50 p-8">
+        <OnboardingOverlay />
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-8">
-             <div className="inline-block p-3 rounded-full bg-blue-100 text-blue-600 text-2xl mb-4">🌍</div>
-             <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">Co-Creation Provenance Lab</h1>
-             <p className="text-lg text-slate-500 mt-2 max-w-2xl mx-auto">Advanced AI-driven visualization for collaborative decision making. Analyze inclusivity, consensus, and bias in real-time.</p>
+            <div className="inline-block p-3 rounded-full bg-blue-100 text-blue-600 text-2xl mb-4">🌍</div>
+            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">Co-Creation Provenance Lab</h1>
+            <p className="text-lg text-slate-500 mt-2 max-w-2xl mx-auto">Advanced AI-driven visualization for collaborative decision making. Analyze inclusivity, consensus, and bias in real-time.</p>
           </div>
           <ConfigPanel onRun={startAnalysis} />
         </div>
@@ -459,7 +471,7 @@ export default function App() {
             <span className="font-bold">{data?.config.strategy.toUpperCase()}</span>
           </div>
         </div>
-        
+
         <nav className="p-4 space-y-2 flex-1">
           <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2">Visualizations</div>
           <button onClick={() => setActiveTab('map')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'map' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
@@ -471,7 +483,7 @@ export default function App() {
           <button onClick={() => setActiveTab('flow')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'flow' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Flow /> Contribution Lineage
           </button>
-          
+
           <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-4">Auditing</div>
           <button onClick={() => setActiveTab('concepts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'concepts' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Tag /> Concept Fidelity
@@ -501,12 +513,24 @@ export default function App() {
               <Icons.Layers /> Compare Strategies
             </button>
           )}
+          <button onClick={() => setActiveTab('provenance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'provenance' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            📜 Citation Trail
+          </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800 space-y-2">
           <button onClick={() => { setIsDemo(false); setViewState('setup'); setRevisedData(null); setShowRevisionEditor(false); }} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-medium border border-slate-700 group">
             <Icons.Refresh /> <span className="group-hover:text-blue-200 transition-colors">New Analysis</span>
           </button>
+          {data && (
+            <button
+              onClick={() => downloadReport(data)}
+              className="w-full bg-blue-800/50 hover:bg-blue-700 text-blue-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-blue-700/50"
+              title="Download a comprehensive HTML report for stakeholders"
+            >
+              📊 Export Report (HTML)
+            </button>
+          )}
           {data && (
             <button
               onClick={() => downloadProvenanceCertificate(data)}
@@ -534,7 +558,7 @@ export default function App() {
             >
               {isGeneratingPlan ? (
                 <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
                   Generating…
                 </>
               ) : (
@@ -586,11 +610,10 @@ export default function App() {
                       setData(qa.result);
                       setSelectedParticipant(null);
                     }}
-                    className={`flex-shrink-0 flex flex-col items-start px-4 py-3 rounded-lg text-left transition-all text-sm min-w-[160px] max-w-[240px] ${
-                      activeQuestion === idx
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
+                    className={`flex-shrink-0 flex flex-col items-start px-4 py-3 rounded-lg text-left transition-all text-sm min-w-[160px] max-w-[240px] ${activeQuestion === idx
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                      }`}
                   >
                     <span className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${activeQuestion === idx ? 'text-blue-100' : 'text-slate-400'}`}>
                       Q{idx + 1} · {qa.participantCount} responses
@@ -642,7 +665,7 @@ export default function App() {
                     aria-label="Close editor"
                     className="text-emerald-200 hover:text-white transition-colors p-1 rounded"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                   </button>
                 </div>
 
@@ -674,7 +697,7 @@ export default function App() {
                         >
                           {isGeneratingDraft ? (
                             <>
-                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
                               Generating…
                             </>
                           ) : (
@@ -710,7 +733,7 @@ export default function App() {
                     >
                       {isApplyingRevision ? (
                         <>
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
                           Applying…
                         </>
                       ) : (
@@ -743,7 +766,7 @@ export default function App() {
                   />
                 ) : (
                   <div className="bg-white border border-emerald-200 rounded-xl p-6 flex items-center justify-center gap-3 text-emerald-700 shadow-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
                     <span className="text-sm font-medium">Generating facilitation plan…</span>
                   </div>
                 )}
@@ -762,7 +785,7 @@ export default function App() {
             <details className="group">
               <summary className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-2 py-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90">
-                  <polyline points="9 18 15 12 9 6"/>
+                  <polyline points="9 18 15 12 9 6" />
                 </svg>
                 Show Detailed Metrics
               </summary>
@@ -773,42 +796,42 @@ export default function App() {
 
             {/* Bridging Suggestion Banner (New XAI Feature) */}
             {data.bridgingOpportunities && data.bridgingOpportunities.length > 0 && (
-                <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 mb-4 shadow-sm relative overflow-hidden group">
-                    <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-white/50 to-transparent"></div>
-                    <div className="flex items-start gap-4">
-                        <div className="bg-indigo-100 p-2 rounded-lg text-2xl">🌉</div>
-                        <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-bold text-indigo-900">Bridging Opportunities Detected</h3>
-                                <div className="text-[10px] bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">AI Suggestion</div>
-                            </div>
-                            <p className="text-sm text-indigo-700/80 mb-3 max-w-3xl">
-                                The system identified participants who raised <strong>unique concepts</strong> (high isolation) that were <strong>not included</strong> in the final summary (low representation).
-                            </p>
-                            
-                            <div className="grid grid-cols-1 gap-3">
-                                {data.bridgingOpportunities.map((op, i) => (
-                                    <div key={i} className="bg-white/90 p-3 rounded border border-indigo-100 shadow-sm text-sm hover:bg-white transition-colors cursor-pointer flex flex-col gap-2" onClick={() => setSelectedParticipant(op.participantId)}>
-                                        <div className="flex justify-between text-xs text-indigo-400 uppercase font-bold tracking-wider">
-                                          <span>Participant {op.participantId}</span>
-                                          <span>Facilitation Prompt</span>
-                                        </div>
-                                        <div className="italic text-slate-700 font-medium">
-                                          {op.facilitationPrompt}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 mb-4 shadow-sm relative overflow-hidden group">
+                <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-white/50 to-transparent"></div>
+                <div className="flex items-start gap-4">
+                  <div className="bg-indigo-100 p-2 rounded-lg text-2xl">🌉</div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-bold text-indigo-900">Bridging Opportunities Detected</h3>
+                      <div className="text-[10px] bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">AI Suggestion</div>
                     </div>
+                    <p className="text-sm text-indigo-700/80 mb-3 max-w-3xl">
+                      The system identified participants who raised <strong>unique concepts</strong> (high isolation) that were <strong>not included</strong> in the final summary (low representation).
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      {data.bridgingOpportunities.map((op, i) => (
+                        <div key={i} className="bg-white/90 p-3 rounded border border-indigo-100 shadow-sm text-sm hover:bg-white transition-colors cursor-pointer flex flex-col gap-2" onClick={() => setSelectedParticipant(op.participantId)}>
+                          <div className="flex justify-between text-xs text-indigo-400 uppercase font-bold tracking-wider">
+                            <span>Participant {op.participantId}</span>
+                            <span>Facilitation Prompt</span>
+                          </div>
+                          <div className="italic text-slate-700 font-medium">
+                            {op.facilitationPrompt}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              </div>
             )}
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              
+
               {/* Left Column (Viz) */}
               <div className="xl:col-span-2 space-y-6">
-                
+
                 {activeTab === 'map' && (
                   <Card title="Semantic Space" subtitle="Spatial arrangement of contributions. Outliers indicate distinct perspectives." className="border-t-4 border-t-blue-500" expandable>
                     <SemanticMap
@@ -841,8 +864,8 @@ export default function App() {
                     <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
                       <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
                         <svg className="animate-spin h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                         </svg>
                         Running concept fidelity analysis in background…
                       </div>
@@ -859,9 +882,9 @@ export default function App() {
                 {activeTab === 'sensitivity' && (
                   <Card title="Semantic Leverage (LOO)" subtitle="Which inputs pull the conversation's semantic center the most?" className="border-t-4 border-t-rose-500" expandable>
                     {data.sensitivityAnalysis && data.sensitivityAnalysis.length > 0 ? (
-                       <SensitivityChart data={data.sensitivityAnalysis} />
+                      <SensitivityChart data={data.sensitivityAnalysis} />
                     ) : (
-                       <div className="text-center py-10 text-slate-400">LOO Analysis was disabled in configuration.</div>
+                      <div className="text-center py-10 text-slate-400">LOO Analysis was disabled in configuration.</div>
                     )}
                   </Card>
                 )}
@@ -918,9 +941,15 @@ export default function App() {
                   />
                 )}
 
+                {activeTab === 'provenance' && (
+                  <Card title="Citation Provenance Trail" subtitle="For each summary sentence, which participant voices shaped it — and which were silent." className="border-t-4 border-t-indigo-500" expandable>
+                    <ProvenanceTrail data={data} onSelectParticipant={setSelectedParticipant} />
+                  </Card>
+                )}
+
                 <Card title="Summary" subtitle={`Model: ${data.config.model} | Method: ${data.config.summaryMethod}`} className="bg-white border border-slate-200 shadow-sm">
                   <div className="prose prose-slate max-w-none p-2">
-                     <p className="text-lg leading-relaxed text-slate-700">{data.summary}</p>
+                    <p className="text-lg leading-relaxed text-slate-700">{data.summary}</p>
                   </div>
                 </Card>
               </div>
@@ -928,29 +957,29 @@ export default function App() {
               {/* Right Column (Details) */}
               <div className="space-y-6">
                 <Card title="Details Panel" className="h-[650px] flex flex-col sticky top-6" flexContent={true}>
-                  
+
                   {/* Jump To Selector */}
                   <div className="mb-4 pb-4 border-b border-slate-100">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Jump to Participant</label>
-                      <select 
-                        className="w-full text-sm p-2 border border-slate-300 rounded bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700"
-                        value={selectedParticipant || ''}
-                        onChange={(e) => setSelectedParticipant(e.target.value || null)}
-                      >
-                         <option value="">-- Select Participant --</option>
-                         {[...data.participants]
-                            .sort((a, b) => parseInt(a.id.replace(/[^0-9]/g, '')) - parseInt(b.id.replace(/[^0-9]/g, '')))
-                            .map(p => (
-                            <option key={p.id} value={p.id}>
-                                {p.id} (Rep: {p.representationScore.toFixed(2)})
-                            </option>
-                         ))}
-                      </select>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Jump to Participant</label>
+                    <select
+                      className="w-full text-sm p-2 border border-slate-300 rounded bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none text-slate-700"
+                      value={selectedParticipant || ''}
+                      onChange={(e) => setSelectedParticipant(e.target.value || null)}
+                    >
+                      <option value="">-- Select Participant --</option>
+                      {[...data.participants]
+                        .sort((a, b) => parseInt(a.id.replace(/[^0-9]/g, '')) - parseInt(b.id.replace(/[^0-9]/g, '')))
+                        .map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.id} (Rep: {p.representationScore.toFixed(2)})
+                          </option>
+                        ))}
+                    </select>
                   </div>
 
                   {selectedParticipant ? (
                     <div className="animate-fadeIn flex-1 flex flex-col min-h-0 overflow-hidden">
-                       {(() => {
+                      {(() => {
                         const p = data.participants.find(p => p.id === selectedParticipant);
                         const sens = data.sensitivityAnalysis?.find(s => s.participantId === selectedParticipant);
 
@@ -958,12 +987,15 @@ export default function App() {
 
                         // Tone Fidelity Check: compare participant sentiment against their
                         // PRIMARY (top-scoring) matched summary sentence only.
-                        // Checking secondary/weaker matches causes false positives — a participant
-                        // can weakly match a sentence on different topic without a real distortion.
+                        // Only flag if BOTH labels are non-neutral (definitively opposite).
+                        // Neutral-vs-positive or neutral-vs-negative is not a distortion.
                         const matchedSentenceSentiment = data.summarySentenceSentiments?.[p.topSentenceMatchIndex]?.label || 'neutral';
                         const isToneDistorted =
-                          (p.sentiment === 'negative' && matchedSentenceSentiment === 'positive') ||
-                          (p.sentiment === 'positive' && matchedSentenceSentiment === 'negative');
+                          p.sentiment !== 'neutral' &&
+                          matchedSentenceSentiment !== 'neutral' && (
+                            (p.sentiment === 'negative' && matchedSentenceSentiment === 'positive') ||
+                            (p.sentiment === 'positive' && matchedSentenceSentiment === 'negative')
+                          );
 
                         return (
                           <>
@@ -975,120 +1007,120 @@ export default function App() {
                             </div>
 
                             <div className="flex-1 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
-                                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-slate-700 italic text-sm leading-relaxed mb-4 shadow-inner">
+                              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-slate-700 italic text-sm leading-relaxed mb-4 shadow-inner">
                                 "{p.originalText}"
+                              </div>
+
+                              {/* Dropped Concepts Box */}
+                              {p.keywords && p.keywords.length > 0 && (
+                                <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg">
+                                  <div className="text-[10px] font-bold text-red-600 uppercase mb-1">Dropped Concepts</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {p.keywords.slice(0, 5).map(k => (
+                                      <span key={k} className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded border border-red-200">{k}</span>
+                                    ))}
+                                  </div>
                                 </div>
+                              )}
 
-                                {/* Dropped Concepts Box */}
-                                {p.keywords && p.keywords.length > 0 && (
-                                   <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg">
-                                      <div className="text-[10px] font-bold text-red-600 uppercase mb-1">Dropped Concepts</div>
-                                      <div className="flex flex-wrap gap-1">
-                                         {p.keywords.slice(0, 5).map(k => (
-                                            <span key={k} className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded border border-red-200">{k}</span>
-                                         ))}
-                                      </div>
-                                   </div>
-                                )}
+                              {isToneDistorted && (
+                                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg animate-pulse">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xl">🎭</span>
+                                    <div className="text-[10px] font-bold text-amber-700 uppercase">Tone Distortion Detected</div>
+                                  </div>
+                                  <p className="text-xs text-amber-800">
+                                    User input is <strong>{p.sentiment}</strong> but the matched summary sentence is <strong>{matchedSentenceSentiment}</strong>.
+                                  </p>
+                                </div>
+                              )}
 
-                                {isToneDistorted && (
-                                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg animate-pulse">
-                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-xl">🎭</span>
-                                        <div className="text-[10px] font-bold text-amber-700 uppercase">Tone Distortion Detected</div>
-                                     </div>
-                                     <p className="text-xs text-amber-800">
-                                       User input is <strong>{p.sentiment}</strong> but the matched summary sentence is <strong>{matchedSentenceSentiment}</strong>.
-                                     </p>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] font-semibold text-slate-500 uppercase">Representation</span>
+                                    <InfoIcon metricKey="representation" />
+                                  </div>
+                                  <span className={`font-bold text-sm ${p.representationScore > 0.6 ? 'text-green-600' : 'text-orange-500'}`}>{p.representationScore.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] font-semibold text-slate-500 uppercase">Isolation</span>
+                                    <InfoIcon metricKey="isolation" />
+                                  </div>
+                                  <span className={`font-bold text-sm ${p.semanticIsolation > 0.5 ? 'text-purple-600' : 'text-slate-600'}`}>
+                                    {p.semanticIsolation.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] font-semibold text-slate-500 uppercase">Leverage</span>
+                                    <InfoIcon metricKey="leverage" />
+                                  </div>
+                                  <span className="font-bold text-sm text-slate-700">{sens ? sens.shiftScore.toFixed(2) : 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                  <span className="text-[11px] font-semibold text-slate-500 uppercase">Sentiment</span>
+                                  <span className={`font-bold text-sm capitalize ${p.sentiment === 'positive' ? 'text-green-600' : p.sentiment === 'negative' ? 'text-red-500' : 'text-slate-500'}`}>{p.sentiment}</span>
+                                </div>
+                                {p.embeddingTier && (
+                                  <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                    <span className="text-[11px] font-semibold text-slate-500 uppercase">Embedding Tier</span>
+                                    <span className="font-bold text-sm text-blue-600 font-mono">{p.embeddingTier}</span>
                                   </div>
                                 )}
+                                {p.detectedLanguage && p.detectedLanguage !== 'un' && (
+                                  <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
+                                    <span className="text-[11px] font-semibold text-slate-500 uppercase">Language</span>
+                                    <span className="font-bold text-sm text-indigo-600 font-mono">{p.detectedLanguage.toUpperCase()}</span>
+                                  </div>
+                                )}
+                              </div>
 
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-[11px] font-semibold text-slate-500 uppercase">Representation</span>
-                                            <InfoIcon metricKey="representation" />
-                                        </div>
-                                        <span className={`font-bold text-sm ${p.representationScore > 0.6 ? 'text-green-600' : 'text-orange-500'}`}>{p.representationScore.toFixed(2)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-[11px] font-semibold text-slate-500 uppercase">Isolation</span>
-                                            <InfoIcon metricKey="isolation" />
-                                        </div>
-                                        <span className={`font-bold text-sm ${p.semanticIsolation > 0.5 ? 'text-purple-600' : 'text-slate-600'}`}>
-                                            {p.semanticIsolation.toFixed(2)}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-[11px] font-semibold text-slate-500 uppercase">Leverage</span>
-                                            <InfoIcon metricKey="leverage" />
-                                        </div>
-                                        <span className="font-bold text-sm text-slate-700">{sens ? sens.shiftScore.toFixed(2) : 'N/A'}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <span className="text-[11px] font-semibold text-slate-500 uppercase">Sentiment</span>
-                                        <span className={`font-bold text-sm capitalize ${p.sentiment === 'positive' ? 'text-green-600' : p.sentiment === 'negative' ? 'text-red-500' : 'text-slate-500'}`}>{p.sentiment}</span>
-                                    </div>
-                                    {p.embeddingTier && (
-                                      <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <span className="text-[11px] font-semibold text-slate-500 uppercase">Embedding Tier</span>
-                                        <span className="font-bold text-sm text-blue-600 font-mono">{p.embeddingTier}</span>
-                                      </div>
-                                    )}
-                                    {p.detectedLanguage && p.detectedLanguage !== 'un' && (
-                                      <div className="flex justify-between items-center p-2.5 bg-white border border-slate-100 rounded shadow-sm">
-                                        <span className="text-[11px] font-semibold text-slate-500 uppercase">Language</span>
-                                        <span className="font-bold text-sm text-indigo-600 font-mono">{p.detectedLanguage.toUpperCase()}</span>
-                                      </div>
-                                    )}
+                              <div className="mt-4">
+                                <div className="text-xs font-bold text-slate-400 uppercase mb-2">Primary Summary Link</div>
+                                <div className="text-xs text-slate-600 bg-amber-50 p-3 rounded border border-amber-100">
+                                  "{data.summarySentences[p.topSentenceMatchIndex]}"
                                 </div>
-                                
+                              </div>
+
+                              {/* Bias Source Attribution — why is this participant underrepresented? */}
+                              {p.representationScore < 0.6 && (
                                 <div className="mt-4">
-                                    <div className="text-xs font-bold text-slate-400 uppercase mb-2">Primary Summary Link</div>
-                                    <div className="text-xs text-slate-600 bg-amber-50 p-3 rounded border border-amber-100">
-                                        "{data.summarySentences[p.topSentenceMatchIndex]}"
-                                    </div>
-                                </div>
-
-                                {/* Bias Source Attribution — why is this participant underrepresented? */}
-                                {p.representationScore < 0.6 && (
-                                  <div className="mt-4">
-                                    <BiasAttributionBadge
-                                      participant={p}
-                                      allParticipants={data.participants}
-                                      summary={data.summary}
-                                      summarySentences={data.summarySentences}
-                                    />
-                                  </div>
-                                )}
-
-                                {/* Counterfactual Suggestions */}
-                                {p.representationScore < 0.7 && (
-                                  <div className="mt-4">
-                                    <CounterfactualPanel
-                                      participant={p}
-                                      allParticipants={data.participants}
-                                      summarySentences={data.summarySentences}
-                                    />
-                                  </div>
-                                )}
-
-                                {/* Feedback Panel */}
-                                <div className="mt-4 pb-2">
-                                  <FeedbackPanel
-                                    participantId={p.id}
-                                    currentFeedback={feedbacks.get(p.id)}
-                                    onSubmit={handleFeedbackSubmit}
+                                  <BiasAttributionBadge
+                                    participant={p}
+                                    allParticipants={data.participants}
+                                    summary={data.summary}
+                                    summarySentences={data.summarySentences}
                                   />
                                 </div>
+                              )}
+
+                              {/* Counterfactual Suggestions */}
+                              {p.representationScore < 0.7 && (
+                                <div className="mt-4">
+                                  <CounterfactualPanel
+                                    participant={p}
+                                    allParticipants={data.participants}
+                                    summarySentences={data.summarySentences}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Feedback Panel */}
+                              <div className="mt-4 pb-2">
+                                <FeedbackPanel
+                                  participantId={p.id}
+                                  currentFeedback={feedbacks.get(p.id)}
+                                  onSubmit={handleFeedbackSubmit}
+                                />
+                              </div>
                             </div>
 
                             <div className="flex-shrink-0 pt-3 border-t border-slate-100">
                               <div className="grid grid-cols-2 gap-2 mb-2">
-                                  <button onClick={handlePrevParticipant} className="py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">← Previous</button>
-                                  <button onClick={handleNextParticipant} className="py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Next →</button>
+                                <button onClick={handlePrevParticipant} className="py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">← Previous</button>
+                                <button onClick={handleNextParticipant} className="py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Next →</button>
                               </div>
                               <button
                                 onClick={() => setSelectedParticipant(null)}
@@ -1125,28 +1157,28 @@ export default function App() {
                       </div>
                       <div className="flex-1 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
                         {[...data.participants]
-                           .sort((a,b) => a.representationScore - b.representationScore)
-                           .map(p => (
+                          .sort((a, b) => a.representationScore - b.representationScore)
+                          .map(p => (
                             <div
                               key={p.id}
                               onClick={() => setSelectedParticipant(p.id)}
                               className="group p-3 mb-2 bg-white border border-slate-100 rounded-lg cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all"
                             >
-                                <div className="flex items-center gap-3 mb-1">
-                                   <div className={`w-2 h-6 rounded-full flex-shrink-0 ${p.representationScore < 0.4 ? 'bg-red-400' : p.representationScore < 0.7 ? 'bg-orange-400' : 'bg-green-400'}`}></div>
-                                   <div className="font-semibold text-sm text-slate-700 group-hover:text-blue-600 flex-1">{p.id}</div>
-                                   {p.detectedLanguage && p.detectedLanguage !== 'en' && p.detectedLanguage !== 'un' && (
-                                     <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded font-mono flex-shrink-0">
-                                       {p.detectedLanguage.toUpperCase()}
-                                     </span>
-                                   )}
-                                   <div className="text-xs font-mono font-bold text-slate-500 flex-shrink-0">
-                                      {p.representationScore.toFixed(2)}
-                                   </div>
+                              <div className="flex items-center gap-3 mb-1">
+                                <div className={`w-2 h-6 rounded-full flex-shrink-0 ${p.representationScore < 0.4 ? 'bg-red-400' : p.representationScore < 0.7 ? 'bg-orange-400' : 'bg-green-400'}`}></div>
+                                <div className="font-semibold text-sm text-slate-700 group-hover:text-blue-600 flex-1">{p.id}</div>
+                                {p.detectedLanguage && p.detectedLanguage !== 'en' && p.detectedLanguage !== 'un' && (
+                                  <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded font-mono flex-shrink-0">
+                                    {p.detectedLanguage.toUpperCase()}
+                                  </span>
+                                )}
+                                <div className="text-xs font-mono font-bold text-slate-500 flex-shrink-0">
+                                  {p.representationScore.toFixed(2)}
                                 </div>
-                                <div className="text-xs text-slate-400 line-clamp-2 pl-5">"{p.originalText}"</div>
+                              </div>
+                              <div className="text-xs text-slate-400 line-clamp-2 pl-5">"{p.originalText}"</div>
                             </div>
-                        ))}
+                          ))}
                       </div>
                     </div>
                   )}
@@ -1162,8 +1194,8 @@ export default function App() {
       {isEnriching && (
         <div className="fixed bottom-0 left-0 right-0 bg-indigo-50 border-t border-indigo-200 px-4 py-1.5 text-xs text-indigo-700 flex items-center gap-2 z-40">
           <svg className="animate-spin h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
           <span>{enrichProgressMsg || 'Running concept fidelity analysis in background…'}</span>
         </div>

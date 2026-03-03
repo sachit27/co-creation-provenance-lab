@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { AnalysisResult } from '../../types';
 import { ANALYSIS_CONFIG } from '../../constants';
+import { generateRecommendations } from '../../services/plainLanguage';
 
 interface ExecutiveSummaryProps {
   data: AnalysisResult;
@@ -233,6 +234,26 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
           </div>
         </div>
       )}
+
+      {/* Actionable Recommendations */}
+      {(() => {
+        const recs = generateRecommendations(data.participants, data.metrics);
+        return recs.length > 0 ? (
+          <div className="px-6 py-4 border-b border-slate-700 bg-emerald-900/20">
+            <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3">
+              ✅ Recommended Actions
+            </div>
+            <div className="space-y-2">
+              {recs.slice(0, 4).map((rec, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-emerald-200">
+                  <span className="mt-0.5 text-emerald-500 flex-shrink-0">→</span>
+                  <span>{rec}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null;
+      })()}
 
       {/* Plain Language Summary */}
       <div className="px-6 py-4 bg-slate-800/30">

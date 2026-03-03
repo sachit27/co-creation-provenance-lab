@@ -43,8 +43,18 @@ export interface ParticipantInput {
 }
 
 export type SummarizationStrategy = 'balanced' | 'diversity' | 'consensus';
-export type ModelType = string; 
-export type AIProvider = 'gemini' | 'ollama' | 'groq';
+export type ModelType = string;
+export type AIProvider = 'gemini' | 'ollama' | 'groq' | 'openai' | 'claude' | 'apertus';
+
+/**
+ * Where to generate embeddings — independent of the completion provider.
+ * 'bge-m3'  : Local Xenova BGE-M3 transformer (requires server running)
+ * 'openai'  : OpenAI text-embedding-3-small/large (requires API key)
+ * 'gemini'  : Google text-embedding-004 (requires API key)
+ * 'ollama'  : Ollama embedding model (requires Ollama running)
+ * 'tfidf'   : Local TF-IDF bag-of-words — always available, no API needed
+ */
+export type EmbeddingProvider = 'bge-m3' | 'openai' | 'gemini' | 'ollama' | 'tfidf';
 
 // Threshold configuration for customizable analysis
 export interface ThresholdConfig {
@@ -60,13 +70,14 @@ export interface AnalysisConfig {
   strategy: SummarizationStrategy;
   aiProvider: AIProvider;
   model: ModelType;
-  embeddingModel: string;
+  embeddingModel: string;       // Model name within the embedding provider
+  embeddingProvider: EmbeddingProvider; // Which service generates embeddings
   runLOO: boolean;
   summaryMethod: 'ai' | 'extractive' | 'manual';
   manualSummaryText?: string;
   // New config options
   thresholds?: ThresholdConfig;
-  enableNLI?: boolean;           // Enable intent preservation via NLI
+  enableNLI?: boolean;
   enableAnomalyDetection?: boolean;
   enableGroupAnalysis?: boolean;
   runStrategyComparison?: boolean;
@@ -242,7 +253,7 @@ export interface AnalysisResult {
   // For summary revision feature
   inputEmbeddings?: number[][];
   // Methodological transparency
-  embeddingTierUsed?: 'bge-m3' | 'ollama' | 'gemini' | 'tfidf'; // Which tier was active for this analysis
+  embeddingTierUsed?: EmbeddingProvider; // Which tier was active for this analysis
   languageAnalysis?: LanguageEquityReport; // Language equity across participant inputs
   enrichmentStatus?: 'pending' | 'complete'; // Phase 2 concept fidelity completion state
 }
@@ -251,13 +262,13 @@ export interface ConceptFidelityResult {
   preservedConcepts: string[];
   droppedConcepts: string[];
   addedConcepts: string[];
-  fidelityScore: number; 
+  fidelityScore: number;
   participantMap: Record<string, { kept: string[], dropped: string[] }>;
 }
 
 export interface BridgingSuggestion {
   participantId: string;
-  issue: string; 
+  issue: string;
   suggestion: string;
   facilitationPrompt: string; // New Actionable Feature
 }
@@ -327,8 +338,13 @@ export interface ParticipantAnalysis {
   counterfactualSuggestions?: CounterfactualSuggestion[];
   feedback?: ParticipantFeedback;
   // Methodological transparency
-  embeddingTier?: 'bge-m3' | 'ollama' | 'gemini' | 'tfidf'; // Which embedding model scored this participant
+  embeddingTier?: EmbeddingProvider; // Which embedding model scored this participant
   detectedLanguage?: string; // Detected script/language of the input text
+  /** True when the embedding API returned a zero vector or threw an error.
+   *  When true, representationScore is unreliable and must NOT be included
+   *  in aggregate metrics (Gini, avgRep, distinctGap). Displayed as a warning
+   *  badge in the UI instead of a numeric score. */
+  embeddingFailed?: boolean;
   // Feature #3: computed on-the-fly in UI for participants with score < 0.6
   biasAttribution?: BiasAttribution;
 }

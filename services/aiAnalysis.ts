@@ -133,8 +133,9 @@ export const analyzeSentimentAI = async (
 
     // Tier 1: Try AI
     try {
+        const safeText = text.replace(/"/g, '\\"');
         const prompt = `Analyze the sentiment of this text and respond with ONLY a JSON object:
-Text: "${text}"
+Text: "${safeText}"
 
 Respond with: {"score": <-1 to 1>, "label": "<positive|negative|neutral>"}`;
 
@@ -183,9 +184,10 @@ export const extractKeywordsAI = async (
 
     // Tier 1: Try AI
     try {
+        const safeText = text.replace(/"/g, '\\"');
         const prompt = `Extract the ${topK} most important concepts from this text.
 Include both single keywords and multi-word phrases (e.g., "public transport", "climate change").
-Text: "${text}"
+Text: "${safeText}"
 
 Respond with ONLY a JSON array of strings, e.g., ["concept 1", "concept 2", ...]`;
 
@@ -234,11 +236,13 @@ export const analyzeConceptGapAI = async (
 
     // Tier 1: Try AI
     try {
+        const safeInput = inputText.replace(/"/g, '\\"');
+        const safeSummary = summaryText.replace(/"/g, '\\"');
         const prompt = `Compare the key concepts in the INPUT to those in the SUMMARY.
 
-INPUT: "${inputText}"
+INPUT: "${safeInput}"
 
-SUMMARY: "${summaryText}"
+SUMMARY: "${safeSummary}"
 
 Identify which concepts from the INPUT are kept in the SUMMARY and which are dropped.
 Respond with ONLY a JSON object: {"kept": ["concept1", ...], "dropped": ["concept1", ...]}`;
@@ -306,10 +310,12 @@ export const classifyEntailmentAI = async (
 
     // Tier 1: Try AI
     try {
+        const safePremise = premise.replace(/"/g, '\\"');
+        const safeHypothesis = hypothesis.replace(/"/g, '\\"');
         const prompt = `Analyze the logical relationship between these two statements:
 
-PREMISE: "${premise}"
-HYPOTHESIS: "${hypothesis}"
+PREMISE: "${safePremise}"
+HYPOTHESIS: "${safeHypothesis}"
 
 Does the PREMISE entail (logically support), contradict, or have no clear relation to the HYPOTHESIS?
 Respond with ONLY a JSON object: {"label": "entails|neutral|contradicts", "confidence": 0.0-1.0}`;
@@ -392,10 +398,12 @@ export const semanticSimilarityAI = async (
 
     // Tier 1: Try AI
     try {
+        const safeText1 = text1.replace(/"/g, '\\"');
+        const safeText2 = text2.replace(/"/g, '\\"');
         const prompt = `Rate the semantic similarity between these two texts on a scale of 0 to 1:
 
-TEXT 1: "${text1}"
-TEXT 2: "${text2}"
+TEXT 1: "${safeText1}"
+TEXT 2: "${safeText2}"
 
 0 = completely unrelated, 1 = identical meaning
 Respond with ONLY a number between 0 and 1.`;

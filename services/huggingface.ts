@@ -176,6 +176,54 @@ export const analyzeSentimentHF = async (text: string): Promise<HFSentimentResul
     }
 };
 
+/**
+ * Batch analyze sentiment using HuggingFace DistilBERT
+ * Processes texts in chunks to optimize WASM inference overhead
+ */
+export const analyzeSentimentBatchHF = async (
+    texts: string[],
+    onProgress?: (progress: number, total: number) => void
+): Promise<HFSentimentResult[]> => {
+    try {
+        const classifier = await getSentimentPipeline();
+        const results: HFSentimentResult[] = [];
+        const batchSize = 16; // DistilBERT is small, but keep batch reasonable for browser memory
+
+        for (let i = 0; i < texts.length; i += batchSize) {
+            const batch = texts.slice(i, i + batchSize);
+            // Run prediction on batch
+            const batchPredictions = await classifier(batch);
+
+            // Map results
+            const formatted = batchPredictions.map((result: any) => {
+                const label = result.label.toLowerCase();
+                const confidence = result.score;
+                let normalizedLabel: 'positive' | 'negative' | 'neutral' = 'neutral';
+                let score = 0;
+
+                if (confidence > 0.6) {
+                    if (label === 'positive') {
+                        normalizedLabel = 'positive';
+                        score = confidence;
+                    } else {
+                        normalizedLabel = 'negative';
+                        score = -confidence;
+                    }
+                }
+                return { score, label: normalizedLabel, confidence };
+            });
+
+            results.push(...formatted);
+            onProgress?.(Math.min(i + batchSize, texts.length), texts.length);
+        }
+
+        return results;
+    } catch (e) {
+        console.error('[HuggingFace] Batch sentiment analysis failed:', e);
+        throw e;
+    }
+};
+
 export interface HFNLIResult {
     label: 'entails' | 'neutral' | 'contradicts';
     confidence: number;
@@ -361,6 +409,7 @@ export const preloadModels = async (
 export default {
     checkHuggingFaceAvailable,
     analyzeSentimentHF,
+    analyzeSentimentBatchHF,
     classifyEntailmentHF,
     generateEmbeddingHF,
     generateEmbeddingsBatchHF,

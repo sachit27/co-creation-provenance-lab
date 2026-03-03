@@ -310,6 +310,40 @@ export const preprocessCSV = (rawText: string): PreprocessResult => {
 // ─── Column Scanner ───────────────────────────────────────────────────────────
 
 /**
+ * Heuristic: does the first row of the CSV look like column headers?
+ *
+ * Headers are typically short labels like "ID", "Comment", "Group".
+ * Data rows tend to have numeric IDs, long text, or no recognisable label patterns.
+ */
+export const looksLikeHeader = (cells: string[]): boolean => {
+  if (cells.length === 0) return false;
+
+  // If every cell is purely numeric, it's almost certainly data (e.g., ID, score)
+  if (cells.every(c => /^\d+$/.test(c.trim()))) return false;
+
+  // If average cell length is very long (>80 chars), it's data not labels
+  const avgLen = cells.reduce((s, c) => s + c.trim().length, 0) / cells.length;
+  if (avgLen > 80) return false;
+
+  // If at least one cell matches a known header keyword, it's a header row
+  const ALL_PATTERNS = [...ID_PATTERNS, ...TEXT_PATTERNS, ...GROUP_PATTERNS,
+    'name', 'email', 'date', 'timestamp', 'column', 'field', 'value', 'score',
+    'age', 'gender', 'location', 'city', 'country', 'how', 'what', 'why', 'which',
+    'internal', 'ref', 'number', 'num', 'serial', 'respondent'];
+  const hasKnownLabel = cells.some(c => {
+    const lower = c.toLowerCase().trim();
+    return ALL_PATTERNS.some(p => lower === p || lower.includes(p));
+  });
+  if (hasKnownLabel) return true;
+
+  // If the first cell is a long string (>40 chars), probably data
+  if (cells[0].trim().length > 40) return false;
+
+  // Default: assume it has headers (most CSVs exported from survey tools do)
+  return true;
+};
+
+/**
  * Quickly scan CSV headers and count non-empty, meaningful responses per column.
  * Used to drive the ColumnSelector UI — no quality filtering, just fast stats.
  */
@@ -319,10 +353,18 @@ export const scanColumns = (rawText: string): ColumnInfo[] => {
   if (lines.length < 2) return [];
 
   const sep = detectDelimiter(lines[0]);
-  const headers = parseRow(lines[0], sep);
-  if (headers.length === 0) return [];
+  const firstRowCells = parseRow(lines[0], sep);
+  if (firstRowCells.length === 0) return [];
 
-  const dataLines = lines.slice(1);
+  // ── Header detection heuristic ─────────────────────────────────────────
+  // Check if the first row looks like column headers or like data.
+  // Headers are typically short labels; data might be long text or numeric IDs.
+  const hasHeaders = looksLikeHeader(firstRowCells);
+
+  const headers = hasHeaders
+    ? firstRowCells
+    : firstRowCells.map((_, i) => `Column ${i + 1}`);
+  const dataLines = hasHeaders ? lines.slice(1) : lines;
   const totalCount = dataLines.length;
 
   // Values that are junk even if non-empty — single chars, yes/no, etc.
@@ -378,8 +420,10 @@ export const scanColumns = (rawText: string): ColumnInfo[] => {
 /**
  * Full preprocessing pipeline driven by explicit user column selections.
  *
- * 'combined'     — Concatenates all selected text columns per participant
- *                  as "Q: {header}\nA: {answer}" blocks. One result returned.
+ * 'combined'     — Concatenates all selected text columns per participant.
+ *                  Uses "Q: {header}\nA: {answer}" format ONLY when there are
+ *                  multiple columns with real headers. Headerless CSVs or single
+ *                  columns produce raw text without Q/A wrapping. One result returned.
  * 'per_question' — Returns one PreprocessResult per selected text column.
  *                  Each only includes participants who answered that column.
  */
@@ -406,7 +450,11 @@ export const preprocessWithSelections = (
   }
 
   const separator = detectDelimiter(lines[0]);
-  const dataLines = lines.slice(1);
+
+  // Detect headerless files — same heuristic as scanColumns
+  const firstRowCells = parseRow(lines[0], separator);
+  const hasHeaders = looksLikeHeader(firstRowCells);
+  const dataLines = hasHeaders ? lines.slice(1) : lines;
 
   // Parse all rows once
   const parsedRows = dataLines.map((line, i) => {
@@ -466,11 +514,30 @@ export const preprocessWithSelections = (
   };
 
   if (mode === 'combined') {
+    // Determine whether to use Q/A formatting:
+    // - Single column → just use the text directly
+    // - Multiple columns with real headers → Q: {header}\nA: {text}
+    // - Multiple columns with synthetic headers (headerless CSV) → just concatenate
+    const isMultiColumn = selection.textColumnIndices.length > 1;
+    const hasSyntheticHeaders = !hasHeaders; // headerless CSV → all headers are "Column N"
+
     const candidates = parsedRows.map(row => {
       const parts = selection.textColumnIndices
         .map(colIdx => {
           const cell = row.cells[colIdx]?.trim() ?? '';
           if (isMissingValue(cell)) return null;
+
+          if (!isMultiColumn) {
+            // Single column — just the raw text, no wrapping
+            return cell;
+          }
+
+          if (hasSyntheticHeaders) {
+            // Multiple columns but no real headers — concatenate without Q/A labels
+            return cell;
+          }
+
+          // Multiple columns with real headers — use Q/A format
           const qHeader = allColumns.find(h => h.index === colIdx)?.header ?? `Column ${colIdx + 1}`;
           return `Q: ${qHeader}\nA: ${cell}`;
         })

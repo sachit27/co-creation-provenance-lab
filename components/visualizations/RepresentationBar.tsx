@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 import { ParticipantAnalysis } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
@@ -9,9 +9,13 @@ interface RepresentationBarProps {
 }
 
 export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) => {
+  const isLargeDataset = data.length > 200;
+  const [viewMode, setViewMode] = useState<'auto' | 'bars' | 'histogram'>(isLargeDataset ? 'histogram' : 'bars');
+  const showHistogram = viewMode === 'histogram' || (viewMode === 'auto' && isLargeDataset);
+
   const { containerRef, config, isCompact, isMobile, width } = useResponsiveChart({
     minHeight: 320,
-    dataLength: data.length,
+    dataLength: showHistogram ? 20 : data.length,
     needsExtraBottomMargin: true
   });
 
@@ -34,6 +38,25 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
     ideal: avgScore,
     percentile: ((i + 1) / data.length * 100).toFixed(0)
   }));
+
+  // Histogram bins: 20 bins from 0.0 to 1.0
+  const NUM_BINS = 20;
+  const histogramData = useMemo(() => {
+    const bins = Array.from({ length: NUM_BINS }, (_, i) => ({
+      binStart: i / NUM_BINS,
+      binEnd: (i + 1) / NUM_BINS,
+      label: `${(i / NUM_BINS).toFixed(2)}–${((i + 1) / NUM_BINS).toFixed(2)}`,
+      count: 0,
+      isAtRisk: (i + 1) / NUM_BINS <= atRisk,
+      isBelowAvg: (i + 0.5) / NUM_BINS < avgScore,
+      isAboveTarget: i / NUM_BINS >= targetThreshold,
+    }));
+    for (const d of data) {
+      const binIdx = Math.min(NUM_BINS - 1, Math.floor(d.representationScore * NUM_BINS));
+      bins[binIdx].count++;
+    }
+    return bins;
+  }, [data, atRisk, avgScore, targetThreshold]);
 
   // Dynamic bar size based on data length and container width
   const barSize = Math.max(4, Math.min(24, Math.floor(Math.min(400, width * 0.6) / data.length)));
@@ -119,98 +142,140 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
         </div>
       </div>
 
+      {/* View mode toggle for large datasets */}
+      {data.length > 100 && (
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-[10px] text-slate-400">View:</span>
+          <button
+            onClick={() => setViewMode('bars')}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${!showHistogram ? 'bg-blue-100 border-blue-300 text-blue-700 font-bold' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+              }`}
+          >
+            Full Bars ({data.length})
+          </button>
+          <button
+            onClick={() => setViewMode('histogram')}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${showHistogram ? 'bg-blue-100 border-blue-300 text-blue-700 font-bold' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+              }`}
+          >
+            Distribution
+          </button>
+        </div>
+      )}
+
       {/* Chart */}
       <div className="relative bg-white rounded-lg border border-slate-200 shadow-sm p-1" style={{ height: '250px' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={margins}>
+          <ComposedChart data={showHistogram ? histogramData : chartData} margin={margins}>
             <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
 
-            <XAxis
-              dataKey="index"
-              tick={false}
-              axisLine={{ stroke: '#cbd5e1' }}
-              tickLine={false}
-            >
-              <Label
-                value={isCompact ? 'Participants →' : 'Participants (Sorted by Representation Score)'}
-                position="bottom"
-                offset={isCompact ? 30 : 40}
-                style={{
-                  fontSize: config.fontSize,
-                  fill: '#475569',
-                  fontWeight: 500
-                }}
-              />
-            </XAxis>
-
-            <YAxis
-              domain={[0, 1]}
-              tickCount={6}
-              tick={{ fontSize: config.tickFontSize, fill: '#64748b' }}
-              tickFormatter={(v) => formatMetric(v, 1)}
-              axisLine={{ stroke: '#cbd5e1' }}
-            >
-              <Label
-                value={isCompact ? 'Score' : 'Representation Score'}
-                angle={-90}
-                position="left"
-                offset={isCompact ? 35 : 45}
-                style={{
-                  fontSize: config.fontSize,
-                  fill: '#475569',
-                  fontWeight: 500,
-                  textAnchor: 'middle'
-                }}
-              />
-            </YAxis>
-
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
-
-            {/* Reference lines */}
-            <ReferenceLine
-              y={avgScore}
-              stroke="#3b82f6"
-              strokeDasharray="6 4"
-              strokeWidth={2}
-            />
-            <ReferenceLine
-              y={targetThreshold}
-              stroke="#10b981"
-              strokeDasharray="4 4"
-              strokeWidth={1}
-            />
-            <ReferenceLine
-              y={atRisk}
-              stroke="#ef4444"
-              strokeDasharray="3 3"
-              strokeWidth={1}
-            />
-
-            <Bar
-              dataKey="representationScore"
-              barSize={barSize}
-              radius={[2, 2, 0, 0]}
-            >
-              {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={
-                    entry.representationScore < atRisk ? '#f43f5e' :
-                    entry.representationScore < avgScore ? '#94a3b8' :
-                    entry.representationScore < targetThreshold ? '#fbbf24' : '#10b981'
-                  }
+            {showHistogram ? (
+              /* ── Histogram mode ── */
+              <>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: config.tickFontSize - 1, fill: '#64748b' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  interval={1}
+                >
+                  <Label
+                    value="Representation Score Range"
+                    position="bottom"
+                    offset={isCompact ? 30 : 40}
+                    style={{ fontSize: config.fontSize, fill: '#475569', fontWeight: 500 }}
+                  />
+                </XAxis>
+                <YAxis
+                  tickCount={6}
+                  tick={{ fontSize: config.tickFontSize, fill: '#64748b' }}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                >
+                  <Label
+                    value="Participants"
+                    angle={-90}
+                    position="left"
+                    offset={isCompact ? 35 : 45}
+                    style={{ fontSize: config.fontSize, fill: '#475569', fontWeight: 500, textAnchor: 'middle' }}
+                  />
+                </YAxis>
+                <Tooltip
+                  formatter={(value: number, _name: string, props: any) => [
+                    `${value} participant${value !== 1 ? 's' : ''}`,
+                    `Range: ${props.payload.label}`
+                  ]}
+                  cursor={{ fill: '#f8fafc' }}
                 />
-              ))}
-            </Bar>
-
-            <Line
-              type="monotone"
-              dataKey="representationScore"
-              stroke="#475569"
-              strokeWidth={1.5}
-              dot={false}
-              activeDot={{ r: 4, fill: '#3b82f6' }}
-            />
+                <Bar dataKey="count" barSize={Math.max(8, Math.min(28, Math.floor(width * 0.5 / NUM_BINS)))} radius={[3, 3, 0, 0]}>
+                  {histogramData.map((entry, index) => (
+                    <Cell
+                      key={`hist-${index}`}
+                      fill={
+                        entry.isAtRisk ? '#f43f5e' :
+                          entry.isBelowAvg ? '#94a3b8' :
+                            entry.isAboveTarget ? '#10b981' : '#fbbf24'
+                      }
+                    />
+                  ))}
+                </Bar>
+              </>
+            ) : (
+              /* ── Full bars mode ── */
+              <>
+                <XAxis
+                  dataKey="index"
+                  tick={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  tickLine={false}
+                >
+                  <Label
+                    value={isCompact ? 'Participants →' : 'Participants (Sorted by Representation Score)'}
+                    position="bottom"
+                    offset={isCompact ? 30 : 40}
+                    style={{ fontSize: config.fontSize, fill: '#475569', fontWeight: 500 }}
+                  />
+                </XAxis>
+                <YAxis
+                  domain={[0, 1]}
+                  tickCount={6}
+                  tick={{ fontSize: config.tickFontSize, fill: '#64748b' }}
+                  tickFormatter={(v) => formatMetric(v, 1)}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                >
+                  <Label
+                    value={isCompact ? 'Score' : 'Representation Score'}
+                    angle={-90}
+                    position="left"
+                    offset={isCompact ? 35 : 45}
+                    style={{ fontSize: config.fontSize, fill: '#475569', fontWeight: 500, textAnchor: 'middle' }}
+                  />
+                </YAxis>
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
+                <ReferenceLine y={avgScore} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} />
+                <ReferenceLine y={targetThreshold} stroke="#10b981" strokeDasharray="4 4" strokeWidth={1} />
+                <ReferenceLine y={atRisk} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1} />
+                <Bar dataKey="representationScore" barSize={barSize} radius={[2, 2, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={
+                        entry.representationScore < atRisk ? '#f43f5e' :
+                          entry.representationScore < avgScore ? '#94a3b8' :
+                            entry.representationScore < targetThreshold ? '#fbbf24' : '#10b981'
+                      }
+                    />
+                  ))}
+                </Bar>
+                <Line
+                  type="monotone"
+                  dataKey="representationScore"
+                  stroke="#475569"
+                  strokeWidth={1.5}
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#3b82f6' }}
+                />
+              </>
+            )}
           </ComposedChart>
         </ResponsiveContainer>
 
