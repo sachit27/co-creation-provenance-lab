@@ -974,14 +974,30 @@ export const runCoreAnalysis = async (
     .filter(p => p.semanticIsolation >= isoThreshold && p.representationScore <= repThreshold)
     .slice(0, 3)
     .map(p => {
-      const missingConcepts = p.keywords.slice(0, 3).join(", ");
+      // FIX: Re-extract keywords using the improved filter (strips contractions + generic words)
+      // rather than relying on p.keywords which may have been computed with the old extractor.
+      const cleanKeywords = extractKeywords(p.originalText, 4)
+        .filter(kw => kw.length >= 5);
+
       const issueText = `Isolation ${p.semanticIsolation.toFixed(2)} | Rep ${p.representationScore.toFixed(2)}`;
+
+      // Build a human-readable concept label:
+      //   1. If we have ≥1 clean keyword, use up to 3 joined by ", "
+      //   2. Otherwise quote a short excerpt of the original text so the
+      //      facilitator still has meaningful context (never show 'local issues').
+      let conceptLabel: string;
+      if (cleanKeywords.length > 0) {
+        conceptLabel = cleanKeywords.slice(0, 3).join(', ');
+      } else {
+        const excerpt = p.originalText.trim().split(/[.!?]/)[0].trim();
+        conceptLabel = excerpt.length > 80 ? excerpt.slice(0, 77) + '…' : excerpt;
+      }
 
       return {
         participantId: p.id,
         issue: issueText,
-        suggestion: `Participant ${p.id} introduces distinct concepts (${missingConcepts || 'unique perspective'}) that are missing. Integrating these would bridge a semantic gap.`,
-        facilitationPrompt: `To the group: "${p.id} mentioned concepts like '${missingConcepts || 'local issues'}'. How can we adapt the current consensus to address this perspective?"`
+        suggestion: `Participant ${p.id} raised a semantically distinct perspective that was not reflected in the summary. Their input (isolation: ${p.semanticIsolation.toFixed(2)}, representation: ${(p.representationScore * 100).toFixed(0)}%) should be explicitly surfaced.`,
+        facilitationPrompt: `To the group: "One participant raised the perspective: '${conceptLabel}'. How could the current consensus be adapted to include this point of view?"`
       };
     });
 

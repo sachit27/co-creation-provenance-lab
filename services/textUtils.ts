@@ -85,11 +85,39 @@ const STOP_WORDS = new Set([
   'kill', 'kills', 'killed', 'killing',
   'remain', 'remains', 'remained', 'remaining',
   // Adverbs & Common Terms
-  'not', 'n\'t', 'never', 'always', 'often', 'sometimes', 'usually', 'really', 'very', 'too', 'quite', 'just', 'only', 'almost', 'also', 'even', 'then', 'now', 'there', 'here', 'back', 'up', 'down', 'away', 'off', 'still', 'maybe', 'perhaps',
+  'not', "n't", 'never', 'always', 'often', 'sometimes', 'usually', 'really', 'very', 'too', 'quite', 'just', 'only', 'almost', 'also', 'even', 'then', 'now', 'there', 'here', 'back', 'up', 'down', 'away', 'off', 'still', 'maybe', 'perhaps',
   'good', 'bad', 'great', 'new', 'old', 'first', 'last', 'long', 'little', 'own', 'same', 'big', 'high', 'low', 'different', 'small', 'large', 'next', 'early', 'young', 'important', 'few', 'many', 'much', 'part', 'way', 'day', 'year', 'thing', 'things', 'something', 'anything', 'nothing', 'everything',
   // Domain Specific Generic Words (Context: User Feedback/App)
-  'participant', 'participants', 'user', 'users', 'citizen', 'project', 'research', 'researcher', 'researchers', 'study', 'studies', 'analysis', 'data', 'contribution', 'input', 'feedback', 'app', 'tool', 'system'
+  'participant', 'participants', 'user', 'users', 'citizen', 'project', 'research', 'researcher', 'researchers', 'study', 'studies', 'analysis', 'data', 'contribution', 'input', 'feedback', 'app', 'tool', 'system',
+  // --- FIX: Contractions stripped of apostrophes ---
+  // When apostrophes are removed for tokenization, "don't" → "dont", "can't" → "cant", etc.
+  // These are meaningless without context and MUST be in the stoplist.
+  'dont', 'cant', 'wont', 'shouldnt', 'wouldnt', 'couldnt', 'doesnt', 'didnt',
+  'isnt', 'arent', 'wasnt', 'werent', 'hasnt', 'havent', 'hadnt', 'wont',
+  'mustnt', 'neednt', 'oughtnt', 'shant', 'shan', 'mightnt', 'ive', 'youve',
+  'weve', 'theyve', 'id', 'youd', 'hed', 'shed', 'wed', 'theyd',
+  'im', 'youre', 'hes', 'shes', 'were', 'theyre', 'ive', 'isnt', 'it',
+  'ill', 'youll', 'hell', 'shell', 'well', 'theyll', 'thats', 'whos',
+  'whats', 'wheres', 'hows', 'theres', 'its', 'lets',
+  // Also common contracted forms after stemming
+  'shouldnt', 'wouldnt', 'aint', 'reckon', 'gonna', 'wanna', 'gotta',
 ]);
+
+/**
+ * Generic high-frequency words that survive stop-word filtering but are
+ * semantically empty when shown as standalone topic labels.
+ * These are word-level placeholders (not phrases) that appear in every
+ * discussion but don't identify any real theme without context.
+ */
+const GENERIC_WORDS = new Set([
+  'people', 'person', 'more', 'less', 'real', 'show', 'focus', 'address',
+  'ensure', 'honest', 'actually', 'already', 'increase', 'decrease',
+  'again', 'rather', 'question', 'issues', 'issue', 'better', 'worse',
+  'again', 'true', 'false', 'sure', 'think', 'believe', 'clearly',
+  'rather', 'simply', 'basically', 'given', 'being', 'having',
+  'everyone', 'anyone', 'someone', 'nobody', 'everybody',
+]);
+
 
 const cleanAndStem = (w: string): string | null => {
   // 1. Length Check — require at least 4 chars to avoid 3-letter noise
@@ -139,42 +167,52 @@ const cleanAndStem = (w: string): string | null => {
 
 export const extractKeywords = (text: string, max: number = 8): string[] => {
   const words = text.toLowerCase()
-    // Strip punctuation AND apostrophes so contractions split correctly:
-    // "can't" → "cant", "it's" → "its" — both then caught by stopwords.
-    .replace(/[.,/#!$%^&*;:{}=\\\\-_`~()\"']/g, "")
+    // IMPORTANT: remove apostrophes BEFORE removing other punctuation so that
+    // "don't" → "dont" and "can't" → "cant" — these are then caught by
+    // the expanded STOP_WORDS that includes all stripped-contraction forms.
+    .replace(/'/g, '')        // remove apostrophes first (handles curly ' too)
+    .replace(/[.,/#!$%^&*;:{}=\\-_`~()"]/g, ' ')  // replace other punct with space
     .split(/\s+/);
 
   const freq: Record<string, number> = {};
-  // Track stem → first original word seen, so we return readable words not stems
   const stemToOriginal: Record<string, string> = {};
 
-  // 1. Unigram Extraction — use stems for grouping, originals for display
+  // 1. Unigram Extraction
+  // Only include words that are:
+  //   - Not in STOP_WORDS (includes all stripped contractions like 'dont', 'cant')
+  //   - Not in GENERIC_WORDS (context-free fillers like 'people', 'more', 'real')
+  //   - At least 5 characters (eliminates most single-letter and short noise tokens)
   words.forEach(w => {
+    if (w.length < 5) return;          // require minimum word length
+    if (GENERIC_WORDS.has(w)) return;  // filter context-free generic words
     const stem = cleanAndStem(w);
-    if (stem) {
+    if (stem && !GENERIC_WORDS.has(stem)) {
       freq[stem] = (freq[stem] || 0) + 1;
-      if (!stemToOriginal[stem]) stemToOriginal[stem] = w; // keep first original
+      if (!stemToOriginal[stem]) stemToOriginal[stem] = w;
     }
   });
 
   // 2. Bigram Extraction (Phrases)
-  // This helps capture "public transport", "climate change", "mobile app"
+  // Both words must pass both stopword and generic-word checks, and
+  // must be at least 4 chars each (shorter words in bigrams still often noise).
   for (let i = 0; i < words.length - 1; i++) {
     const w1 = words[i];
     const w2 = words[i + 1];
-    // For bigrams, we check the raw words against stoplist, but don't stem aggressively yet
-    if (!STOP_WORDS.has(w1) && !STOP_WORDS.has(w2) && w1.length > 2 && w2.length > 2) {
+    if (
+      !STOP_WORDS.has(w1) && !STOP_WORDS.has(w2) &&
+      !GENERIC_WORDS.has(w1) && !GENERIC_WORDS.has(w2) &&
+      w1.length >= 4 && w2.length >= 4
+    ) {
       const bigram = `${w1} ${w2}`;
-      // Weight bigrams slightly higher than unigrams, but don't let them dominate unless frequent
       freq[bigram] = (freq[bigram] || 0) + 1.2;
-      stemToOriginal[bigram] = bigram; // bigrams are already readable
+      stemToOriginal[bigram] = bigram;
     }
   }
 
   return Object.entries(freq)
-    .sort((a, b) => b[1] - a[1]) // Sort by frequency desc
+    .sort((a, b) => b[1] - a[1])
     .slice(0, max)
-    .map(([stem]) => stemToOriginal[stem] ?? stem); // return original word, not stem
+    .map(([stem]) => stemToOriginal[stem] ?? stem);
 };
 
 // Returns concepts found in input that are MISSING from summary
