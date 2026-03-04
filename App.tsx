@@ -654,7 +654,7 @@ export default function App() {
               data={data}
               onViewDetails={(tab) => setActiveTab(tab as TabState)}
               onExportReport={() => downloadReport(data)}
-              onRevise={data.config.summaryMethod !== 'manual' ? handleOpenRevisionEditor : undefined}
+              onRevise={handleOpenRevisionEditor}
             />
 
             {/* Interactive Revision Editor — opened by "Revise Summary" button */}
