@@ -618,7 +618,14 @@ export const runCoreAnalysis = async (
     // Instead, select proportional cluster representatives — actual participant texts, not
     // abstractions — so the summary preserves authentic voice and scores stay accurate.
     try {
-      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\nProvide a summary (150 words).`;
+      // Dynamic length guidance based on dataset size
+      // We don't want a hard word limit as it forces the model to drop perspectives.
+      // Instead, we encourage a comprehensive summary proportional to the input diversity.
+      const lengthGuidance = inputs.length > 30
+        ? "Provide a comprehensive summary (approximately 3-5 paragraphs) that captures all distinct perspectives."
+        : "Provide a concise but complete summary that captures all distinct perspectives.";
+
+      const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\n${lengthGuidance}`;
       summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
     } catch (e) {
       summaryText = "AI Generation Failed. " + inputs.slice(0, 3).map(i => i.text).join(' ');
