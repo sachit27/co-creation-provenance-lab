@@ -13,6 +13,7 @@ import { ProcessingState } from './components/ui/ProcessingState';
 import { InfoIcon } from './components/ui/MetricGlossary';
 import { GroupEquityChart } from './components/visualizations/GroupEquityChart';
 import { UncertaintyViz } from './components/visualizations/UncertaintyViz';
+import { ThemeNetwork } from './components/visualizations/ThemeNetwork';
 import { ThresholdSensitivityMini, ThresholdImpactBadges } from './components/visualizations/ThresholdSensitivityMini';
 // SummaryQualityMetrics removed - too complex for users
 import { CounterfactualPanel } from './components/ui/CounterfactualPanel';
@@ -41,6 +42,7 @@ const Icons = {
   Bar: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>,
   Zap: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>,
   Tag: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>,
+  Network: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>,
   Eye: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>,
   Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>,
   Info: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>,
@@ -52,7 +54,7 @@ const Icons = {
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies' | 'provenance';
+type TabState = 'map' | 'network' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies' | 'provenance';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -477,6 +479,9 @@ export default function App() {
           <button onClick={() => setActiveTab('map')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'map' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Map /> Discussion Map
           </button>
+          <button onClick={() => setActiveTab('network')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'network' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.Network /> Theme Network
+          </button>
           <button onClick={() => setActiveTab('blindspot')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'blindspot' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Eye /> Blind Spot Plot
           </button>
@@ -841,6 +846,12 @@ export default function App() {
                       onSelect={setSelectedParticipant}
                     />
                   </Card>
+                )}
+
+                {activeTab === 'network' && (
+                  <div className="h-[600px]">
+                    <ThemeNetwork data={data} />
+                  </div>
                 )}
 
                 {activeTab === 'blindspot' && (
