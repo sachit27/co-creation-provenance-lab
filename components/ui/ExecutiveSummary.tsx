@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { AnalysisResult } from '../../types';
 import { ANALYSIS_CONFIG } from '../../constants';
-import { generateRecommendations } from '../../services/plainLanguage';
+import { generateRecommendations, computeAtRiskCount } from '../../services/plainLanguage';
 
 interface ExecutiveSummaryProps {
   data: AnalysisResult;
@@ -36,9 +36,10 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
     const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
 
-    // At Risk: score < 0.3 — genuinely at risk of being completely missed.
-    // Uses the documented atRisk threshold from representationInterpretation.
-    const atRiskCount = participants.filter(p => p.representationScore < atRiskThreshold).length;
+    // At Risk: dynamic percentile-based threshold — min(Q1 score, mean × 0.7).
+    // Uses the same computeAtRiskCount() logic as generateRecommendations()
+    // so the big number and the recommendation text always agree.
+    const atRiskCount = computeAtRiskCount(participants);
 
     // Blind spots: unique perspectives that were genuinely missed.
     // Requires BOTH conditions:
