@@ -67,8 +67,16 @@ const buildContext = (data: AnalysisResult): FacilitationContext => {
     .flatMap(p => p.keywords ?? []);
   const kwFreq: Record<string, number> = {};
   wellRepKeywords.forEach(kw => { kwFreq[kw] = (kwFreq[kw] || 0) + 1; });
+  // A keyword is only a valid "theme" if it's substantive:
+  // - at least 5 characters (eliminates most noise words)
+  // - no apostrophes (contractions that slipped through tokenizer)
+  // - not purely numeric
+  const isValidTheme = (kw: string) =>
+    kw.length >= 5 && !kw.includes("'") && !/^\d+$/.test(kw);
+
   const dominantThemes = Object.entries(kwFreq)
     .sort((a, b) => b[1] - a[1])
+    .filter(([kw]) => isValidTheme(kw))
     .slice(0, 6)
     .map(([kw]) => kw);
 
@@ -79,7 +87,7 @@ const buildContext = (data: AnalysisResult): FacilitationContext => {
   underrepKeywords.forEach(kw => { missingFreq[kw] = (missingFreq[kw] || 0) + 1; });
   const missingThemes = Object.entries(missingFreq)
     .sort((a, b) => b[1] - a[1])
-    .filter(([kw]) => !dominantThemes.includes(kw))
+    .filter(([kw]) => isValidTheme(kw) && !dominantThemes.includes(kw))
     .slice(0, 6)
     .map(([kw]) => kw);
 
@@ -88,22 +96,22 @@ const buildContext = (data: AnalysisResult): FacilitationContext => {
   const giniInterpretation = gini < giniLow
     ? 'low inequality (voices are fairly distributed)'
     : gini < giniModerate
-    ? 'moderate inequality (some voices significantly more represented than others)'
-    : 'high inequality (representation is severely skewed toward dominant perspectives)';
+      ? 'moderate inequality (some voices significantly more represented than others)'
+      : 'high inequality (representation is severely skewed toward dominant perspectives)';
 
   // Alerts
   const languageAlert = data.languageAnalysis?.hasEquityIssue
     ? `Non-English inputs are statistically underrepresented (p-value: ${data.languageAnalysis.pValue?.toFixed(3) ?? 'N/A'}). ` +
-      `Languages affected: ${data.languageAnalysis.underrepresentedLanguages.join(', ')}.`
+    `Languages affected: ${data.languageAnalysis.underrepresentedLanguages.join(', ')}.`
     : null;
 
   const groupAlert = data.groupAnalysis && data.groupAnalysis.interGroupGini > 0.25
     ? `Inter-group Gini = ${data.groupAnalysis.interGroupGini.toFixed(2)}. ` +
-      `Groups with lowest representation: ${data.groupAnalysis.groupMetrics
-        .sort((a, b) => a.avgRepresentation - b.avgRepresentation)
-        .slice(0, 2)
-        .map(g => `${g.groupId} (avg ${g.avgRepresentation.toFixed(2)})`)
-        .join(', ')}.`
+    `Groups with lowest representation: ${data.groupAnalysis.groupMetrics
+      .sort((a, b) => a.avgRepresentation - b.avgRepresentation)
+      .slice(0, 2)
+      .map(g => `${g.groupId} (avg ${g.avgRepresentation.toFixed(2)})`)
+      .join(', ')}.`
     : null;
 
   return {
@@ -266,12 +274,12 @@ const generateFallbackPlan = (
   const gap = ctx.blindSpotParticipants.length + ctx.atRiskParticipants.length;
   const gapBrief = gap === 0
     ? `The AI summary captured the majority of participant voices well (${ctx.wellRepCount} of ${ctx.total} well-represented). ` +
-      `Minor gaps exist — consider targeted questions to verify that all perspectives are accurately reflected.`
+    `Minor gaps exist — consider targeted questions to verify that all perspectives are accurately reflected.`
     : `${gap} participant${gap > 1 ? 's are' : ' is'} underrepresented in the current summary, ` +
-      `including ${ctx.blindSpotParticipants.length} peripheral blind spots ` +
-      `and ${ctx.atRiskParticipants.length} at-risk voices. ` +
-      `The missing themes (${ctx.missingThemes.slice(0, 3).join(', ') || 'see blind spots'}) ` +
-      `should be explicitly raised in the next session to ensure fair representation.`;
+    `including ${ctx.blindSpotParticipants.length} peripheral blind spots ` +
+    `and ${ctx.atRiskParticipants.length} at-risk voices. ` +
+    `The missing themes (${ctx.missingThemes.slice(0, 3).join(', ') || 'see blind spots'}) ` +
+    `should be explicitly raised in the next session to ensure fair representation.`;
 
   const baseQuestions = [
     ...ctx.missingThemes.slice(0, 3).map(theme =>
@@ -279,9 +287,9 @@ const generateFallbackPlan = (
       `What specific aspects of this are most important for our decision-making?`
     ),
     `Some participants expressed perspectives that differ significantly from the summary's conclusions. ` +
-      `Would anyone like to add or clarify points that may have been missed?`,
+    `Would anyone like to add or clarify points that may have been missed?`,
     `The summary presents certain themes as dominant — do participants feel this accurately reflects ` +
-      `the full range of views expressed today, or were important dissenting perspectives omitted?`,
+    `the full range of views expressed today, or were important dissenting perspectives omitted?`,
   ].slice(0, 5);
 
   // Pad to 5 questions if needed

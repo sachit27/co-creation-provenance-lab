@@ -92,10 +92,16 @@ const STOP_WORDS = new Set([
 ]);
 
 const cleanAndStem = (w: string): string | null => {
-  // 1. Length Check
-  if (w.length < 3) return null;
+  // 1. Length Check — require at least 4 chars to avoid 3-letter noise
+  if (w.length < 4) return null;
 
-  // 2. Stoplist Check
+  // 2. Reject tokens that still contain apostrophes (contractions)
+  if (w.includes("'")) return null;
+
+  // 3. Reject purely numeric tokens
+  if (/^\d+$/.test(w)) return null;
+
+  // 4. Stoplist Check
   if (STOP_WORDS.has(w)) return null;
 
   // 3. Simple Stemming (Improved)
@@ -133,7 +139,9 @@ const cleanAndStem = (w: string): string | null => {
 
 export const extractKeywords = (text: string, max: number = 8): string[] => {
   const words = text.toLowerCase()
-    .replace(/[.,/#!$%^&*;:{}=\\-_`~()]/g, "")
+    // Strip punctuation AND apostrophes so contractions split correctly:
+    // "can't" → "cant", "it's" → "its" — both then caught by stopwords.
+    .replace(/[.,/#!$%^&*;:{}=\\\\-_`~()\"']/g, "")
     .split(/\s+/);
 
   const freq: Record<string, number> = {};
