@@ -9,7 +9,7 @@ import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBa
 import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid } from './mathUtils';
 // Note: analyzeSentimentAI has built-in 3-tier fallback (AI → HuggingFace → NLP)
 // so we always use it regardless of AI connection status
-import { analyzeSentimentAI, analyzeConceptGapAI, extractKeywordsAI } from './aiAnalysis';
+import { analyzeSentimentAI, analyzeConceptGapAI, extractKeywordsAI, analyzeSentimentNLP } from './aiAnalysis';
 import { LocalVectorizer } from './vectorizer';
 import { analyzeConceptGap, computeConceptFidelity, computeConceptOverlapScore, extractKeywords } from './textUtils';
 import { computeUncertaintyMetrics } from './uncertainty';
@@ -89,14 +89,16 @@ const batchAnalyzeSentiment = async (
   const results: SentimentResult[] = new Array(texts.length).fill(null);
   const startTime = Date.now();
 
-  if (isConnected && config.summaryMethod === 'ai') {
-    // Batched AI path — 100 inputs per prompt
+  // ── Tier 1: LLM batch ────────────────────────────────────────────────────
+  // Always attempt LLM first when a network connection is available.
+  // This is intentionally decoupled from `summaryMethod` — sentiment analysis
+  // is independent of whether the user picked AI or extractive summarization.
+  if (isConnected) {
     for (let i = 0; i < texts.length; i += SENTIMENT_BATCH_SIZE) {
       const chunk = texts.slice(i, i + SENTIMENT_BATCH_SIZE);
       const chunkNum = Math.floor(i / SENTIMENT_BATCH_SIZE) + 1;
       const totalChunks = Math.ceil(texts.length / SENTIMENT_BATCH_SIZE);
 
-      // ETA calculation
       const elapsed = (Date.now() - startTime) / 1000;
       const etaStr = chunkNum > 1
         ? ` (~${Math.round(elapsed / (chunkNum - 1) * (totalChunks - chunkNum + 1))}s remaining)`
@@ -149,21 +151,31 @@ Rules:
           }
         }
       } catch (e) {
-        console.warn(`[Sentiment] Batch ${chunkNum} failed:`, e);
+        console.warn(`[Sentiment] Batch ${chunkNum} LLM call failed:`, e);
+        // Leave result as null so the fallback ladder below fills it in.
       }
     }
   }
 
-  // Fill any remaining nulls with batched HuggingFace (or NLP) fallback
-  // This executes when AI is disconnected or when specific batches failed above.
+  // ── Tier 2 / 3: Fill any remaining nulls ─────────────────────────────────
+  // Nulls arise when: (a) LLM is offline, (b) specific batches failed above.
+  //
+  // Strategy:
+  //   • For SMALL datasets (≤ 50 missing items): try HuggingFace WASM first.
+  //     It is more accurate but loads ~70 MB into browser memory, so we only
+  //     do this when the count is manageable.
+  //   • For LARGE datasets: skip WASM entirely and go straight to the NLP
+  //     lexicon (pure JS, instant, zero memory risk).
   const missingIndices = results.map((r, i) => r === null ? i : -1).filter(i => i >= 0);
 
-  if (missingIndices.length > 0) {
-    onProgress?.(`Sentiment fallback for ${missingIndices.length} inputs...`);
-    const missingTexts = missingIndices.map(idx => texts[idx]);
+  if (missingIndices.length === 0) return results as SentimentResult[];
 
+  const missingTexts = missingIndices.map(idx => texts[idx]);
+  const useHuggingFace = missingIndices.length <= 50;
+
+  if (useHuggingFace) {
+    onProgress?.(`Sentiment fallback: running local model on ${missingIndices.length} inputs...`);
     try {
-      // Try local Transformer batching first (much faster than individual calls)
       if (await checkHuggingFaceAvailable()) {
         const hfStartTime = Date.now();
         const hfResults = await analyzeSentimentBatchHF(missingTexts, (processed, total) => {
@@ -171,28 +183,23 @@ Rules:
           const eta = processed < total
             ? ` (~${Math.round(elapsed / processed * (total - processed))}s remaining)`
             : '';
-          onProgress?.(`Local sentiment models classifying ${processed}/${total}${eta}`);
+          onProgress?.(`Local model classifying ${processed}/${total}${eta}`);
         });
-
-        // Map back to original indices
         for (let j = 0; j < missingIndices.length; j++) {
           results[missingIndices[j]] = hfResults[j];
         }
-      } else {
-        throw new Error("HuggingFace not available");
+        return results as SentimentResult[];
       }
     } catch (e) {
-      console.warn(`[Sentiment] Batched HF fallback failed, using individual NLP:`, e);
-      for (let j = 0; j < missingIndices.length; j++) {
-        const origIdx = missingIndices[j];
-        try {
-          // Will fall through to Tier 3 NLP since HF failed
-          results[origIdx] = await analyzeSentimentAI(texts[origIdx], config);
-        } catch {
-          results[origIdx] = { score: 0, label: 'neutral' };
-        }
-      }
+      console.warn('[Sentiment] HuggingFace WASM failed, falling back to NLP:', e);
     }
+  } else {
+    onProgress?.(`Sentiment: large dataset (${missingIndices.length} inputs) — using fast NLP lexicon to avoid browser memory limits.`);
+  }
+
+  // Tier 3: NLP lexicon — pure JS, O(n) per text, no memory risk.
+  for (let j = 0; j < missingIndices.length; j++) {
+    results[missingIndices[j]] = analyzeSentimentNLP(missingTexts[j]);
   }
 
   return results as SentimentResult[];

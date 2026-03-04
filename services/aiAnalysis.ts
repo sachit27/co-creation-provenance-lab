@@ -47,7 +47,7 @@ const checkTier2Available = async (): Promise<boolean> => {
  * 
  * Based on: Hutto & Gilbert (2014) "VADER: A Parsimonious Rule-based Model"
  */
-const analyzeSentimentNLP = (text: string): { score: number; label: 'positive' | 'negative' | 'neutral' } => {
+export const analyzeSentimentNLP = (text: string): { score: number; label: 'positive' | 'negative' | 'neutral' } => {
     const words = text.toLowerCase().split(/\s+/);
 
     // Sentiment lexicon (subset of VADER)
