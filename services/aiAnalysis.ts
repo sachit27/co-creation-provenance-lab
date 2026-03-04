@@ -185,17 +185,21 @@ export const extractKeywordsAI = async (
     // Tier 1: Try AI
     try {
         const safeText = text.replace(/"/g, '\\"');
-        const prompt = `Extract the ${topK} most important concepts from this text.
-Include both single keywords and multi-word phrases (e.g., "public transport", "climate change").
+        const prompt = `Extract the ${topK} most important substantive concepts from this text.
+Return MEANINGFUL multi-word concept phrases (e.g., "regulatory compliance", "public consultation", "data privacy").
+NEVER return single generic words like "people", "more", "dont", "cant", "real", "show".
+Each concept should be specific enough that a researcher or policy-maker could act on it.
+
 Text: "${safeText}"
 
-Respond with ONLY a JSON array of strings, e.g., ["concept 1", "concept 2", ...]`;
+Respond with ONLY a JSON array of concept phrase strings, e.g., ["concept phrase 1", "concept phrase 2", ...]`;
 
+        const systemPrompt = 'You are a concept extraction expert for participatory research. Return multi-word concept phrases, never single generic words. Respond only with a JSON array.';
         let response: string;
         if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, 'You are a keyword extraction expert. Respond only with a JSON array.', config.model);
+            response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
         } else {
-            response = await generateGeminiCompletion(prompt, 'You are a keyword extraction expert. Respond only with a JSON array.', config.model);
+            response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
         }
 
         const match = response.match(/\[[\s\S]*\]/);
@@ -239,19 +243,22 @@ export const analyzeConceptGapAI = async (
         const safeInput = inputText.replace(/"/g, '\\"');
         const safeSummary = summaryText.replace(/"/g, '\\"');
         const prompt = `Compare the key concepts in the INPUT to those in the SUMMARY.
+Identify MEANINGFUL multi-word concept phrases (e.g., "regulatory compliance", "public accountability").
+NEVER return single generic words like "people", "more", "dont", "cant", "real".
 
 INPUT: "${safeInput}"
 
 SUMMARY: "${safeSummary}"
 
-Identify which concepts from the INPUT are kept in the SUMMARY and which are dropped.
-Respond with ONLY a JSON object: {"kept": ["concept1", ...], "dropped": ["concept1", ...]}`;
+Identify which substantive concepts from the INPUT are kept in the SUMMARY and which are dropped.
+Respond with ONLY a JSON object: {"kept": ["concept phrase 1", ...], "dropped": ["concept phrase 1", ...]}`;
 
+        const systemPrompt = 'You are a concept analysis expert for participatory research. Return multi-word concept phrases, never single generic words. Respond only with valid JSON.';
         let response: string;
         if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, 'You are a concept analysis expert. Respond only with valid JSON.', config.model);
+            response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
         } else {
-            response = await generateGeminiCompletion(prompt, 'You are a concept analysis expert. Respond only with valid JSON.', config.model);
+            response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
         }
 
         const match = response.match(/\{[\s\S]*\}/);

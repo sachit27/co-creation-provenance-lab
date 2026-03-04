@@ -238,15 +238,18 @@ const performConceptFidelityAnalysis = async (
       try {
         const numberedInputs = chunk.map((text, idx) => `[${idx}] "${text.slice(0, 300)}"`).join('\n');
         const prompt = `Compare the key concepts in each numbered INPUT to those in the SUMMARY.
+Return MEANINGFUL multi-word concept phrases (e.g. "regulatory compliance", "data privacy", "public consultation").
+NEVER return single generic words like "people", "more", "dont", "cant", "real", "show", "focus".
+Each concept should be a substantive topic that a policy-maker or researcher could act on.
 
 SUMMARY: "${summary.slice(0, 1500)}"
 
 INPUTS:
 ${numberedInputs}
 
-For EACH input, identify which concepts are kept in the SUMMARY and which are dropped.
+For EACH input, identify which substantive concepts are kept in the SUMMARY and which are dropped.
 Respond with ONLY a JSON array where index matches input number:
-[{"kept": ["concept1", ...], "dropped": ["concept1", ...]}, ...]`;
+[{"kept": ["concept phrase 1", ...], "dropped": ["concept phrase 1", ...]}, ...]`;
 
         const response = await generateCompletion(prompt, 'You are a concept analysis expert. Respond only with a valid JSON array.', config);
         const match = response.match(/\[[\s\S]*\]/);

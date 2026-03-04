@@ -165,49 +165,134 @@ const cleanAndStem = (w: string): string | null => {
   return stem;
 };
 
+/**
+ * RAKE — Rapid Automatic Keyword Extraction (Rose et al. 2010)
+ *
+ * How it works:
+ * 1. Normalize text: strip apostrophes (so contractions become stop-tokens),
+ *    lowercase, replace punctuation with delimiters.
+ * 2. Split on stop-word / generic-word / punctuation boundaries to form
+ *    *candidate phrases* (runs of consecutive content words).
+ * 3. Score each candidate using word co-occurrence degree:
+ *      phrase_score = Σ( degree(w) / freq(w) )  for w in phrase
+ *    where degree(w) = number of distinct content words w co-occurs with
+ *    across ALL phrases, and freq(w) = total occurrences of w.
+ *    This favours words that appear with many other content words (rich
+ *    phrases) over words that appear alone (noise words).
+ * 4. De-duplicate by checking if one candidate is a sub-phrase of a higher-
+ *    ranked one; if so, skip the shorter variant.
+ * 5. Return the top-max phrases, each ≤ 4 words.
+ *
+ * Advantages over TF-IDF:
+ *   • Naturally produces multi-word keyphrases ("regulatory compliance")
+ *   • Robust on short texts (no corpus frequency needed)
+ *   • No external dependencies
+ */
 export const extractKeywords = (text: string, max: number = 8): string[] => {
+  // --- 1. Normalize --------------------------------------------------------
+  const normalized = text
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u0027]/g, '')      // strip all apostrophe variants
+    .replace(/[.,\/#!$%\^&\*;:{}=\\\-_`~()\"\?\[\]]/g, ' | ')  // punctuation → delimiter
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const tokens = normalized.split(' ');
+
+  // --- 2. Build candidate phrases ------------------------------------------
+  // A "delimiter" is any stop word, generic word, the pipe symbol, or a token
+  // shorter than 3 characters.
+  const isDelimiter = (t: string): boolean =>
+    t === '|' || t.length < 3 || STOP_WORDS.has(t) || GENERIC_WORDS.has(t);
+
+  const candidates: string[][] = [];  // each candidate is an array of words
+  let current: string[] = [];
+
+  for (const tok of tokens) {
+    if (isDelimiter(tok)) {
+      if (current.length > 0) {
+        candidates.push(current);
+        current = [];
+      }
+    } else {
+      current.push(tok);
+    }
+  }
+  if (current.length > 0) candidates.push(current);
+
+  // --- 3. Compute word scores (degree / frequency) -------------------------
+  const wordFreq: Record<string, number> = {};
+  const wordDegree: Record<string, number> = {};
+
+  for (const phrase of candidates) {
+    const phraseLen = phrase.length;
+    for (const w of phrase) {
+      wordFreq[w] = (wordFreq[w] || 0) + 1;
+      // degree = freq + (number of OTHER content words it co-occurs with)
+      // Simplified: degree += phrase length (includes self, consistent with Rose et al.)
+      wordDegree[w] = (wordDegree[w] || 0) + phraseLen;
+    }
+  }
+
+  const wordScore: Record<string, number> = {};
+  for (const w of Object.keys(wordFreq)) {
+    wordScore[w] = (wordDegree[w] || 0) / wordFreq[w];
+  }
+
+  // --- 4. Score each candidate phrase, cap length at 4 words ----------------
+  const phraseScores: { phrase: string; score: number }[] = [];
+  const seen = new Set<string>();
+
+  for (const words of candidates) {
+    // Cap at 4 content words to keep labels readable
+    const trimmed = words.slice(0, 4);
+    const phrase = trimmed.join(' ');
+    if (seen.has(phrase) || phrase.length < 4) continue;
+    seen.add(phrase);
+
+    const score = trimmed.reduce((sum, w) => sum + (wordScore[w] || 0), 0);
+    phraseScores.push({ phrase, score });
+  }
+
+  // Sort by score descending
+  phraseScores.sort((a, b) => b.score - a.score);
+
+  // --- 5. De-duplicate sub-phrases -----------------------------------------
+  const results: string[] = [];
+  for (const { phrase } of phraseScores) {
+    if (results.length >= max) break;
+    // Skip if this phrase is a substring of an already-selected higher-ranked one
+    const dominated = results.some(r => r.includes(phrase) || phrase.includes(r));
+    if (!dominated) {
+      results.push(phrase);
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Legacy TF-IDF keyword extractor — kept as fallback for computeConceptOverlapScore
+ * which relies on unigram stem matching against the summary.
+ */
+export const extractKeywordsLegacy = (text: string, max: number = 8): string[] => {
   const words = text.toLowerCase()
-    // IMPORTANT: remove apostrophes BEFORE removing other punctuation so that
-    // "don't" → "dont" and "can't" → "cant" — these are then caught by
-    // the expanded STOP_WORDS that includes all stripped-contraction forms.
-    .replace(/'/g, '')        // remove apostrophes first (handles curly ' too)
-    .replace(/[.,/#!$%^&*;:{}=\\-_`~()"]/g, ' ')  // replace other punct with space
+    .replace(/[\u2018\u2019\u0027]/g, '')
+    .replace(/[.,\/#!$%\^&\*;:{}=\\\-_`~()\"]/g, ' ')
     .split(/\s+/);
 
   const freq: Record<string, number> = {};
   const stemToOriginal: Record<string, string> = {};
 
-  // 1. Unigram Extraction
-  // Only include words that are:
-  //   - Not in STOP_WORDS (includes all stripped contractions like 'dont', 'cant')
-  //   - Not in GENERIC_WORDS (context-free fillers like 'people', 'more', 'real')
-  //   - At least 5 characters (eliminates most single-letter and short noise tokens)
   words.forEach(w => {
-    if (w.length < 5) return;          // require minimum word length
-    if (GENERIC_WORDS.has(w)) return;  // filter context-free generic words
+    if (w.length < 5) return;
+    if (GENERIC_WORDS.has(w)) return;
     const stem = cleanAndStem(w);
     if (stem && !GENERIC_WORDS.has(stem)) {
       freq[stem] = (freq[stem] || 0) + 1;
       if (!stemToOriginal[stem]) stemToOriginal[stem] = w;
     }
   });
-
-  // 2. Bigram Extraction (Phrases)
-  // Both words must pass both stopword and generic-word checks, and
-  // must be at least 4 chars each (shorter words in bigrams still often noise).
-  for (let i = 0; i < words.length - 1; i++) {
-    const w1 = words[i];
-    const w2 = words[i + 1];
-    if (
-      !STOP_WORDS.has(w1) && !STOP_WORDS.has(w2) &&
-      !GENERIC_WORDS.has(w1) && !GENERIC_WORDS.has(w2) &&
-      w1.length >= 4 && w2.length >= 4
-    ) {
-      const bigram = `${w1} ${w2}`;
-      freq[bigram] = (freq[bigram] || 0) + 1.2;
-      stemToOriginal[bigram] = bigram;
-    }
-  }
 
   return Object.entries(freq)
     .sort((a, b) => b[1] - a[1])
