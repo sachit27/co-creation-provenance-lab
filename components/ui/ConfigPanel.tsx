@@ -920,7 +920,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {apertusStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {apertusStatus === 'offline' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">No key</span>}
                     </div>
-                    <p className="text-xs text-slate-500">ETH/EPFL open-source, 1800+ languages. Via <strong>publicai.co</strong>.</p>
+                    <p className="text-xs text-slate-500">ETH/EPFL open-source, 1000+ languages. Via <strong>publicai.co</strong>.</p>
                   </div>
                 </div>
 
@@ -1050,7 +1050,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       className="w-full p-2.5 border border-red-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none bg-white"
                     />
                     <p className="text-xs text-red-600 mt-1.5">
-                      Apertus is open-source Swiss AI by ETH/EPFL/CSCS, 1800+ languages. Get a free key at <strong>publicai.co</strong>.
+                      Apertus is open-source Swiss AI by ETH/EPFL/CSCS, 1000+ languages. Get a free key at <strong>publicai.co</strong>.
                     </p>
                   </div>
                 )}
