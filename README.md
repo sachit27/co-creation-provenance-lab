@@ -6,7 +6,7 @@
 
 # Co-Creation Provenance Lab
 
-### *Every voice deserves to be heard. This tool measures whether it was.*
+### *Who spoke. Who was heard. And the gap between them.*
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#)
@@ -22,13 +22,13 @@
 
 ## The Problem
 
-AI increasingly mediates collective decision-making — summarising community consultations, workshop outputs, and policy discussions. But AI summaries are not neutral. They systematically amplify majority voices while flattening minority perspectives, non-English speakers, and unconventional viewpoints.
+Whenever a group of people contributes to a shared process — a consultation, a workshop, a survey, a policy forum — their inputs eventually get distilled into a synthesis: a summary, a report, a set of recommendations. That synthesis is what shapes decisions.
 
-**This bias is near-invisible without the right tooling.**
+But synthesis is never neutral. AI-generated summaries amplify majority voices and flatten minority perspectives. Human facilitators do too, unconsciously. Non-English speakers, unconventional viewpoints, and structurally isolated participants are systematically left out — and nobody can see it happening.
 
-A city consultation with 300 residents. A corporate workshop with 80 employees. A global policy forum with 3,000 submissions. In each case, an AI generates a summary — and nobody knows whose voice actually made it in.
+**This gap between participation and representation is near-invisible without the right tooling.**
 
-The Co-Creation Provenance Lab makes this visible. It audits AI summaries against the original participant inputs, scores every voice individually, and tells you exactly who was left out and why.
+The Co-Creation Provenance Lab is an open-source auditing tool for any synthesis of collective input. Bring your own existing summary, or let the tool generate one — either way, it scores every participant's voice individually, clusters perspectives to detect structurally excluded groups, and tells you exactly who was left out and why.
 
 ---
 
@@ -47,13 +47,16 @@ The Co-Creation Provenance Lab makes this visible. It audits AI summaries agains
 ## How It Works
 
 ```
-1. Upload participant responses (CSV or paste)
+1. Upload participant responses (CSV or paste text)
         │
         ▼
-2. Choose an AI provider (Gemini · Groq · Ollama · local)
+2. Provide a summary to audit — your choice:
+        ├── Paste an existing summary (human-written, AI-generated, or from another tool)
+        ├── Let the tool generate one using your preferred AI provider
+        └── Use extractive summarisation (no API key needed)
         │
         ▼
-3. The tool generates a summary and immediately audits it:
+3. The tool audits the summary against every participant:
         │
         ├── Embeds every participant response and every summary sentence
         ├── Scores each participant: how much of their voice survived?
