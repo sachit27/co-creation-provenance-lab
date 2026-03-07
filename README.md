@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="main.png" alt="Co-Creation Provenance Lab dashboard screenshot" width="100%">
+<img src="main.png" alt="Co-Creation Provenance Lab — dashboard screenshot" width="100%">
 
 <br/>
 
-# 🔬 Co-Creation Provenance Lab
+# Co-Creation Provenance Lab
 
 ### *Every voice deserves to be heard. This tool measures whether it was.*
 
@@ -12,148 +12,147 @@
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](#)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](#)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-[Overview](#-the-problem-we-solve) • [Features](#-feature-overview) • [Quick Start](#-quick-start) • [AI Providers](#-ai-providers--embedding-tiers) • [Methodology](#-methodology) • [Architecture](#-architecture) • [Troubleshooting](#-troubleshooting)
+[Problem](#the-problem) · [Use Cases](#use-cases) · [How It Works](#how-it-works) · [Capabilities](#capabilities) · [Quick Start](#quick-start) · [Methodology](#methodology) · [Troubleshooting](#troubleshooting)
 
 </div>
 
 ---
 
-## 📌 The Problem We Solve
+## The Problem
 
-Imagine a city planning session with 80 participants — community members, urban planners, youth groups, government officials. An AI summarizes the discussion. **But does that summary actually represent all 80 people?**
+AI increasingly mediates collective decision-making — summarising community consultations, workshop outputs, and policy discussions. But AI summaries are not neutral. They systematically amplify majority voices while flattening minority perspectives, non-English speakers, and unconventional viewpoints.
 
-Research consistently shows AI-generated summaries amplify majority voices. Minority perspectives, non-English speakers, and unconventional viewpoints are systematically flattened. This problem is near-invisible without the right tooling.
+**This bias is near-invisible without the right tooling.**
 
-> **The Co-Creation Provenance Lab** is an open-source auditing tool that makes this invisible problem visible. It scores, diagnoses, and gives you the tools to fix it.
+A city consultation with 300 residents. A corporate workshop with 80 employees. A global policy forum with 3,000 submissions. In each case, an AI generates a summary — and nobody knows whose voice actually made it in.
+
+The Co-Creation Provenance Lab makes this visible. It audits AI summaries against the original participant inputs, scores every voice individually, and tells you exactly who was left out and why.
 
 ---
 
-## ✨ Feature Overview
+## Use Cases
 
-<table>
-<tr>
-<td width="50%">
-
-### ⚖️ Representation Scoring
-Automatically measures how well each voice is reflected in the AI-generated summary using a hybrid model combining **semantic similarity** (cosine on sentence embeddings with exponential decay) + **concept overlap** via stemmed keyword matching.
-
-**Score interpretation:**
-| Range | Meaning |
+| Context | How the tool helps |
 |:---|:---|
-| ≥ 0.6 | ✅ Well Represented |
+| **Civic & participatory design** | Audit AI summaries of community consultations; ensure no demographic cluster is systematically excluded |
+| **Academic research** | Quantify representation bias in LLM summarisation across languages, groups, and ideological positions |
+| **Facilitation & workshops** | Identify blind spots in real time; generate targeted follow-up questions for underrepresented voices |
+| **Organisational co-creation** | Verify that employee surveys, ideation sessions, and strategy workshops reflect the full range of input |
+| **Policy & governance** | Produce a verifiable provenance certificate documenting whose voices shaped a decision |
+
+---
+
+## How It Works
+
+```
+1. Upload participant responses (CSV or paste)
+        │
+        ▼
+2. Choose an AI provider (Gemini · Groq · Ollama · local)
+        │
+        ▼
+3. The tool generates a summary and immediately audits it:
+        │
+        ├── Embeds every participant response and every summary sentence
+        ├── Scores each participant: how much of their voice survived?
+        ├── Clusters voices to detect structurally excluded groups
+        ├── Diagnoses the root cause of each exclusion (LLM bias · language gap · unique voice)
+        └── Generates an actionable facilitation plan to fix it
+```
+
+All of this happens in your browser. No participant data is sent to external servers unless you choose a cloud provider for text generation.
+
+---
+
+## Capabilities
+
+### Representation Scoring
+
+Every participant receives a score from 0 to 1 measuring how well their input is reflected in the summary. The score is a hybrid of semantic similarity (cosine on dense embeddings with exponential decay across matched sentences) and concept overlap (stemmed keyword intersection).
+
+| Score | Status |
+|:---|:---|
+| ≥ 0.6 | ✅ Well represented |
 | 0.5 – 0.6 | 🟡 Marginal |
 | 0.3 – 0.5 | 🔶 Underrepresented |
-| < 0.3 | 🔴 At Risk |
+| < 0.3 | 🔴 At risk |
 
-</td>
-<td width="50%">
+### Blind Spot Detection
 
-### 🔍 Blind Spot Detection
-A participant is flagged as a **blind spot** only when *both* conditions hold:
-1. Semantic centrality is below the group median (genuine isolation)
-2. Representation score is below 0.5 (genuinely underrepresented)
+A participant is flagged as a blind spot only when *both* conditions hold: they are semantically isolated from the group centroid **and** their representation score is below threshold. This avoids the common pitfall of relative definitions, which would always flag 25% of participants regardless of actual fairness.
 
-This avoids the common pitfall of relative definitions, which would always flag 25% of participants regardless of actual fairness.
+### Root-Cause Bias Diagnosis
 
-**Equity metrics computed:**
-- Gini coefficient (inequality across participants)
-- Distinct representation gap
-- Coverage uniformity index
+For every underrepresented participant the tool diagnoses *why*:
 
-</td>
-</tr>
-<tr>
-<td>
+| Label | Cause |
+|:---|:---|
+| 🌍 Embedding Gap | Multilingual failure — non-Latin script fell back to TF-IDF |
+| 👤 Unique Voice | Content genuinely distinct; LLM had no basis to include it |
+| ❌ Summariser Bias | LLM ignored semantically relevant input |
+| 🗣️ Phrasing Mismatch | Same idea expressed in non-standard language |
 
-### 🗂️ Citation Provenance Trail
-Click any AI-generated summary sentence to trace it back to the exact participant inputs that constructed it, ranked by cosine similarity and graded with match-strength badges.
+### Semantic Clustering
 
-Provides an audit trail answering: *"Where did that sentence come from?"*
+K-Means++ with automatic K selection groups participants into semantic clusters. The 2D semantic map (PCA projection) shows the spatial arrangement of all voices and which clusters are furthest from the summary.
 
-</td>
-<td>
+### Citation Provenance Trail
 
-### 🧬 Root-Cause Bias Diagnosis
-For any underrepresented participant (score < 0.6), the tool pinpoints the root cause:
+Click any sentence in the AI-generated summary to trace it back to the exact participant inputs that influenced it, ranked by cosine similarity with match-strength badges. Answers: *"Where did that sentence come from?"*
 
-| Badge | Cause | Meaning |
-|:---|:---|:---|
-| 🌍 | *Embedding Gap* | Multilingual failure — TF-IDF used for non-Latin script |
-| 👤 | *Unique Voice* | Semantically isolated; content genuinely absent |
-| ❌ | *Summarizer Bias* | LLM ignored semantically relevant input |
-| 🗣️ | *Phrasing Mismatch* | Same idea, non-standard language |
+### Equity Metrics
 
-</td>
-</tr>
-<tr>
-<td>
+| Metric | What it measures |
+|:---|:---|
+| Gini coefficient | Inequality of representation across all participants |
+| Coverage uniformity | How evenly the summary distributes across voices |
+| Distinct representation gap | Mean score difference between isolated and mainstream voices |
+| LOO sensitivity | Which individual inputs most shift the group semantic centre |
+| Bootstrap CIs (95%) | Sampling uncertainty around all reported metrics |
 
-### 🧭 Facilitation Co-Pilot
-Generates a complete **workshop facilitation plan** targeting your specific blind spots:
-- 📋 Facilitator-ready gap brief
-- ❓ 5 targeted follow-up questions per underrepresented theme
-- 🛠️ 3 structured workshop exercises (World Café, Fishbowl, Anonymous Voting)
+### Language Equity
 
-Works fully offline with a rule-based fallback when LLM is unavailable.
+An exact permutation test (10,000 draws) verifies whether non-English inputs are statistically underrepresented relative to English inputs. Flags at p < 0.05.
 
-</td>
-<td>
+### Facilitation Co-Pilot
 
-### 🔮 What-If Simulator
-Run parametric simulations to answer key facilitation decisions:
-- *"What would happen to our equity score if we added 5 more youth voices?"*
-- *"What if government stakeholders were given twice the representation weight?"*
+Generates a workshop facilitation plan targeted at your specific blind spots: a gap brief, five follow-up questions per underrepresented theme, and three structured exercises (World Café, Fishbowl, Anonymous Voting). Works offline with a rule-based fallback.
 
-Scores are bootstrapped from cluster empirical distributions (min. σ = 0.05) and displayed as directional projections.
+### What-If Simulator
 
-</td>
-</tr>
-<tr>
-<td>
+Parametric simulations answer facilitation questions before you intervene: *"What happens to the equity score if we add five more youth voices?"* Scores are bootstrapped from cluster empirical distributions.
 
-### ✍️ Interactive Revision Editor
-Edit the AI summary manually or click **✨ Generate AI Draft** for an AI-assisted revision that specifically targets underrepresented voices, then compare before/after equity metrics side-by-side — without re-embedding participant inputs.
+### Interactive Revision Editor
 
-</td>
-<td>
+Edit the AI summary manually or generate an AI draft that specifically targets underrepresented voices. Before/after equity metrics update without re-embedding participant inputs.
 
-### 📊 Equity & Language Fairness
-- **Language equity:** Exact permutation test (10,000 draws) to verify non-English inputs are not statistically underrepresented (p < 0.05 threshold).
-- **Group equity:** Per-stakeholder-group comparison with inter-group Gini.
-- **Bootstrap CIs:** 200-sample resampling quantifies how sensitive reported metrics are to which participants were sampled.
+### Provenance Certificate
 
-</td>
-</tr>
-</table>
+Export a W3C PROV-O JSON-LD provenance record documenting who contributed, what they said, and how much of their voice was captured — suitable for governance accountability.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-**Prerequisites:** Node.js v18+
+**Prerequisites:** Node.js 18+
 
 ```bash
-# Install dependencies
 npm install
-
-# Start the development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-The tool works **out of the box with no API key** using its built-in benchmark datasets and local TF-IDF embeddings.
+Open [http://localhost:3000](http://localhost:3000). The tool works immediately with no API key using built-in demo data and local TF-IDF embeddings.
 
 <details>
-<summary>🐳 <b>One-command setup with Docker</b></summary>
+<summary><b>Docker</b></summary>
 
 ```bash
 docker compose up
 ```
 
-Or the Mac/Linux startup script:
+Or on Mac/Linux:
 
 ```bash
 chmod +x start.sh && ./start.sh
@@ -162,172 +161,158 @@ chmod +x start.sh && ./start.sh
 </details>
 
 <details>
-<summary>🌍 <b>Enable BGE-M3 for multilingual datasets</b></summary>
+<summary><b>BGE-M3 — recommended for multilingual datasets</b></summary>
 
-BGE-M3 (1024-dim, multilingual SOTA) dramatically improves accuracy on non-English inputs:
+BGE-M3 (1024-dim, multilingual SOTA) significantly improves accuracy on non-English inputs and large datasets. It runs locally — no API key required.
 
 ```bash
 pip install sentence-transformers flask flask-cors
 python embedding_server.py
 ```
 
-> **First run:** downloads ~2GB of model weights. Only needed once.
-> **Torch error?** Run: `pip install 'transformers<4.50'`
+First run downloads ~2 GB of model weights (cached afterwards). The app auto-detects the server at startup.
+
+**Torch compatibility error?**
+```bash
+pip install 'transformers<4.50'
+```
 
 </details>
 
 <details>
-<summary>💻 <b>Enable fully local / private mode with Ollama</b></summary>
+<summary><b>Ollama — fully local, fully private</b></summary>
 
 ```bash
-ollama pull qwen3:30b-instruct    # text generation
-ollama pull all-minilm:latest     # embeddings fallback
-ollama serve                      # OLLAMA_ORIGINS handled automatically by the Vite proxy
+ollama pull llama3.2:3b       # text generation (fast)
+ollama pull nomic-embed-text  # embeddings
+ollama serve
 ```
+
+No data leaves your machine. CORS is handled automatically by the Vite dev proxy — no manual configuration needed.
 
 </details>
 
 ---
 
-## 🔑 Setting API Keys
+## AI Providers
 
-| Method | How | Lifetime |
-|:---|:---|:---|
-| **Environment variable (.env)** | `GEMINI_API_KEY=AIza...` | Persists across sessions |
-| **Browser UI** | Paste key in the config panel | Cleared when browser tab closes |
-
-Keys entered via the browser are stored in `sessionStorage` only. No request is ever made to an external server with your key from the UI — Gemini is proxied server-side on Vercel.
-
----
-
-## 🧠 AI Providers & Embedding Tiers
-
-### Supported Providers
-
-| Provider | Summary Generation | Embeddings | Notes |
+| Provider | Generation | Embeddings | Privacy |
 |:---|:---|:---|:---|
-| ☁️ **Google Gemini** | ✅ Cloud | ✅ `text-embedding-004` | Best for production; API key free at [Google AI Studio](https://aistudio.google.com) |
-| ⚡ **Groq** | ✅ Cloud (Llama 3, Gemma 2, Mixtral) | ❌ Fallback only | Very fast; free key at [console.groq.com](https://console.groq.com) |
-| 💻 **Ollama** | ✅ Local | ✅ `all-minilm` | 100% private; no data leaves your machine |
+| **BGE-M3** | — | ✅ 1024-dim SOTA | Local |
+| **Google Gemini** | ✅ | ✅ `text-embedding-004` | Cloud |
+| **Groq** | ✅ Llama 3, Gemma 2 | ❌ (fallback) | Cloud |
+| **Ollama** | ✅ Any local model | ✅ Any local model | Local |
+| **TF-IDF** | — | ✅ Always available | Local |
 
-### Automatic Embedding Fallback
-
-The system silently selects the best available embedding tier:
+### Embedding priority (automatic)
 
 ```
-BGE-M3 (1024-dim, SOTA multilingual)
-  └─ Ollama (configurable dim)
-       └─ Gemini text-embedding-004
-            └─ Local TF-IDF (150-dim, Unicode-aware WASM — always available)
+BGE-M3  →  Ollama  →  Gemini  →  Local TF-IDF
 ```
 
-> **Dimension safety:** The revision editor enforces dimension matching between stored participant embeddings and newly generated sentence embeddings. If a tier upgrade/downgrade occurs, participant inputs are automatically re-embedded at the matching tier before scores are computed.
+The system selects the best available tier at startup. No configuration required.
+
+### API keys
+
+| Method | How | Persists |
+|:---|:---|:---|
+| `.env` file | `GEMINI_API_KEY=AIza...` | Yes |
+| Config panel | Paste in browser UI | Session only |
+
+Keys entered in the browser are stored in `sessionStorage` only. Gemini calls are proxied server-side — your key is never exposed in client code.
 
 ---
 
-## 📐 Methodology
+## Methodology
 
 <details>
-<summary><b>Representation Score Calculation</b></summary>
+<summary><b>Representation score</b></summary>
 
-Each participant's representation score is a weighted hybrid of:
+Each participant's score combines two signals:
 
-**1. Embedding Similarity** — cosine similarity between participant input vector and each summary sentence vector:
+**1. Embedding similarity** — cosine similarity between the participant's input vector and each summary sentence vector, with exponential decay on secondary matches:
 
-$$S_{embed}(p, \text{summary}) = \cos(e_p, e_{s_1}) + \gamma \cdot \cos(e_p, e_{s_2}) + \gamma^2 \cdot \cos(e_p, e_{s_3}) + \ldots$$
+$$S_{embed} = \cos(e_p, e_{s_1}) + \gamma \cdot \cos(e_p, e_{s_2}) + \gamma^2 \cdot \cos(e_p, e_{s_3}) + \ldots \quad (\gamma = 0.3)$$
 
-Where γ = 0.3 (exponential decay on secondary matches).
+This follows coverage-aware scoring from multi-document summarisation evaluation (Radev et al., 2004). The decay factor prevents double-counting when multiple sentences paraphrase the same point.
 
-**2. Concept Overlap** — stemmed keyword intersection normalized by participant keyword count.
+**2. Concept overlap** — stemmed keyword intersection normalised by participant keyword count (RAKE extraction).
 
 **Final score:**
-- Neural embeddings (BGE-M3, Gemini, Ollama): `0.8 × embedding_sim + 0.2 × concept_overlap`
+- Neural embeddings: `0.8 × embedding_sim + 0.2 × concept_overlap`
 - TF-IDF fallback: `0.5 × embedding_sim + 0.5 × concept_overlap`
 
 </details>
 
 <details>
-<summary><b>Equity Metrics</b></summary>
+<summary><b>Equity metrics</b></summary>
 
 | Metric | Formula | Interpretation |
 |:---|:---|:---|
-| **Gini** | Standard Lorenz curve area | 0 = perfect equality; 1 = full concentration |
-| **Coverage Uniformity** | 1 - (std / mean) of scores | Higher = more even distribution |
-| **Equity Gap** | mean(well-rep) - mean(at-risk) | Smaller = fairer |
-| **LOO Sensitivity** | Δ(avg representation) when input i removed | Identifies dominant voices |
+| Gini | Lorenz curve area | 0 = perfect equality; 1 = full concentration |
+| Coverage uniformity | 1 − Gini | Higher = more even |
+| Distinct gap | mean(well-rep) − mean(at-risk) | Smaller = fairer |
+| LOO sensitivity | Z-score of Δ centroid when input i removed | Identifies dominant voices |
 
 Gini thresholds: Low < 0.2 ≤ Moderate < 0.35 ≤ High
 
 </details>
 
 <details>
-<summary><b>Clustering & Visualization</b></summary>
+<summary><b>Clustering and visualisation</b></summary>
 
-- **Algorithm:** K-Means++ initialization (Arthur & Vassilvitskii, 2007) with automatic K via Elbow method.
-- **Visualization:** PCA from scratch using power iteration with deflation for 2D projection. No browser-side ML library dependency.
-- **Bootstrap CIs:** Efron & Tibshirani (1993). 200-sample resampling of Gini, mean representation, and equity gap to quantify sampling variability. Does not capture model uncertainty.
+- **Clustering:** K-Means++ (Arthur & Vassilvitskii, 2007) with automatic K via elbow method
+- **Projection:** PCA via power iteration with deflation — no browser-side ML library dependency
+- **Bootstrap CIs:** Efron & Tibshirani (1993); 200-sample resampling of Gini, mean representation, and equity gap
+
+</details>
+
+<details>
+<summary><b>Staged analysis execution</b></summary>
+
+For responsiveness with large datasets, analysis runs in two phases:
+
+- **Phase 1** (immediate): embeddings, clustering, summary generation, representation scoring, all pure-math analyses — dashboard renders as soon as this completes
+- **Phase 2** (background): concept fidelity analysis (N/5 LLM batches) — fills the Concepts tab when complete
+
+A generation counter prevents stale state if a new analysis is started before Phase 2 finishes.
 
 </details>
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Browser (Vite + React + TypeScript)
   │
-  ├── /api/ollama/*  ─── dev proxy ──▶  http://localhost:11434  (local Ollama)
-  │
-  ├── /api/gemini-*  ─── dev proxy ──▶  Vercel Serverless Functions
-  │                                      └── GEMINI_API_KEY  (server-side only, never exposed)
-  │
-  └── https://api.groq.com ◀── direct fetch (user-supplied key in sessionStorage)
-
-Embedding pipeline (runtime auto-selection, best tier wins):
-  BGE-M3 @ localhost:5001  →  Ollama  →  Gemini API  →  Local TF-IDF (WASM)
-                                                                      ↑ always available
-Performance layer:
-  IndexedDB vector cache (LRU) → 100x speedup on reload
-  Batched HuggingFace WASM     → offline DistilBERT inference
-  Adaptive API concurrency     → respects Groq/Gemini rate limits
+  ├── /api/ollama/*  ──▶  localhost:11434        (Ollama, dev proxy)
+  ├── /api/gemini-*  ──▶  Vercel serverless       (Gemini, key server-side only)
+  ├── localhost:5001  ──▶  BGE-M3 Python server   (embedding_server.py)
+  └── api.groq.com   ──▶  direct fetch            (user key in sessionStorage)
 ```
 
 <details>
-<summary>📁 <b>Full Repository Structure</b></summary>
+<summary><b>Repository structure</b></summary>
 
 ```
 co-creation-provenance-lab/
-├── api/                                 # Vercel serverless (Gemini proxy)
-│   ├── gemini-health.ts
-│   ├── gemini-embed.ts
-│   └── gemini-complete.ts
+├── api/                          # Vercel serverless (Gemini proxy)
 ├── services/
-│   ├── analysis.ts                      # Core pipeline orchestrator
-│   ├── aiAnalysis.ts                    # Sentiment/concept Tier-1→2→3 fallback
-│   ├── summaryRevision.ts               # Revision engine + dimension-safe re-scoring
-│   ├── embeddingCache.ts                # IndexedDB LRU vector cache
-│   ├── huggingface.ts                   # Batched WASM inference (DistilBERT)
-│   ├── biasAttribution.ts               # Root-cause bias diagnosis
-│   ├── facilitationCoPilot.ts           # LLM-powered workshop plan generator
-│   ├── provenanceExport.ts              # W3C PROV-O JSON-LD export
-│   └── reportExport.ts                  # HTML executive report builder
+│   ├── analysis.ts               # Core pipeline — Phase 1 + Phase 2
+│   ├── embeddingCache.ts         # In-session LRU vector cache (model-keyed)
+│   ├── aiAnalysis.ts             # Sentiment/concept with 3-tier fallback
+│   ├── biasAttribution.ts        # Root-cause bias diagnosis
+│   ├── facilitationCoPilot.ts    # Workshop plan generator
+│   ├── summaryRevision.ts        # Revision engine + dimension-safe re-scoring
+│   ├── provenanceExport.ts       # W3C PROV-O JSON-LD export
+│   └── reportExport.ts           # HTML executive report
 ├── components/
-│   ├── ui/
-│   │   ├── ProvenanceTrail.tsx          # Interactive sentence citation map
-│   │   ├── OnboardingOverlay.tsx        # First-time user tutorial
-│   │   ├── ExecutiveSummary.tsx         # Top-level scorecard + recommendations
-│   │   ├── FacilitationCoPilotPanel.tsx # Workshop plan display
-│   │   └── WhatIfSimulator.tsx          # Parametric simulation UI
-│   └── visualizations/
-│       ├── SemanticMap.tsx              # 2D PCA semantic space
-│       ├── BlindSpotPlot.tsx            # Centrality vs. score quadrant
-│       ├── ConceptDistortion.tsx        # Concept fidelity waterfall
-│       ├── GroupEquityChart.tsx         # Group Gini comparisons
-│       └── RepresentationBar.tsx        # Per-participant horizontal bar
-├── embedding_server.py                  # BGE-M3 Python HTTP service
-├── types.ts                             # All TypeScript interfaces
-├── constants.ts                         # Thresholds and metric config
-├── vite.config.ts                       # Dev proxy + build config
+│   ├── ui/                       # ConfigPanel, ExecutiveSummary, WhatIfSimulator, …
+│   └── visualizations/           # SemanticMap, BlindSpotPlot, ConceptDistortion, …
+├── embedding_server.py           # BGE-M3 Flask server (localhost:5001)
+├── types.ts                      # All TypeScript interfaces
+├── constants.ts                  # Thresholds and algorithm config
 ├── docker-compose.yml
 └── vercel.json
 ```
@@ -336,16 +321,11 @@ co-creation-provenance-lab/
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 <details>
 <summary><b>BGE-M3 fails with a torch.load vulnerability error</b></summary>
 
-```
-ValueError: Due to a serious vulnerability issue in torch.load...
-```
-
-Fix:
 ```bash
 pip install 'transformers<4.50'
 ```
@@ -353,51 +333,50 @@ pip install 'transformers<4.50'
 </details>
 
 <details>
+<summary><b>BGE-M3 fails with a NumPy 2.x compatibility error</b></summary>
+
+```bash
+pip install "numpy<2"
+pip install tf-keras
+```
+
+</details>
+
+<details>
 <summary><b>Ollama shows "Offline" in the config panel</b></summary>
 
-The Vite dev proxy handles Ollama CORS automatically. Ensure:
-1. Ollama is actually running: `ollama serve`
-2. You are using the dev server (`npm run dev`), not a built bundle
-3. You **do not** need to set `OLLAMA_ORIGINS` manually
+1. Confirm Ollama is running: `ollama serve`
+2. Use the dev server (`npm run dev`), not a built bundle
+3. `OLLAMA_ORIGINS` does not need to be set manually — the Vite proxy handles CORS
 
 </details>
 
 <details>
-<summary><b>Gemini model dropdown shows a text input instead of a list</b></summary>
+<summary><b>Scores are unexpectedly low on non-English inputs</b></summary>
 
-The model list is fetched dynamically after your key is validated. Wait a moment after entering the key and watch for the "✓ Browser key active" indicator. If it doesn't populate, verify the key at [Google AI Studio](https://aistudio.google.com).
-
-</details>
-
-<details>
-<summary><b>Scores are unexpectedly low on non-English participant inputs</b></summary>
-
-Check the **Embedding Tier** badge in the Details Panel:
-- If it shows `tfidf`, start the BGE-M3 embedding server to unlock multilingual semantic accuracy.
-- The **Bias Attribution** badge will also automatically flag this as an *Embedding Gap*.
+Check the **Embedding Tier** badge in the participant details panel. If it shows `tfidf`, start the BGE-M3 server to unlock multilingual semantic accuracy. The **Bias Attribution** badge will also flag this automatically as an *Embedding Gap*.
 
 </details>
 
 <details>
-<summary><b>Drastic score drop when revising the summary</b></summary>
+<summary><b>Gemini model dropdown shows a text field instead of a list</b></summary>
 
-This can happen when the embedding tier changes between the original analysis and the revision (e.g., BGE-M3 → TF-IDF), causing a dimension mismatch in cosine similarity. 
-
-The revision engine now **detects and corrects this automatically** by re-embedding participant inputs at the fallback tier before computing scores. If you still see unexpected drops, re-run the full analysis to re-establish a consistent embedding baseline.
+The model list is fetched after key validation. Wait a moment after entering your key and look for the "✓ Browser key active" indicator. If it does not populate, verify the key at [Google AI Studio](https://aistudio.google.com).
 
 </details>
 
 <details>
-<summary><b>Facilitation Co-Pilot returns template-based output instead of an LLM plan</b></summary>
+<summary><b>Facilitation Co-Pilot returns template output instead of an LLM plan</b></summary>
 
-This happens when the LLM response cannot be parsed as structured JSON. The rule-based fallback is intentional and always produces a complete plan. For structured LLM output, use **Gemini 2.0 Flash** or a **Groq Llama-3** model.
+This happens when the LLM response cannot be parsed as structured JSON. The rule-based fallback always produces a complete plan. For structured LLM output, use Gemini 2.0 Flash or a Groq Llama-3 model.
 
 </details>
 
 ---
 
-## 📬 Contributing & License
+## Contributing
 
-- **License:** [GNU AGPL v3.0](LICENSE) — use freely, share improvements.  
+Contributions are welcome. Open an issue before submitting large changes.
+
+- **License:** [GNU AGPL v3.0](LICENSE)
 - **Author:** Sachit Mahajan — [sachitmahajan90@gmail.com](mailto:sachitmahajan90@gmail.com)
-- **PRs welcome** — open an issue first for large changes.
