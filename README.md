@@ -237,7 +237,7 @@ Each participant's score combines two signals:
 
 $$S_{embed} = \cos(e_p, e_{s_1}) + \gamma \cdot \cos(e_p, e_{s_2}) + \gamma^2 \cdot \cos(e_p, e_{s_3}) + \ldots \quad (\gamma = 0.3)$$
 
-This follows coverage-aware scoring from multi-document summarisation evaluation (Radev et al., 2004). The decay factor prevents double-counting when multiple sentences paraphrase the same point.
+The decay factor prevents double-counting when multiple sentences paraphrase the same point. This approach is inspired by coverage-aware scoring principles in multi-document summarisation (Radev et al., 2004); the specific weighted formulation is implemented in this codebase.
 
 **2. Concept overlap** — stemmed keyword intersection normalised by participant keyword count (RAKE extraction).
 
@@ -254,7 +254,7 @@ This follows coverage-aware scoring from multi-document summarisation evaluation
 |:---|:---|:---|
 | Gini | Lorenz curve area | 0 = perfect equality; 1 = full concentration |
 | Coverage uniformity | 1 − Gini | Higher = more even |
-| Distinct gap | mean(well-rep) − mean(at-risk) | Smaller = fairer |
+| Distinct gap | mean_rep(mainstream) − mean_rep(top 25% most isolated) | Smaller = fairer |
 | LOO sensitivity | Z-score of Δ centroid when input i removed | Identifies dominant voices |
 
 Gini thresholds: Low < 0.2 ≤ Moderate < 0.35 ≤ High
