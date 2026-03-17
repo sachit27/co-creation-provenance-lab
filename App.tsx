@@ -14,7 +14,6 @@ import { ProcessingState } from './components/ui/ProcessingState';
 import { InfoIcon } from './components/ui/MetricGlossary';
 import { GroupEquityChart } from './components/visualizations/GroupEquityChart';
 import { UncertaintyViz } from './components/visualizations/UncertaintyViz';
-import { ThemeNetwork } from './components/visualizations/ThemeNetwork';
 import { ThresholdSensitivityMini, ThresholdImpactBadges } from './components/visualizations/ThresholdSensitivityMini';
 // SummaryQualityMetrics removed - too complex for users
 import { FeedbackPanel, FeedbackSummary } from './components/ui/FeedbackPanel';
@@ -55,7 +54,7 @@ const Icons = {
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'network' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity';
+type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -480,9 +479,6 @@ export default function App() {
           <button onClick={() => setActiveTab('map')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'map' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Map /> Discussion Map
           </button>
-          <button onClick={() => setActiveTab('network')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'network' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Icons.Network /> Theme Landscape
-          </button>
           <button onClick={() => setActiveTab('blindspot')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'blindspot' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Eye /> Blind Spot Plot
           </button>
@@ -849,11 +845,6 @@ export default function App() {
                   </Card>
                 )}
 
-                {activeTab === 'network' && (
-                  <div className="h-[600px]">
-                    <ThemeNetwork data={data} />
-                  </div>
-                )}
 
                 {activeTab === 'blindspot' && (
                   <Card title="Blind Spot Analysis" subtitle="Identifying excluded voices by comparing Centrality vs. Representation." className="border-t-4 border-t-red-500" expandable>
