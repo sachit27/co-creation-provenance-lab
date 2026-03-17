@@ -101,6 +101,10 @@ For every underrepresented participant the tool diagnoses *why*:
 
 K-Means++ with automatic K selection groups participants into semantic clusters. The 2D semantic map (PCA projection) shows the spatial arrangement of all voices and which clusters are furthest from the summary.
 
+### Participant Similarity Network
+
+An interactive force-directed graph where each node is a participant and edges connect those whose embeddings are mutually among each other's top-k nearest neighbors (mutual k-NN). Nodes are coloured by cluster and sized inversely by representation score — at-risk voices appear larger. Supports zoom, pan, drag, hover tooltips, and click-to-select. Isolated nodes (no mutual neighbors) are structurally distinct perspectives that no other participant closely shares.
+
 ### Citation Provenance Trail
 
 Click any sentence in the AI-generated summary to trace it back to the exact participant inputs that influenced it, ranked by cosine similarity with match-strength badges. Answers: *"Where did that sentence come from?"*
@@ -266,6 +270,7 @@ Gini thresholds: Low < 0.2 ≤ Moderate < 0.35 ≤ High
 
 - **Clustering:** K-Means++ (Arthur & Vassilvitskii, 2007) with automatic K via elbow method
 - **Projection:** PCA via power iteration with deflation — no browser-side ML library dependency
+- **Similarity network:** Mutual k-nearest neighbors graph (von Luxburg, 2007). An edge exists iff both nodes rank each other in their top-k (k = min(5, ceil(sqrt(N)))). The mutual requirement produces sparse, high-confidence connections suitable for visual interpretation at scale.
 - **Bootstrap CIs:** Efron & Tibshirani (1993); 200-sample resampling of Gini, mean representation, and equity gap
 
 </details>
