@@ -1,4 +1,4 @@
-import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, SensitivityResult, BridgingSuggestion, ConceptFidelityResult, SentenceMatch, StrategyComparisonResult } from '../types';
+import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, SensitivityResult, BridgingSuggestion, ConceptFidelityResult, SentenceMatch, StrategyComparisonResult, NetworkGraph } from '../types';
 import { checkAIConnection, generateCompletion as generateGeminiCompletion, generateEmbedding as generateGeminiEmbedding } from './gemini';
 import { checkOllamaConnection, generateOllamaCompletion, generateOllamaEmbedding } from './ollama';
 import { checkGroqConnection, generateGroqCompletion } from './groq';
@@ -6,7 +6,7 @@ import { checkOpenAIConnection, generateOpenAICompletion, generateOpenAIEmbeddin
 import { checkClaudeConnection, generateClaudeCompletion } from './claude';
 import { checkApertusConnection, generateApertusCompletion } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
-import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid } from './mathUtils';
+import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN } from './mathUtils';
 // Note: analyzeSentimentAI has built-in 3-tier fallback (AI → HuggingFace → NLP)
 // so we always use it regardless of AI connection status
 import { analyzeSentimentAI, analyzeConceptGapAI, extractKeywordsAI, analyzeSentimentNLP } from './aiAnalysis';
@@ -1010,6 +1010,29 @@ export const runCoreAnalysis = async (
     color: clusterColors[i % clusterColors.length]
   }));
 
+  // 8b. Compute Participant Similarity Network (mutual k-NN graph)
+  // Pure math — no LLM calls. Mutual kNN produces sparse, high-confidence
+  // edges: an edge exists iff both nodes rank each other in their top-k.
+  onProgress?.("Building similarity network...");
+  const knnK = Math.min(5, Math.ceil(Math.sqrt(inputs.length)));
+  const networkEdges = computeMutualKNN(
+    inputEmbeddings,
+    inputs.map(inp => inp.id),
+    knnK
+  );
+  const networkGraph: NetworkGraph = {
+    nodes: participants.map(p => ({
+      id: p.id,
+      clusterId: p.clusterId,
+      representationScore: p.representationScore,
+      semanticIsolation: p.semanticIsolation,
+      x: p.semanticCoords.x,
+      y: p.semanticCoords.y,
+    })),
+    edges: networkEdges,
+    k: knnK,
+  };
+
   // 9. Compute Uncertainty Metrics (Bootstrap CI)
   const { bootstrapSamples } = ANALYSIS_CONFIG.algorithms;
   onProgress?.("Computing uncertainty estimates...");
@@ -1067,6 +1090,7 @@ export const runCoreAnalysis = async (
       totalParticipants: inputs.length
     },
     clusters,
+    networkGraph,
     sensitivityAnalysis,
     bridgingOpportunities,
     conceptAnalysis: undefined,

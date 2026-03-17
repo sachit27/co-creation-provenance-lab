@@ -256,6 +256,28 @@ export interface AnalysisResult {
   embeddingTierUsed?: EmbeddingProvider; // Which tier was active for this analysis
   languageAnalysis?: LanguageEquityReport; // Language equity across participant inputs
   enrichmentStatus?: 'pending' | 'complete'; // Phase 2 concept fidelity completion state
+  networkGraph?: NetworkGraph; // Participant semantic similarity network
+}
+
+export interface NetworkNode {
+  id: string;
+  clusterId: number;
+  representationScore: number;
+  semanticIsolation: number;
+  x: number;
+  y: number;
+}
+
+export interface NetworkEdge {
+  source: string;
+  target: string;
+  weight: number; // Cosine similarity
+}
+
+export interface NetworkGraph {
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  k: number; // The k value used for mutual-kNN
 }
 
 export interface ConceptFidelityResult {

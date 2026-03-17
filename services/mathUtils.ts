@@ -351,3 +351,65 @@ const runKMeansStep = (
     }
     return { assignments, centroids };
 };
+
+/**
+ * Mutual k-Nearest Neighbors graph construction.
+ *
+ * An edge between participants i and j exists iff both rank each other
+ * among their k most similar neighbors. This mutual requirement produces
+ * sparse, high-confidence edges — standard in spectral clustering and
+ * manifold learning (von Luxburg, 2007).
+ *
+ * @param embeddings - Per-participant embedding vectors
+ * @param participantIds - Matching participant ID strings
+ * @param k - Number of nearest neighbors (typically min(5, ceil(sqrt(N))))
+ * @returns Array of undirected edges with cosine similarity weights
+ */
+export const computeMutualKNN = (
+  embeddings: number[][],
+  participantIds: string[],
+  k: number
+): { source: string; target: string; weight: number }[] => {
+  const n = embeddings.length;
+  if (n < 2) return [];
+
+  const effectiveK = Math.min(k, n - 1);
+
+  // Compute pairwise similarities and cache them (symmetric, so store once)
+  const simCache = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const sim = cosineSimilarity(embeddings[i], embeddings[j]);
+      simCache[i * n + j] = sim;
+      simCache[j * n + i] = sim;
+    }
+  }
+
+  // For each node, find its top-k neighbors
+  const knnSets: Set<number>[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const sims: { idx: number; sim: number }[] = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      sims.push({ idx: j, sim: simCache[i * n + j] });
+    }
+    sims.sort((a, b) => b.sim - a.sim);
+    knnSets[i] = new Set(sims.slice(0, effectiveK).map(s => s.idx));
+  }
+
+  // Mutual kNN: edge exists iff both nodes rank each other in top-k
+  const edges: { source: string; target: string; weight: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (knnSets[i].has(j) && knnSets[j].has(i)) {
+        edges.push({
+          source: participantIds[i],
+          target: participantIds[j],
+          weight: simCache[i * n + j],
+        });
+      }
+    }
+  }
+
+  return edges;
+};
