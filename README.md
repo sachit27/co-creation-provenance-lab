@@ -127,10 +127,6 @@ An exact permutation test (10,000 draws) verifies whether non-English inputs are
 
 Generates a workshop facilitation plan targeted at your specific blind spots: a gap brief, five follow-up questions per underrepresented theme, and three structured exercises (World Café, Fishbowl, Anonymous Voting). Works offline with a rule-based fallback.
 
-### What-If Simulator
-
-Parametric simulations answer facilitation questions before you intervene: *"What happens to the equity score if we add five more youth voices?"* Scores are bootstrapped from cluster empirical distributions.
-
 ### Interactive Revision Editor
 
 Edit the AI summary manually or generate an AI draft that specifically targets underrepresented voices. Before/after equity metrics update without re-embedding participant inputs.
@@ -316,7 +312,7 @@ co-creation-provenance-lab/
 │   ├── provenanceExport.ts       # W3C PROV-O JSON-LD export
 │   └── reportExport.ts           # HTML executive report
 ├── components/
-│   ├── ui/                       # ConfigPanel, ExecutiveSummary, WhatIfSimulator, …
+│   ├── ui/                       # ConfigPanel, ExecutiveSummary, FacilitationCoPilot, …
 │   └── visualizations/           # SemanticMap, BlindSpotPlot, ConceptDistortion, …
 ├── embedding_server.py           # BGE-M3 Flask server (localhost:5001)
 ├── types.ts                      # All TypeScript interfaces

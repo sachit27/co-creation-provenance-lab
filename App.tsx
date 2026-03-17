@@ -29,7 +29,7 @@ import { BeforeAfterComparison } from './components/ui/BeforeAfterComparison';
 import { BiasAttributionBadge } from './components/ui/BiasAttributionBadge';
 import { FeedbackAnalytics } from './components/ui/FeedbackAnalytics';
 import { FacilitationCoPilotPanel } from './components/ui/FacilitationCoPilotPanel';
-import { WhatIfSimulator } from './components/ui/WhatIfSimulator';
+// WhatIfSimulator removed — hypothetical feature
 import { ProvenanceTrail } from './components/ui/ProvenanceTrail';
 import { interpretGini, interpretEquityGap } from './services/plainLanguage';
 import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from './types';
@@ -56,7 +56,7 @@ const Icons = {
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'network' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'whatif' | 'strategies' | 'provenance' | 'similarity';
+type TabState = 'map' | 'network' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -482,7 +482,7 @@ export default function App() {
             <Icons.Map /> Discussion Map
           </button>
           <button onClick={() => setActiveTab('network')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'network' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Icons.Network /> Theme Network
+            <Icons.Network /> Theme Landscape
           </button>
           <button onClick={() => setActiveTab('blindspot')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'blindspot' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Eye /> Blind Spot Plot
@@ -514,9 +514,6 @@ export default function App() {
           )}
           <button onClick={() => setActiveTab('uncertainty')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'uncertainty' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Activity /> Uncertainty
-          </button>
-          <button onClick={() => setActiveTab('whatif')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'whatif' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Icons.CheckSquare /> Consultation Planner
           </button>
           {data?.strategyComparison && data.strategyComparison.length > 0 && (
             <button onClick={() => setActiveTab('strategies')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'strategies' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
@@ -954,12 +951,6 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                  </Card>
-                )}
-
-                {activeTab === 'whatif' && (
-                  <Card title="Consultation Planner" subtitle="Simulate adding voices or reweighting groups to project equity improvements." className="border-t-4 border-t-indigo-500">
-                    <WhatIfSimulator data={data} />
                   </Card>
                 )}
 

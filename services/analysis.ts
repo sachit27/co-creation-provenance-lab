@@ -889,7 +889,7 @@ export const runCoreAnalysis = async (
       sentenceMatches,
       topSentenceMatchIndex: topSentIdx,
       sentiment: sentiment.label,
-      keywords: concepts.dropped,
+      keywords: extractKeywords(input.text, 6),
       embeddingTier: embeddingTierUsed,
       detectedLanguage: detectLanguage(input.text),
       embeddingFailed: embeddingFailed || undefined, // only set when true
@@ -1137,15 +1137,11 @@ export const enrichAnalysisResult = async (
   );
 
   // Return new objects (not mutations) so React detects the state change.
-  // Backfill keywords (dropped concepts) into participant records.
+  // Keywords (RAKE-extracted) are already set in Phase 1 — do not overwrite.
   return {
     ...coreResult,
     conceptAnalysis: conceptFidelity,
     enrichmentStatus: 'complete' as const,
-    participants: coreResult.participants.map((p, i) => ({
-      ...p,
-      keywords: conceptFidelity.participantMap[i]?.dropped ?? p.keywords,
-    })),
   };
 };
 
