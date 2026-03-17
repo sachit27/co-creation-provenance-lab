@@ -1,6 +1,5 @@
 import { IntentPreservation, EntailmentLabel, AnalysisConfig } from '../types';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion } from './ollama';
+import { generateCompletion } from './completionRouter';
 
 /**
  * Natural Language Inference (NLI) Service
@@ -52,17 +51,7 @@ const parseNLIResponse = (response: string): IntentPreservation | null => {
   }
 };
 
-// Generate completion using configured AI provider
-const generateCompletion = async (
-  prompt: string,
-  system: string,
-  config: AnalysisConfig
-): Promise<string> => {
-  if (config.aiProvider === 'ollama') {
-    return await generateOllamaCompletion(prompt, system, config.model);
-  }
-  return await generateGeminiCompletion(prompt, system, config.model);
-};
+// Uses shared generateCompletion from completionRouter.ts
 
 /**
  * Classify intent preservation for a single participant-summary pair

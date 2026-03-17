@@ -10,11 +10,8 @@
  */
 
 import { AnalysisResult, AnalysisConfig } from '../types';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion, generateOllamaEmbedding } from './ollama';
-import { generateOpenAICompletion } from './openai';
-import { generateClaudeCompletion } from './claude';
-import { generateApertusCompletion } from './apertus';
+import { generateCompletion } from './completionRouter';
+import { generateOllamaEmbedding } from './ollama';
 import { checkBgeM3Connection, generateBgeM3EmbeddingsBatch } from './bgeM3';
 import { generateEmbedding } from './analysis';
 import { cosineSimilarity, calculateGini } from './mathUtils';
@@ -131,23 +128,7 @@ Write only the revised summary text, no preamble:`;
 
   const system = 'You are an expert facilitator skilled at writing inclusive summaries that give equal weight to all participant voices while remaining coherent and concise.';
 
-  if (config.aiProvider === 'ollama') {
-    return await generateOllamaCompletion(prompt, system, config.model);
-  }
-  if (config.aiProvider === 'groq') {
-    const { generateGroqCompletion } = await import('./groq');
-    return await generateGroqCompletion(prompt, system, config.model);
-  }
-  if (config.aiProvider === 'openai') {
-    return await generateOpenAICompletion(prompt, system, config.model);
-  }
-  if (config.aiProvider === 'claude') {
-    return await generateClaudeCompletion(prompt, system, config.model);
-  }
-  if (config.aiProvider === 'apertus') {
-    return await generateApertusCompletion(prompt, system, config.model);
-  }
-  return await generateGeminiCompletion(prompt, system, config.model);
+  return await generateCompletion(prompt, system, config);
 };
 
 // ─── Score recomputation ──────────────────────────────────────────────────────

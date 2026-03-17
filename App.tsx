@@ -17,7 +17,6 @@ import { UncertaintyViz } from './components/visualizations/UncertaintyViz';
 import { ThemeNetwork } from './components/visualizations/ThemeNetwork';
 import { ThresholdSensitivityMini, ThresholdImpactBadges } from './components/visualizations/ThresholdSensitivityMini';
 // SummaryQualityMetrics removed - too complex for users
-import { CounterfactualPanel } from './components/ui/CounterfactualPanel';
 import { FeedbackPanel, FeedbackSummary } from './components/ui/FeedbackPanel';
 import { ExecutiveSummary } from './components/ui/ExecutiveSummary';
 import { MissedPerspectives } from './components/ui/MissedPerspectives';
@@ -1005,18 +1004,6 @@ export default function App() {
 
                         if (!p) return null;
 
-                        // Tone Fidelity Check: compare participant sentiment against their
-                        // PRIMARY (top-scoring) matched summary sentence only.
-                        // Only flag if BOTH labels are non-neutral (definitively opposite).
-                        // Neutral-vs-positive or neutral-vs-negative is not a distortion.
-                        const matchedSentenceSentiment = data.summarySentenceSentiments?.[p.topSentenceMatchIndex]?.label || 'neutral';
-                        const isToneDistorted =
-                          p.sentiment !== 'neutral' &&
-                          matchedSentenceSentiment !== 'neutral' && (
-                            (p.sentiment === 'negative' && matchedSentenceSentiment === 'positive') ||
-                            (p.sentiment === 'positive' && matchedSentenceSentiment === 'negative')
-                          );
-
                         return (
                           <>
                             <div className="flex items-center justify-between mb-3 flex-shrink-0">
@@ -1031,27 +1018,15 @@ export default function App() {
                                 "{p.originalText}"
                               </div>
 
-                              {/* Dropped Concepts Box */}
+                              {/* Key Concepts */}
                               {p.keywords && p.keywords.length > 0 && (
-                                <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg">
-                                  <div className="text-[10px] font-bold text-red-600 uppercase mb-1">Dropped Concepts</div>
+                                <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                  <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Key Concepts</div>
                                   <div className="flex flex-wrap gap-1">
                                     {p.keywords.slice(0, 5).map(k => (
-                                      <span key={k} className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded border border-red-200">{k}</span>
+                                      <span key={k} className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-xs rounded border border-slate-200">{k}</span>
                                     ))}
                                   </div>
-                                </div>
-                              )}
-
-                              {isToneDistorted && (
-                                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg animate-pulse">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-xl">🎭</span>
-                                    <div className="text-[10px] font-bold text-amber-700 uppercase">Tone Distortion Detected</div>
-                                  </div>
-                                  <p className="text-xs text-amber-800">
-                                    User input is <strong>{p.sentiment}</strong> but the matched summary sentence is <strong>{matchedSentenceSentiment}</strong>.
-                                  </p>
                                 </div>
                               )}
 
@@ -1111,17 +1086,6 @@ export default function App() {
                                     participant={p}
                                     allParticipants={data.participants}
                                     summary={data.summary}
-                                    summarySentences={data.summarySentences}
-                                  />
-                                </div>
-                              )}
-
-                              {/* Counterfactual Suggestions */}
-                              {p.representationScore < 0.7 && (
-                                <div className="mt-4">
-                                  <CounterfactualPanel
-                                    participant={p}
-                                    allParticipants={data.participants}
                                     summarySentences={data.summarySentences}
                                   />
                                 </div>

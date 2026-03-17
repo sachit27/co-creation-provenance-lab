@@ -14,8 +14,7 @@
  */
 
 import { AnalysisConfig } from '../types';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion } from './ollama';
+import { generateCompletion } from './completionRouter';
 
 export interface RepresentationScore {
   score: number;           // 0-1 scale
@@ -66,13 +65,7 @@ REASONING: [One sentence]`;
   const systemPrompt = `You evaluate representation generously - if the core meaning is captured (even with different words), give credit. A summary saying "technical barriers" represents a participant saying "app crashes". Score 65+ if the topic area is present, 75+ if the specific concern is addressed. Avoid low scores unless the topic is truly absent.`;
 
   try {
-    let response: string;
-    if (config.aiProvider === 'ollama') {
-      response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
-    } else {
-      response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
-    }
-
+    const response = await generateCompletion(prompt, systemPrompt, config);
     return parseEvaluationResponse(response);
   } catch (e) {
     console.error('AI evaluation failed:', e);
@@ -195,12 +188,7 @@ P2_REASON: [One sentence]
 
   const systemPrompt = `You evaluate representation generously. If the summary captures the MEANING (even with different words), give credit. "Technical barriers" represents "app crashes" (score 70+). "Inclusive tools" represents "language barriers" (score 65+). Most participants should score 60-85 in a decent summary. Only score below 40 if truly unrelated.`;
 
-  let response: string;
-  if (config.aiProvider === 'ollama') {
-    response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
-  } else {
-    response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
-  }
+  const response = await generateCompletion(prompt, systemPrompt, config);
 
   return parseBatchResponse(response, participantTexts.length);
 };

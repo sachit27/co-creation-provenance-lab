@@ -16,8 +16,7 @@
 
 import { AnalysisResult, AnalysisConfig, FacilitationGapBrief, ParticipantAnalysis } from '../types';
 import { ANALYSIS_CONFIG } from '../constants';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion } from './ollama';
+import { generateCompletion } from './completionRouter';
 
 // ─── Pre-analysis helpers ─────────────────────────────────────────────────────
 
@@ -325,15 +324,7 @@ export const generateFacilitationPlan = async (
     onProgress?.('Generating facilitation plan…');
     const prompt = buildPrompt(data, ctx);
 
-    let rawResponse: string;
-    if (config.aiProvider === 'ollama') {
-      rawResponse = await generateOllamaCompletion(prompt, systemPrompt, config.model);
-    } else if (config.aiProvider === 'groq') {
-      const { generateGroqCompletion } = await import('./groq');
-      rawResponse = await generateGroqCompletion(prompt, systemPrompt, config.model);
-    } else {
-      rawResponse = await generateGeminiCompletion(prompt, systemPrompt, config.model);
-    }
+    const rawResponse = await generateCompletion(prompt, systemPrompt, config);
 
     const parsed = parseResponse(rawResponse);
 

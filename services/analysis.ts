@@ -1,10 +1,10 @@
 import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, SensitivityResult, BridgingSuggestion, ConceptFidelityResult, SentenceMatch, StrategyComparisonResult, NetworkGraph } from '../types';
-import { checkAIConnection, generateCompletion as generateGeminiCompletion, generateEmbedding as generateGeminiEmbedding } from './gemini';
-import { checkOllamaConnection, generateOllamaCompletion, generateOllamaEmbedding } from './ollama';
-import { checkGroqConnection, generateGroqCompletion } from './groq';
-import { checkOpenAIConnection, generateOpenAICompletion, generateOpenAIEmbedding } from './openai';
-import { checkClaudeConnection, generateClaudeCompletion } from './claude';
-import { checkApertusConnection, generateApertusCompletion } from './apertus';
+import { checkAIConnection, generateEmbedding as generateGeminiEmbedding } from './gemini';
+import { checkOllamaConnection, generateOllamaEmbedding } from './ollama';
+import { checkGroqConnection } from './groq';
+import { checkOpenAIConnection, generateOpenAIEmbedding } from './openai';
+import { checkClaudeConnection } from './claude';
+import { checkApertusConnection } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
 import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN } from './mathUtils';
 // Note: analyzeSentimentAI has built-in 3-tier fallback (AI → HuggingFace → NLP)
@@ -20,6 +20,7 @@ import { runStrategyComparison } from './strategyComparison';
 import { ANALYSIS_CONFIG } from '../constants';
 import { getCachedEmbedding, setCachedEmbedding, prewarmCache, getCachedEmbeddingAsync } from './embeddingCache';
 import { detectLanguage, analyzeLanguageEquity } from './languageDetection';
+import { generateCompletion } from './completionRouter';
 
 // --- Prompt Engineering ---
 
@@ -62,14 +63,7 @@ export const generateEmbedding = async (text: string, config: AnalysisConfig): P
   }
 };
 
-const generateCompletion = async (prompt: string, system: string, config: AnalysisConfig): Promise<string> => {
-  if (config.aiProvider === 'ollama') return await generateOllamaCompletion(prompt, system, config.model);
-  if (config.aiProvider === 'groq') return await generateGroqCompletion(prompt, system, config.model);
-  if (config.aiProvider === 'openai') return await generateOpenAICompletion(prompt, system, config.model);
-  if (config.aiProvider === 'claude') return await generateClaudeCompletion(prompt, system, config.model);
-  if (config.aiProvider === 'apertus') return await generateApertusCompletion(prompt, system, config.model);
-  return await generateGeminiCompletion(prompt, system, config.model);
-};
+// Uses shared generateCompletion from completionRouter.ts
 
 // ── Batched sentiment analysis ───────────────────────────────────────────────
 // Instead of 1 AI call per input (N calls), we batch into chunks of 100.
@@ -707,11 +701,10 @@ export const runCoreAnalysis = async (
 
   const summarySentences = splitIntoSentences(summaryText);
 
-  // Sentiment for Summary Sentences
-  // analyzeSentimentAI has built-in 3-tier fallback, so always use it
-  // Tier 1: AI (Gemini/Ollama) → Tier 2: HuggingFace → Tier 3: VADER-style NLP
-  const summarySentenceSentiments = await Promise.all(
-    summarySentences.map(s => analyzeSentimentAI(s, activeConfig))
+  // Sentiment for Summary Sentences — same batch approach as participant inputs
+  // to ensure consistent labeling (same prompt, same provider, same model).
+  const summarySentenceSentiments = await batchAnalyzeSentiment(
+    summarySentences, activeConfig, isConnected, onProgress
   );
 
   // 5. Embed Summary Sentences

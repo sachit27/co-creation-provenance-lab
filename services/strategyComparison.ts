@@ -5,8 +5,7 @@ import {
   ParticipantInput,
   AnalysisConfig
 } from '../types';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion } from './ollama';
+import { generateCompletion } from './completionRouter';
 import { cosineSimilarity, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid } from './mathUtils';
 
 /**
@@ -41,10 +40,7 @@ ${getStrategyPrompt(strategy)}`;
 
   const userPrompt = `Here are the contributions from ${inputs.length} participants:\n${inputText}\n\nProvide a summary (150-200 words) that follows the specified strategy.`;
 
-  if (config.aiProvider === 'ollama') {
-    return await generateOllamaCompletion(userPrompt, systemPrompt, config.model);
-  }
-  return await generateGeminiCompletion(userPrompt, systemPrompt, config.model);
+  return await generateCompletion(userPrompt, systemPrompt, config);
 };
 
 // Compute metrics for a summary

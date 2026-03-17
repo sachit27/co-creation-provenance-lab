@@ -203,7 +203,10 @@ No data leaves your machine. CORS is handled automatically by the Vite dev proxy
 |:---|:---|:---|:---|
 | **BGE-M3** | — | ✅ 1024-dim SOTA | Local |
 | **Google Gemini** | ✅ | ✅ `text-embedding-004` | Cloud |
+| **OpenAI** | ✅ GPT-4o, GPT-4.1 | ✅ `text-embedding-3-small` | Cloud |
+| **Claude** | ✅ Claude 4 Sonnet/Opus | ❌ (fallback) | Cloud |
 | **Groq** | ✅ Llama 3, Gemma 2 | ❌ (fallback) | Cloud |
+| **Apertus** | ✅ | ❌ (fallback) | Cloud |
 | **Ollama** | ✅ Any local model | ✅ Any local model | Local |
 | **TF-IDF** | — | ✅ Always available | Local |
 
@@ -214,6 +217,8 @@ BGE-M3  →  Ollama  →  Gemini  →  Local TF-IDF
 ```
 
 The system selects the best available tier at startup. No configuration required.
+
+All AI features — sentiment analysis, keyword extraction, concept fidelity, facilitation planning, summary revision, and strategy comparison — route through a unified completion layer that respects the provider you select. Choose once, and every feature uses it consistently.
 
 ### API keys
 
@@ -304,6 +309,7 @@ co-creation-provenance-lab/
 ├── api/                          # Vercel serverless (Gemini proxy)
 ├── services/
 │   ├── analysis.ts               # Core pipeline — Phase 1 + Phase 2
+│   ├── completionRouter.ts      # Unified AI provider routing for all LLM calls
 │   ├── embeddingCache.ts         # In-session LRU vector cache (model-keyed)
 │   ├── aiAnalysis.ts             # Sentiment/concept with 3-tier fallback
 │   ├── biasAttribution.ts        # Root-cause bias diagnosis

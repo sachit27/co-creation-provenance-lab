@@ -11,8 +11,7 @@
  */
 
 import { AnalysisConfig } from '../types';
-import { generateCompletion as generateGeminiCompletion } from './gemini';
-import { generateOllamaCompletion } from './ollama';
+import { generateCompletion } from './completionRouter';
 import {
     checkHuggingFaceAvailable,
     analyzeSentimentHF,
@@ -139,12 +138,7 @@ Text: "${safeText}"
 
 Respond with: {"score": <-1 to 1>, "label": "<positive|negative|neutral>"}`;
 
-        let response: string;
-        if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, 'You are a sentiment analysis expert. Respond only with valid JSON.', config.model);
-        } else {
-            response = await generateGeminiCompletion(prompt, 'You are a sentiment analysis expert. Respond only with valid JSON.', config.model);
-        }
+        const response = await generateCompletion(prompt, 'You are a sentiment analysis expert. Respond only with valid JSON.', config);
 
         const match = response.match(/\{[\s\S]*\}/);
         if (match) {
@@ -195,12 +189,7 @@ Text: "${safeText}"
 Respond with ONLY a JSON array of concept phrase strings, e.g., ["concept phrase 1", "concept phrase 2", ...]`;
 
         const systemPrompt = 'You are a concept extraction expert for participatory research. Return multi-word concept phrases, never single generic words. Respond only with a JSON array.';
-        let response: string;
-        if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
-        } else {
-            response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
-        }
+        const response = await generateCompletion(prompt, systemPrompt, config);
 
         const match = response.match(/\[[\s\S]*\]/);
         if (match) {
@@ -254,12 +243,7 @@ Identify which substantive concepts from the INPUT are kept in the SUMMARY and w
 Respond with ONLY a JSON object: {"kept": ["concept phrase 1", ...], "dropped": ["concept phrase 1", ...]}`;
 
         const systemPrompt = 'You are a concept analysis expert for participatory research. Return multi-word concept phrases, never single generic words. Respond only with valid JSON.';
-        let response: string;
-        if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, systemPrompt, config.model);
-        } else {
-            response = await generateGeminiCompletion(prompt, systemPrompt, config.model);
-        }
+        const response = await generateCompletion(prompt, systemPrompt, config);
 
         const match = response.match(/\{[\s\S]*\}/);
         if (match) {
@@ -327,12 +311,7 @@ HYPOTHESIS: "${safeHypothesis}"
 Does the PREMISE entail (logically support), contradict, or have no clear relation to the HYPOTHESIS?
 Respond with ONLY a JSON object: {"label": "entails|neutral|contradicts", "confidence": 0.0-1.0}`;
 
-        let response: string;
-        if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, 'You are an NLI expert. Respond only with valid JSON.', config.model);
-        } else {
-            response = await generateGeminiCompletion(prompt, 'You are an NLI expert. Respond only with valid JSON.', config.model);
-        }
+        const response = await generateCompletion(prompt, 'You are an NLI expert. Respond only with valid JSON.', config);
 
         const match = response.match(/\{[\s\S]*\}/);
         if (match) {
@@ -415,12 +394,7 @@ TEXT 2: "${safeText2}"
 0 = completely unrelated, 1 = identical meaning
 Respond with ONLY a number between 0 and 1.`;
 
-        let response: string;
-        if (config.aiProvider === 'ollama') {
-            response = await generateOllamaCompletion(prompt, 'Respond with only a decimal number.', config.model);
-        } else {
-            response = await generateGeminiCompletion(prompt, 'Respond with only a decimal number.', config.model);
-        }
+        const response = await generateCompletion(prompt, 'Respond with only a decimal number.', config);
 
         const match = response.match(/[0-9]+\.?[0-9]*/);
         if (match) {

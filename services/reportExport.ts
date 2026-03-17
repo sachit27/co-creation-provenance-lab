@@ -40,11 +40,10 @@ export const generateReportData = (data: AnalysisResult): ReportData => {
   const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
   const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
 
-  // At Risk: bottom quartile, capped at 70% of mean
+  // At Risk: fixed threshold < 0.3 (consistent with constants and all other displays)
+  const { atRisk: atRiskThreshold } = ANALYSIS_CONFIG.representationInterpretation;
   const sortedScores = participants.map(p => p.representationScore).sort((a, b) => a - b);
-  const q1Score = sortedScores[Math.floor(total * 0.25)];
-  const atRiskThreshold = Math.min(q1Score, avgScore * 0.7);
-  const atRiskParticipants = participants.filter(p => p.representationScore <= atRiskThreshold);
+  const atRiskParticipants = participants.filter(p => p.representationScore < atRiskThreshold);
 
   // Blind spots: median-based (consistent with BlindSpotPlot)
   const centralityScores = participants.map(p => 1 - p.semanticIsolation).sort((a, b) => a - b);

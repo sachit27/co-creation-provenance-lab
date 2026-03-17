@@ -202,17 +202,13 @@ export const interpretLeverage = (zScore: number): PlainInsight => {
 };
 
 /**
- * Compute at-risk count using percentile-based threshold (bottom quartile, capped at 70% of mean).
+ * Compute at-risk count using the fixed threshold from ANALYSIS_CONFIG (< 0.3).
+ * This matches the documented representation bands and the Coverage Stats card.
  * Shared logic used by ExecutiveSummary, reportExport, and plainLanguage.
  */
 export const computeAtRiskCount = (participants: ParticipantAnalysis[]): number => {
-  const total = participants.length;
-  if (total === 0) return 0;
-  const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
-  const sortedScores = participants.map(p => p.representationScore).sort((a, b) => a - b);
-  const q1Score = sortedScores[Math.floor(total * 0.25)];
-  const atRiskThreshold = Math.min(q1Score, avgScore * 0.7);
-  return participants.filter(p => p.representationScore <= atRiskThreshold).length;
+  const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
+  return participants.filter(p => p.representationScore < atRisk).length;
 };
 
 /**

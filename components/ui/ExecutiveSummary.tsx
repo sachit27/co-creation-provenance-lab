@@ -32,24 +32,21 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     const { representationTarget } = ANALYSIS_CONFIG.thresholds;
     const { atRisk: atRiskThreshold, low: lowThreshold } = ANALYSIS_CONFIG.representationInterpretation;
 
-    // Calculate key metrics
+    // Calculate key metrics using the fixed thresholds from constants.
+    // Three mutually exclusive bands that sum to total:
+    //   Well Represented: >= 0.6 (representationTarget)
+    //   Underrepresented: 0.3–0.6 (between atRisk and representationTarget)
+    //   At Risk:          < 0.3 (atRiskThreshold)
     const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
     const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
-
-    // At Risk: dynamic percentile-based threshold — min(Q1 score, mean × 0.7).
-    // Uses the same computeAtRiskCount() logic as generateRecommendations()
-    // so the big number and the recommendation text always agree.
     const atRiskCount = computeAtRiskCount(participants);
+    const underrepresented = total - wellRepresented - atRiskCount;
 
     // Blind spots: unique perspectives that were genuinely missed.
     // Requires BOTH conditions:
     //   1. Below-median centrality (peripheral/unique perspective)
     //   2. Score below the "low" threshold (0.5) — genuinely underrepresented
-    //
-    // This avoids the purely relative median-quadrant approach which always
-    // produces ~25% "blind spots" even when all participants are well represented.
-    // The BlindSpotPlot uses median quadrants for VISUALIZATION (coloring dots),
-    // but this count uses absolute thresholds for a meaningful headline metric.
+    // Reported as a separate concern, not part of the three-way partition.
     const centralityScores = participants.map(p => 1 - p.semanticIsolation).sort((a, b) => a - b);
     const mid = Math.floor(total / 2);
     const medianCentrality = centralityScores[mid];
@@ -133,6 +130,7 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     return {
       total,
       wellRepresented,
+      underrepresented,
       atRiskCount,
       blindSpots,
       avgScore,
@@ -194,26 +192,26 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
         </div>
       </div>
 
-      {/* Key Stats */}
+      {/* Key Stats — three mutually exclusive bands that sum to total */}
       <div className="grid grid-cols-3 divide-x divide-slate-700 border-b border-slate-700">
         <div className="p-4 text-center">
           <div className="text-2xl font-bold text-green-400">{analysis.wellRepresented}</div>
           <div className="text-xs text-slate-400">Well Represented</div>
-          <div className="text-[10px] text-slate-500">of {analysis.total} participants</div>
+          <div className="text-[10px] text-slate-500">score &ge; 0.6</div>
+        </div>
+        <div className="p-4 text-center">
+          <div className={`text-2xl font-bold ${analysis.underrepresented > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+            {analysis.underrepresented}
+          </div>
+          <div className="text-xs text-slate-400">Underrepresented</div>
+          <div className="text-[10px] text-slate-500">score 0.3 – 0.6</div>
         </div>
         <div className="p-4 text-center">
           <div className={`text-2xl font-bold ${analysis.atRiskCount > 0 ? 'text-red-400' : 'text-green-400'}`}>
             {analysis.atRiskCount}
           </div>
           <div className="text-xs text-slate-400">At Risk</div>
-          <div className="text-[10px] text-slate-500">may be missed</div>
-        </div>
-        <div className="p-4 text-center">
-          <div className={`text-2xl font-bold ${analysis.blindSpots.length > 0 ? 'text-amber-400' : 'text-green-400'}`}>
-            {analysis.blindSpots.length}
-          </div>
-          <div className="text-xs text-slate-400">Blind Spots</div>
-          <div className="text-[10px] text-slate-500">unique voices missed</div>
+          <div className="text-[10px] text-slate-500">score &lt; 0.3</div>
         </div>
       </div>
 
@@ -262,20 +260,20 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
         <p className="text-slate-300 text-sm leading-relaxed">
           {analysis.overallScore >= 75 ? (
             <>
-              The AI summary <span className="text-green-400 font-medium">adequately represents</span> the majority of participant voices.
-              {analysis.wellRepresented} out of {analysis.total} contributions are well-captured.
+              The summary <span className="text-green-400 font-medium">adequately represents</span> the majority of participant voices.
+              {analysis.wellRepresented} of {analysis.total} contributions are well-captured.
               {analysis.concerns.length === 0 && ' No significant concerns detected.'}
             </>
           ) : analysis.overallScore >= 55 ? (
             <>
-              The summary captures most perspectives but <span className="text-amber-400 font-medium">some voices may be underrepresented</span>.
-              {analysis.atRiskCount > 0 && ` ${analysis.atRiskCount} participant${analysis.atRiskCount > 1 ? 's are' : ' is'} at risk of being missed.`}
+              The summary captures most perspectives but <span className="text-amber-400 font-medium">{analysis.underrepresented + analysis.atRiskCount} of {analysis.total} voices need attention</span>.
+              {analysis.atRiskCount > 0 && ` ${analysis.atRiskCount} participant${analysis.atRiskCount > 1 ? 's are' : ' is'} at risk of being completely missed (score < 0.3).`}
               {analysis.blindSpots.length > 0 && ` ${analysis.blindSpots.length} unique perspective${analysis.blindSpots.length > 1 ? 's were' : ' was'} not captured.`}
             </>
           ) : (
             <>
               <span className="text-red-400 font-medium">Significant representation gaps detected.</span>
-              {' '}The summary may not fairly represent all participant voices.
+              {' '}{analysis.underrepresented + analysis.atRiskCount} of {analysis.total} voices are underrepresented or at risk.
               {analysis.atRiskCount > 0 && ` ${analysis.atRiskCount} participant${analysis.atRiskCount > 1 ? 's are' : ' is'} at risk of being completely missed.`}
               {' '}Review recommended before using this summary for decision-making.
             </>
