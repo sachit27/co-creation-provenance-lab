@@ -1,12 +1,18 @@
 <div align="center">
 
-<img src="main.png" alt="Co-Creation Provenance Lab — dashboard screenshot" width="100%">
+<img src="main.png" alt="Provenance Lab — dashboard screenshot" width="100%">
 
 <br/>
 
-# Co-Creation Provenance Lab
+# 🔬 Provenance Lab
 
-### *Who spoke. Who was heard. And the gap between them.*
+### *Trace every claim. Question every summary. Trust nothing unverified.*
+
+<br/>
+
+[![Try it live](https://img.shields.io/badge/🚀_Try_it_live-co--creation--provenance--tool.vercel.app-blue?style=for-the-badge)](https://co-creation-provenance-tool.vercel.app)
+
+<br/>
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#)
@@ -14,81 +20,110 @@
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](#)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-[Problem](#the-problem) · [Use Cases](#use-cases) · [How It Works](#how-it-works) · [Capabilities](#capabilities) · [Quick Start](#quick-start) · [Methodology](#methodology) · [Troubleshooting](#troubleshooting)
+[The Problem](#-the-problem) · [Use Cases](#-use-cases) · [How It Works](#-how-it-works) · [Analysis Engine](#-analysis-engine) · [Dashboard](#-interactive-dashboard) · [Quick Start](#-quick-start) · [Methodology](#-methodology)
 
 </div>
 
 ---
 
-## The Problem
+## 🎯 The Problem
 
-Whenever a group of people contributes to a shared process — a consultation, a workshop, a survey, a policy forum — their inputs eventually get distilled into a synthesis: a summary, a report, a set of recommendations. That synthesis is what shapes decisions.
+Every day, LLMs summarize legal depositions, financial filings, medical records, and public consultations. These summaries shape decisions — but **synthesis is never neutral**.
 
-But synthesis is never neutral. AI-generated summaries amplify majority voices and flatten minority perspectives. Human facilitators do too, unconsciously. Non-English speakers, unconventional viewpoints, and structurally isolated participants are systematically left out — and nobody can see it happening.
+- An AI summarizing a whistleblower complaint may **sanitize** the most damaging allegations into bland corporate language
+- A 10-K summary may **extrapolate** forward-looking guidance that the original filing never stated
+- A clinical trial digest may **abstract** a specific adverse event ("3 patients experienced cardiac arrest") into a vague category ("some cardiovascular events were noted")
 
-**This gap between participation and representation is near-invisible without the right tooling.**
+**These transformations are invisible to the reader.** Provenance Lab makes them visible.
 
-The Co-Creation Provenance Lab is an open-source auditing tool for any synthesis of collective input. Bring your own existing summary, or let the tool generate one — either way, it scores every participant's voice individually, clusters perspectives to detect structurally excluded groups, and tells you exactly who was left out and why.
-
----
-
-## Use Cases
-
-| Context | How the tool helps |
-|:---|:---|
-| **Civic & participatory design** | Audit AI summaries of community consultations; ensure no demographic cluster is systematically excluded |
-| **Academic research** | Quantify representation bias in LLM summarisation across languages, groups, and ideological positions |
-| **Facilitation & workshops** | Identify blind spots in real time; generate targeted follow-up questions for underrepresented voices |
-| **Organisational co-creation** | Verify that employee surveys, ideation sessions, and strategy workshops reflect the full range of input |
-| **Policy & governance** | Produce a verifiable provenance certificate documenting whose voices shaped a decision |
+It is an open-source auditing engine that sits between your source documents and any LLM-generated summary, producing a complete **provenance trail** that traces every claim back to its origin, classifies every epistemological leap, and quantifies what was preserved, distorted, or dropped.
 
 ---
 
-## How It Works
+## 🌍 Use Cases
+
+| Domain | What gets audited | What the tool catches |
+|:---|:---|:---|
+| **⚖️ Legal & Arbitration** | Witness depositions, expert reports, internal communications | Claims sanitized into neutral phrasing; liability language softened; whistleblower allegations dropped |
+| **📊 Financial Analysis** | 10-K filings, earnings transcripts, audit reports | Risk factors omitted; forward-guidance hallucinated; quantitative claims rounded or abstracted |
+| **🏥 Clinical Governance** | Trial reports, adverse event logs, regulatory submissions | Specific adverse events genericized; dosage details dropped; statistical significance misrepresented |
+| **🏛️ Policy & Civic** | Public consultations, stakeholder surveys, community input | Minority perspectives flattened; dissenting voices excluded; consensus artificially manufactured |
+| **🎓 Academic Research** | Systematic reviews, literature surveys, interview transcripts | Citation provenance broken; methodological caveats dropped; conflicting findings merged |
+
+---
+
+## ⚙️ How It Works
 
 ```
-1. Upload participant responses (CSV or paste text)
-        │
-        ▼
-2. Provide a summary to audit — your choice:
-        ├── Paste an existing summary (human-written, AI-generated, or from another tool)
-        ├── Let the tool generate one using your preferred AI provider
-        └── Use extractive summarisation (no API key needed)
-        │
-        ▼
-3. The tool audits the summary against every participant:
-        │
-        ├── Embeds every participant response and every summary sentence
-        ├── Scores each participant: how much of their voice survived?
-        ├── Clusters voices to detect structurally excluded groups
-        ├── Diagnoses the root cause of each exclusion (LLM bias · language gap · unique voice)
-        └── Generates an actionable facilitation plan to fix it
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. INGEST — Upload your source material                            │
+│     ├── 📄 Multi-Document Upload (.txt/.md files per slot)          │
+│     ├── 📑 Single Document with Section-Aware Chunking              │
+│     │     (auto-detects ITEM 1A, § 3.1, Article IV, etc.)           │
+│     └── 📊 CSV/Spreadsheet (structured participant data)            │
+├─────────────────────────────────────────────────────────────────────┤
+│  2. CONFIGURE — Select Domain Intelligence                          │
+│     ├── 6 Domain Presets: Legal · Finance · Clinical · Policy ·     │
+│     │     Academic · Media                                          │
+│     └── Custom domain context with free-text bias hints             │
+├─────────────────────────────────────────────────────────────────────┤
+│  3. SUMMARIZE — Generate or paste a summary                        │
+│     ├── AI-generated (GPT-4o, Gemini, Claude, Llama, etc.)         │
+│     ├── Paste your own (from any source)                            │
+│     └── Extractive (no API key needed)                              │
+├─────────────────────────────────────────────────────────────────────┤
+│  4. AUDIT — Full provenance analysis runs automatically             │
+│     ├── Epistemic classification of every summary sentence          │
+│     ├── Language fidelity tracking (preserved / softened / dropped) │
+│     ├── Claim-level source attribution with evidence mapping        │
+│     ├── Tension & contradiction mapping across sources              │
+│     ├── Root-cause bias diagnosis for underrepresented voices       │
+│     ├── Blind spot detection via centrality × representation        │
+│     ├── Anomaly & gaming detection (near-duplicate inputs)          │
+│     └── W3C PROV-O JSON-LD certificate export                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-All of this happens in your browser. No participant data is sent to external servers unless you choose a cloud provider for text generation.
+> **Privacy-first**: All analysis runs in-browser. No data leaves your machine unless you opt into a cloud LLM provider.
 
 ---
 
-## Capabilities
+## 🔬 Analysis Engine
 
-### Representation Scoring
+### Epistemic Classification
 
-Every participant receives a score from 0 to 1 measuring how well their input is reflected in the summary. The score is a hybrid of semantic similarity (cosine on dense embeddings with exponential decay across matched sentences) and concept overlap (stemmed keyword intersection).
+Every summary sentence is labeled with an **Epistemic Class** — a measure of how grounded the claim is in the actual source material:
 
-| Score | Status |
+| Class | Label | Meaning |
+|:---|:---|:---|
+| 🟢 | **Explicit** | Directly stated in or closely paraphrases source text |
+| 🔵 | **Inferred** | Reasonable derivation or synthesis from source evidence |
+| 🟠 | **Extrapolated** | Logical leap beyond direct evidence; assumes unstated facts |
+| 🟣 | **Speculative** | Unverifiable claim, prediction, or hallucination without source grounding |
+
+### Language Fidelity Tracking
+
+The engine compares original language against summary language at the phrase level:
+
+| Transformation | What happened |
 |:---|:---|
-| ≥ 0.6 | ✅ Well represented |
-| 0.5 – 0.6 | 🟡 Marginal |
-| 0.3 – 0.5 | 🔶 Underrepresented |
-| < 0.3 | 🔴 At risk |
+| ✅ **Preserved** | Language kept faithfully |
+| 🟡 **Softened** | Topic retained but emotional intensity reduced |
+| 🔴 **Sanitized** | Accusation or demand replaced with neutral framing |
+| 🟣 **Abstracted** | Concrete experience replaced with abstract category |
+| ⬛ **Dropped** | Key concept absent from the summary entirely |
 
-### Blind Spot Detection
+### Claim-Level Attribution
 
-A participant is flagged as a blind spot only when *both* conditions hold: they are semantically isolated from the group centroid **and** their representation score is below threshold. This avoids the common pitfall of relative definitions, which would always flag 25% of participants regardless of actual fairness.
+Each summary claim is traced to specific source segments with hybrid evidence scoring (semantic similarity + concept overlap + keyword matching). Claims are flagged as **Supported**, **Partially Supported**, **Unsupported**, or **Contradicted**.
+
+### Tension & Contradiction Mapping
+
+When source documents disagree — whether across groups or within the same group — the engine detects genuine points of opposition and tracks whether the summary **acknowledged**, **suppressed**, **merged**, or **distorted** each disagreement. Tensions are aggregated at the cluster level to reveal systematic patterns.
 
 ### Root-Cause Bias Diagnosis
 
-For every underrepresented participant the tool diagnoses *why*:
+For every underrepresented input, the tool diagnoses *why*:
 
 | Label | Cause |
 |:---|:---|
@@ -97,59 +132,83 @@ For every underrepresented participant the tool diagnoses *why*:
 | ❌ Summariser Bias | LLM ignored semantically relevant input |
 | 🗣️ Phrasing Mismatch | Same idea expressed in non-standard language |
 
-### Semantic Clustering
+### Anomaly & Gaming Detection
 
-K-Means++ with automatic K selection groups participants into semantic clusters. The 2D semantic map (PCA projection) shows the spatial arrangement of all voices and which clusters are furthest from the summary.
+Detects near-duplicate and copy-paste submissions using locality-sensitive hashing, flagging coordinated inputs that could skew representation scores.
 
-### Participant Similarity Network
+### Rhetorical Influence Analysis
 
-An interactive force-directed graph where each node is a participant and edges connect those whose embeddings are mutually among each other's top-k nearest neighbors (mutual k-NN). Nodes are coloured by cluster and sized inversely by representation score — at-risk voices appear larger. Supports zoom, pan, drag, hover tooltips, and click-to-select. Isolated nodes (no mutual neighbors) are structurally distinct perspectives that no other participant closely shares.
+Measures whether communication style (assertive vs. hedged language) correlates with representation — surfacing cases where *how* something is said matters more than *what* is said.
 
-### Citation Provenance Trail
+### Summary Revision Engine
 
-Click any sentence in the AI-generated summary to trace it back to the exact participant inputs that influenced it, ranked by cosine similarity with match-strength badges. Answers: *"Where did that sentence come from?"*
-
-### Equity Metrics
-
-| Metric | What it measures |
-|:---|:---|
-| Gini coefficient | Inequality of representation across all participants |
-| Coverage uniformity | How evenly the summary distributes across voices |
-| Distinct representation gap | Mean score difference between isolated and mainstream voices |
-| LOO sensitivity | Which individual inputs most shift the group semantic centre |
-| Bootstrap CIs (95%) | Sampling uncertainty around all reported metrics |
-
-### Language Equity
-
-An exact permutation test (10,000 draws) verifies whether non-English inputs are statistically underrepresented relative to English inputs. Flags at p < 0.05.
+One-click revision that re-generates the summary with explicit instructions to incorporate underrepresented voices, then re-scores representation to measure improvement.
 
 ### Facilitation Co-Pilot
 
-Generates a workshop facilitation plan targeted at your specific blind spots: a gap brief, five follow-up questions per underrepresented theme, and three structured exercises (World Café, Fishbowl, Anonymous Voting). Works offline with a rule-based fallback.
+Generates actionable follow-up plans: gap briefs for facilitators, targeted follow-up questions for underrepresented themes, and structured workshop exercises to address blind spots.
 
-### Interactive Revision Editor
+### Participant Verification
 
-Edit the AI summary manually or generate an AI draft that specifically targets underrepresented voices. Before/after equity metrics update without re-embedding participant inputs.
-
-### Provenance Certificate
-
-Export a W3C PROV-O JSON-LD provenance record documenting who contributed, what they said, and how much of their voice was captured — suitable for governance accountability.
+Exports individualized verification pages so each participant can confirm whether their voice was faithfully represented — closing the loop between analysis and ground truth.
 
 ---
 
-## Quick Start
+## 📊 Interactive Dashboard
+
+The dashboard provides **16+ specialized views** organized into four analysis layers:
+
+### Semantic Analysis
+| View | Description |
+|:---|:---|
+| **Semantic Space** | 2D PCA projection of all inputs — outliers indicate distinct perspectives |
+| **Blind Spot Analysis** | Centrality vs. Representation scatterplot with quadrant classification |
+| **Similarity Network** | Mutual k-NN force-directed graph — structurally isolated nodes are unique voices |
+| **Knowledge Graph** | Entity-relationship graph with community detection |
+
+### Provenance Tracking
+| View | Description |
+|:---|:---|
+| **Contribution Lineage** | Sankey-style flow from inputs → themes → summary sentences |
+| **Provenance Flow** | Information flow visualization with dropped themes and unsourced sentences highlighted |
+| **Language Fidelity** | Per-sentence transformation audit with epistemic profile and stacked bar chart |
+| **Claim Attribution** | Each summary claim traced to source evidence with support classification |
+| **Tension Mapping** | How contradictions between and within source groups were handled in the summary |
+| **Rhetorical Influence** | Does communication style correlate with representation? |
+
+### Statistical Analysis
+| View | Description |
+|:---|:---|
+| **Equity Distribution** | Sorted representation scores — a flat line indicates equal coverage |
+| **Semantic Leverage (LOO)** | Leave-one-out analysis — which inputs pull the semantic center the most |
+| **Group Equity** | Representation comparison across stakeholder groups |
+| **Uncertainty Analysis** | Bootstrap confidence intervals (95% CI) for key metrics |
+
+### Additional Tools
+| View | Description |
+|:---|:---|
+| **Strategy Comparison** | Side-by-side comparison of different summarization strategies |
+| **Citation Trail** | Click any summary sentence to trace its provenance to source inputs |
+| **Facilitation Co-Pilot** | AI-generated follow-up plans, questions, and workshop exercises |
+| **Summary Revision** | Re-generate the summary to improve representation equity |
+
+---
+
+## 🚀 Quick Start
 
 **Prerequisites:** Node.js 18+
 
 ```bash
+git clone https://github.com/sachit27/co-creation-provenance-lab.git
+cd co-creation-provenance-lab
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The tool works immediately with no API key using built-in demo data and local TF-IDF embeddings.
+Open [http://localhost:3000](http://localhost:3000). Works immediately with built-in demo data and local TF-IDF embeddings — no API key required.
 
 <details>
-<summary><b>Docker</b></summary>
+<summary><b>🐳 Docker</b></summary>
 
 ```bash
 docker compose up
@@ -164,9 +223,9 @@ chmod +x start.sh && ./start.sh
 </details>
 
 <details>
-<summary><b>BGE-M3 — recommended for multilingual datasets</b></summary>
+<summary><b>🌐 BGE-M3 — recommended for multilingual datasets</b></summary>
 
-BGE-M3 (1024-dim, multilingual SOTA) significantly improves accuracy on non-English inputs and large datasets. It runs locally — no API key required.
+BGE-M3 (1024-dim, multilingual SOTA) significantly improves accuracy on non-English inputs. Runs locally — no API key required.
 
 ```bash
 pip install sentence-transformers flask flask-cors
@@ -183,7 +242,7 @@ pip install 'transformers<4.50'
 </details>
 
 <details>
-<summary><b>Ollama — fully local, fully private</b></summary>
+<summary><b>🔒 Ollama — fully local, fully private</b></summary>
 
 ```bash
 ollama pull llama3.2:3b       # text generation (fast)
@@ -191,60 +250,53 @@ ollama pull nomic-embed-text  # embeddings
 ollama serve
 ```
 
-No data leaves your machine. CORS is handled automatically by the Vite dev proxy — no manual configuration needed.
+No data leaves your machine. CORS is handled automatically by the Vite dev proxy.
 
 </details>
 
 ---
 
-## AI Providers
+## 🤖 AI Providers
 
 | Provider | Generation | Embeddings | Privacy |
 |:---|:---|:---|:---|
-| **BGE-M3** | — | ✅ 1024-dim SOTA | Local |
-| **Google Gemini** | ✅ | ✅ `text-embedding-004` | Cloud |
-| **OpenAI** | ✅ GPT-4o, GPT-4.1 | ✅ `text-embedding-3-small` | Cloud |
-| **Claude** | ✅ Claude 4 Sonnet/Opus | ❌ (fallback) | Cloud |
-| **Groq** | ✅ Llama 3, Gemma 2 | ❌ (fallback) | Cloud |
-| **Apertus** | ✅ | ❌ (fallback) | Cloud |
-| **Ollama** | ✅ Any local model | ✅ Any local model | Local |
-| **TF-IDF** | — | ✅ Always available | Local |
+| **BGE-M3** | — | ✅ 1024-dim SOTA | 🟢 Local |
+| **Google Gemini** | ✅ | ✅ `text-embedding-004` | ☁️ Cloud |
+| **OpenAI** | ✅ GPT-4o, GPT-4.1 | ✅ `text-embedding-3-small` | ☁️ Cloud |
+| **Claude** | ✅ Claude 4 Sonnet/Opus | ❌ (fallback) | ☁️ Cloud |
+| **Groq** | ✅ Llama 3, Gemma 2 | ❌ (fallback) | ☁️ Cloud |
+| **Ollama** | ✅ Any local model | ✅ Any local model | 🟢 Local |
+| **TF-IDF** | — | ✅ Always available | 🟢 Local |
 
-### Embedding priority (automatic)
+**Embedding priority (automatic):** `BGE-M3 → Ollama → Gemini → Local TF-IDF`
 
-```
-BGE-M3  →  Ollama  →  Gemini  →  Local TF-IDF
-```
+The system selects the best available tier at startup. All AI features route through a unified completion layer — choose a provider once, and every feature uses it consistently.
 
-The system selects the best available tier at startup. No configuration required.
-
-All AI features — sentiment analysis, keyword extraction, concept fidelity, facilitation planning, summary revision, and strategy comparison — route through a unified completion layer that respects the provider you select. Choose once, and every feature uses it consistently.
-
-### API keys
+### API Keys
 
 | Method | How | Persists |
 |:---|:---|:---|
-| `.env` file | `GEMINI_API_KEY=AIza...` | Yes |
+| `.env` file | `GEMINI_API_KEY=AIza...` | ✅ Yes |
 | Config panel | Paste in browser UI | Session only |
 
-Keys entered in the browser are stored in `sessionStorage` only. Gemini calls are proxied server-side — your key is never exposed in client code.
+Keys entered in the browser are stored in `sessionStorage` only. Server-side proxies never expose your key in client code.
 
 ---
 
-## Methodology
+## 📐 Methodology
 
 <details>
-<summary><b>Representation score</b></summary>
+<summary><b>Representation Score</b></summary>
 
-Each participant's score combines two signals:
+Each input's score combines two signals:
 
-**1. Embedding similarity** — cosine similarity between the participant's input vector and each summary sentence vector, with exponential decay on secondary matches:
+**1. Embedding similarity** — cosine similarity between the input vector and each summary sentence vector, with exponential decay on secondary matches:
 
 $$S_{embed} = \cos(e_p, e_{s_1}) + \gamma \cdot \cos(e_p, e_{s_2}) + \gamma^2 \cdot \cos(e_p, e_{s_3}) + \ldots \quad (\gamma = 0.3)$$
 
-The decay factor prevents double-counting when multiple sentences paraphrase the same point. This approach is inspired by coverage-aware scoring principles in multi-document summarisation (Radev et al., 2004); the specific weighted formulation is implemented in this codebase.
+The decay factor prevents double-counting when multiple sentences paraphrase the same point. Inspired by coverage-aware scoring in multi-document summarisation (Radev et al., 2004).
 
-**2. Concept overlap** — stemmed keyword intersection normalised by participant keyword count (RAKE extraction).
+**2. Concept overlap** — stemmed keyword intersection normalised by source keyword count (RAKE extraction).
 
 **Final score:**
 - Neural embeddings: `0.8 × embedding_sim + 0.2 × concept_overlap`
@@ -253,36 +305,43 @@ The decay factor prevents double-counting when multiple sentences paraphrase the
 </details>
 
 <details>
-<summary><b>Equity metrics</b></summary>
+<summary><b>Equity Metrics</b></summary>
 
 | Metric | Formula | Interpretation |
 |:---|:---|:---|
 | Gini | Lorenz curve area | 0 = perfect equality; 1 = full concentration |
 | Coverage uniformity | 1 − Gini | Higher = more even |
 | Distinct gap | mean_rep(mainstream) − mean_rep(top 25% most isolated) | Smaller = fairer |
-| LOO sensitivity | Z-score of Δ centroid when input i removed | Identifies dominant voices |
+| LOO sensitivity | Z-score of Δ centroid when input *i* removed | Identifies dominant voices |
 
 Gini thresholds: Low < 0.2 ≤ Moderate < 0.35 ≤ High
 
 </details>
 
 <details>
-<summary><b>Clustering and visualisation</b></summary>
+<summary><b>Clustering & Visualization</b></summary>
 
-- **Clustering:** K-Means++ (Arthur & Vassilvitskii, 2007) with automatic K via elbow method
-- **Projection:** PCA via power iteration with deflation — no browser-side ML library dependency
-- **Similarity network:** Mutual k-nearest neighbors graph (von Luxburg, 2007). An edge exists iff both nodes rank each other in their top-k (k = min(5, ceil(sqrt(N)))). The mutual requirement produces sparse, high-confidence connections suitable for visual interpretation at scale.
-- **Bootstrap CIs:** Efron & Tibshirani (1993); 200-sample resampling of Gini, mean representation, and equity gap
+- **Clustering:** K-Means++ with automatic K via elbow method
+- **Projection:** PCA via power iteration — no browser-side ML library dependency
+- **Similarity network:** Mutual k-nearest neighbors graph. An edge exists iff both nodes rank each other in their top-k. The mutual requirement produces sparse, high-confidence connections.
+- **Bootstrap CIs:** 200-sample resampling of Gini, mean representation, and equity gap
 
 </details>
 
 <details>
-<summary><b>Staged analysis execution</b></summary>
+<summary><b>Reproducibility</b></summary>
+
+All stochastic algorithms (PCA initialization, K-Means++ seeding, bootstrap sampling) use a deterministic seeded PRNG derived from the input data. The same dataset produces identical results across runs — no random variation between analyses.
+
+</details>
+
+<details>
+<summary><b>Staged Analysis Execution</b></summary>
 
 For responsiveness with large datasets, analysis runs in two phases:
 
-- **Phase 1** (immediate): embeddings, clustering, summary generation, representation scoring, all pure-math analyses — dashboard renders as soon as this completes
-- **Phase 2** (background): concept fidelity analysis (N/5 LLM batches) — fills the Concepts tab when complete
+- **Phase 1** (immediate): embeddings, clustering, summary generation, representation scoring — dashboard renders as soon as this completes
+- **Phase 2** (background): concept fidelity analysis, claim attribution, tension mapping — tabs populate progressively
 
 A generation counter prevents stale state if a new analysis is started before Phase 2 finishes.
 
@@ -290,101 +349,7 @@ A generation counter prevents stale state if a new analysis is started before Ph
 
 ---
 
-## Architecture
-
-```
-Browser (Vite + React + TypeScript)
-  │
-  ├── /api/ollama/*  ──▶  localhost:11434        (Ollama, dev proxy)
-  ├── /api/gemini-*  ──▶  Vercel serverless       (Gemini, key server-side only)
-  ├── localhost:5001  ──▶  BGE-M3 Python server   (embedding_server.py)
-  └── api.groq.com   ──▶  direct fetch            (user key in sessionStorage)
-```
-
-<details>
-<summary><b>Repository structure</b></summary>
-
-```
-co-creation-provenance-lab/
-├── api/                          # Vercel serverless (Gemini proxy)
-├── services/
-│   ├── analysis.ts               # Core pipeline — Phase 1 + Phase 2
-│   ├── completionRouter.ts      # Unified AI provider routing for all LLM calls
-│   ├── embeddingCache.ts         # In-session LRU vector cache (model-keyed)
-│   ├── aiAnalysis.ts             # Sentiment/concept with 3-tier fallback
-│   ├── biasAttribution.ts        # Root-cause bias diagnosis
-│   ├── facilitationCoPilot.ts    # Workshop plan generator
-│   ├── summaryRevision.ts        # Revision engine + dimension-safe re-scoring
-│   ├── provenanceExport.ts       # W3C PROV-O JSON-LD export
-│   └── reportExport.ts           # HTML executive report
-├── components/
-│   ├── ui/                       # ConfigPanel, ExecutiveSummary, FacilitationCoPilot, …
-│   └── visualizations/           # SemanticMap, BlindSpotPlot, ConceptDistortion, …
-├── embedding_server.py           # BGE-M3 Flask server (localhost:5001)
-├── types.ts                      # All TypeScript interfaces
-├── constants.ts                  # Thresholds and algorithm config
-├── docker-compose.yml
-└── vercel.json
-```
-
-</details>
-
----
-
-## Troubleshooting
-
-<details>
-<summary><b>BGE-M3 fails with a torch.load vulnerability error</b></summary>
-
-```bash
-pip install 'transformers<4.50'
-```
-
-</details>
-
-<details>
-<summary><b>BGE-M3 fails with a NumPy 2.x compatibility error</b></summary>
-
-```bash
-pip install "numpy<2"
-pip install tf-keras
-```
-
-</details>
-
-<details>
-<summary><b>Ollama shows "Offline" in the config panel</b></summary>
-
-1. Confirm Ollama is running: `ollama serve`
-2. Use the dev server (`npm run dev`), not a built bundle
-3. `OLLAMA_ORIGINS` does not need to be set manually — the Vite proxy handles CORS
-
-</details>
-
-<details>
-<summary><b>Scores are unexpectedly low on non-English inputs</b></summary>
-
-Check the **Embedding Tier** badge in the participant details panel. If it shows `tfidf`, start the BGE-M3 server to unlock multilingual semantic accuracy. The **Bias Attribution** badge will also flag this automatically as an *Embedding Gap*.
-
-</details>
-
-<details>
-<summary><b>Gemini model dropdown shows a text field instead of a list</b></summary>
-
-The model list is fetched after key validation. Wait a moment after entering your key and look for the "✓ Browser key active" indicator. If it does not populate, verify the key at [Google AI Studio](https://aistudio.google.com).
-
-</details>
-
-<details>
-<summary><b>Facilitation Co-Pilot returns template output instead of an LLM plan</b></summary>
-
-This happens when the LLM response cannot be parsed as structured JSON. The rule-based fallback always produces a complete plan. For structured LLM output, use Gemini 2.0 Flash or a Groq Llama-3 model.
-
-</details>
-
----
-
-## Contributing
+## 📄 License & Contributing
 
 Contributions are welcome. Open an issue before submitting large changes.
 
