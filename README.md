@@ -6,21 +6,16 @@
 
 # 🔬 Provenance Lab
 
-### *Trace every claim. Question every summary. Trust nothing unverified.*
+### *An open-source visual analytics engine for mapping the provenance, explainability, and representation of LLM-generated summaries.*
 
 <br/>
 
 [![Try it live](https://img.shields.io/badge/🚀_Try_it_live-co--creation--provenance--tool.vercel.app-blue?style=for-the-badge)](https://co-creation-provenance-tool.vercel.app)
-
-<br/>
-
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](#)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](#)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-[The Problem](#-the-problem) · [Use Cases](#-use-cases) · [How It Works](#-how-it-works) · [Analysis Engine](#-analysis-engine) · [Dashboard](#-interactive-dashboard) · [Quick Start](#-quick-start) · [Methodology](#-methodology)
+[The Problem](#-the-problem) · [How It Works](#-how-it-works) · [Analysis Features](#-analysis-features) · [Quick Start](#-quick-start) · [Methodology](#-methodology)
 
 </div>
 
@@ -28,169 +23,65 @@
 
 ## 🎯 The Problem
 
-Every day, LLMs summarize legal depositions, financial filings, medical records, and public consultations. These summaries shape decisions — but **synthesis is never neutral**.
+As Large Language Models (LLMs) are increasingly deployed to synthesize complex datasets — from stakeholder consultations and research literature to organizational reports — a critical challenge emerges: **synthesis is inherently reductive**. 
 
-- An AI summarizing a whistleblower complaint may **sanitize** the most damaging allegations into bland corporate language
-- A 10-K summary may **extrapolate** forward-looking guidance that the original filing never stated
-- A clinical trial digest may **abstract** a specific adverse event ("3 patients experienced cardiac arrest") into a vague category ("some cardiovascular events were noted")
+AI-generated summaries naturally amplify majority viewpoints while flattening minority perspectives. Crucial nuances in interpretation are often smoothed over, and the mathematical distance between original source evidence and the final executive summary remains invisible to the end user. This creates a fundamental gap in AI explainability and trust.
 
-**These transformations are invisible to the reader.** Provenance Lab makes them visible.
-
-It is an open-source auditing engine that sits between your source documents and any LLM-generated summary, producing a complete **provenance trail** that traces every claim back to its origin, classifies every epistemological leap, and quantifies what was preserved, distorted, or dropped.
-
----
-
-## 🌍 Use Cases
-
-| Domain | What gets audited | What the tool catches |
-|:---|:---|:---|
-| **⚖️ Legal & Arbitration** | Witness depositions, expert reports, internal communications | Claims sanitized into neutral phrasing; liability language softened; whistleblower allegations dropped |
-| **📊 Financial Analysis** | 10-K filings, earnings transcripts, audit reports | Risk factors omitted; forward-guidance hallucinated; quantitative claims rounded or abstracted |
-| **🏥 Clinical Governance** | Trial reports, adverse event logs, regulatory submissions | Specific adverse events genericized; dosage details dropped; statistical significance misrepresented |
-| **🏛️ Policy & Civic** | Public consultations, stakeholder surveys, community input | Minority perspectives flattened; dissenting voices excluded; consensus artificially manufactured |
-| **🎓 Academic Research** | Systematic reviews, literature surveys, interview transcripts | Citation provenance broken; methodological caveats dropped; conflicting findings merged |
+**Provenance Lab bridges this gap.** It is an auditing engine that sits between your source documents and any generated summary. By producing a complete, mathematically grounded provenance trail, it makes the LLM's synthesis process fully transparent, interpretive leaps explicitly visible, and representation equity quantifiable.
 
 ---
 
 ## ⚙️ How It Works
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  1. INGEST — Upload your source material                            │
-│     ├── 📄 Multi-Document Upload (.txt/.md files per slot)          │
-│     ├── 📑 Single Document with Section-Aware Chunking              │
-│     │     (auto-detects ITEM 1A, § 3.1, Article IV, etc.)           │
-│     └── 📊 CSV/Spreadsheet (structured participant data)            │
-├─────────────────────────────────────────────────────────────────────┤
-│  2. CONFIGURE — Select Domain Intelligence                          │
-│     ├── 6 Domain Presets: Legal · Finance · Clinical · Policy ·     │
-│     │     Academic · Media                                          │
-│     └── Custom domain context with free-text bias hints             │
-├─────────────────────────────────────────────────────────────────────┤
-│  3. SUMMARIZE — Generate or paste a summary                        │
-│     ├── AI-generated (GPT-4o, Gemini, Claude, Llama, etc.)         │
-│     ├── Paste your own (from any source)                            │
-│     └── Extractive (no API key needed)                              │
-├─────────────────────────────────────────────────────────────────────┤
-│  4. AUDIT — Full provenance analysis runs automatically             │
-│     ├── Epistemic classification of every summary sentence          │
-│     ├── Language fidelity tracking (preserved / softened / dropped) │
-│     ├── Claim-level source attribution with evidence mapping        │
-│     ├── Tension & contradiction mapping across sources              │
-│     ├── Root-cause bias diagnosis for underrepresented voices       │
-│     ├── Blind spot detection via centrality × representation        │
-│     ├── Anomaly & gaming detection (near-duplicate inputs)          │
-│     └── W3C PROV-O JSON-LD certificate export                      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A[📄 Source Documents\nMult-doc or Sectioned] --> B(⚙️ Provenance Engine)
+    C[🤖 AI Summary\nGenerated or Pasted] --> B
+    B --> D[📊 Visual Dashboard\n16 Analytical Views]
+    B --> E[📑 PROV-O JSON-LD\nAudit Certificate]
+    
+    style B fill:#f9f,stroke:#333,stroke-width:2px
 ```
 
-> **Privacy-first**: All analysis runs in-browser. No data leaves your machine unless you opt into a cloud LLM provider.
+> **Privacy-first**: All analysis runs completely in-browser. No data leaves your machine unless you opt into a cloud LLM provider API.
 
 ---
 
-## 🔬 Analysis Engine
+## 🔬 Analysis Features
 
-### Epistemic Classification
+### 1. Epistemic Classification
 
-Every summary sentence is labeled with an **Epistemic Class** — a measure of how grounded the claim is in the actual source material:
+The engine evaluates every sentence in the summary to classify its epistemological grounding in the source material, providing deep interpretability into the AI's reasoning:
 
-| Class | Label | Meaning |
-|:---|:---|:---|
-| 🟢 | **Explicit** | Directly stated in or closely paraphrases source text |
-| 🔵 | **Inferred** | Reasonable derivation or synthesis from source evidence |
-| 🟠 | **Extrapolated** | Logical leap beyond direct evidence; assumes unstated facts |
-| 🟣 | **Speculative** | Unverifiable claim, prediction, or hallucination without source grounding |
+| Class | Label | Explainability Meaning |
+|:---:|:---|:---|
+| 🟢 | **Explicit** | Claim is directly stated or closely paraphrased from source text. |
+| 🔵 | **Inferred** | Claim is a reasonable derivation or synthesis from available evidence. |
+| 🟠 | **Extrapolated** | Claim represents a logical leap beyond direct evidence. |
+| 🟣 | **Speculative** | Claim lacks grounding in the provided source material. |
 
-### Language Fidelity Tracking
+### 2. Language Fidelity Tracking
 
-The engine compares original language against summary language at the phrase level:
+The tool measures exactly how the original language was transformed during the summarization process, detecting subtle shifts in tone and interpretation:
 
-| Transformation | What happened |
-|:---|:---|
-| ✅ **Preserved** | Language kept faithfully |
-| 🟡 **Softened** | Topic retained but emotional intensity reduced |
-| 🔴 **Sanitized** | Accusation or demand replaced with neutral framing |
-| 🟣 **Abstracted** | Concrete experience replaced with abstract category |
-| ⬛ **Dropped** | Key concept absent from the summary entirely |
+> ✅ **Preserved** (Kept faithfully)  
+> 🟡 **Softened** (Topic retained, intensity reduced)  
+> 🔴 **Sanitized** (Contentious input replaced with neutral framing)  
+> 🟣 **Abstracted** (Concrete specifics replaced with broad categories)  
+> ⬛ **Dropped** (Concept absent from summary)  
 
-### Claim-Level Attribution
+### 3. Claim-Level Attribution & Tension Mapping
 
-Each summary claim is traced to specific source segments with hybrid evidence scoring (semantic similarity + concept overlap + keyword matching). Claims are flagged as **Supported**, **Partially Supported**, **Unsupported**, or **Contradicted**.
+Each summary claim is mapped back to the exact source segments that influenced it. When source documents disagree, the engine tracks whether the LLM **acknowledged**, **suppressed**, **merged**, or **distorted** that contradiction, ensuring transparency over handling of conflicting data.
 
-### Tension & Contradiction Mapping
+### 4. Interactive Visual Dashboard
 
-When source documents disagree — whether across groups or within the same group — the engine detects genuine points of opposition and tracks whether the summary **acknowledged**, **suppressed**, **merged**, or **distorted** each disagreement. Tensions are aggregated at the cluster level to reveal systematic patterns.
+The web interface features 16 specialized analytical views organized into intuitive layers:
 
-### Root-Cause Bias Diagnosis
-
-For every underrepresented input, the tool diagnoses *why*:
-
-| Label | Cause |
-|:---|:---|
-| 🌍 Embedding Gap | Multilingual failure — non-Latin script fell back to TF-IDF |
-| 👤 Unique Voice | Content genuinely distinct; LLM had no basis to include it |
-| ❌ Summariser Bias | LLM ignored semantically relevant input |
-| 🗣️ Phrasing Mismatch | Same idea expressed in non-standard language |
-
-### Anomaly & Gaming Detection
-
-Detects near-duplicate and copy-paste submissions using locality-sensitive hashing, flagging coordinated inputs that could skew representation scores.
-
-### Rhetorical Influence Analysis
-
-Measures whether communication style (assertive vs. hedged language) correlates with representation — surfacing cases where *how* something is said matters more than *what* is said.
-
-### Summary Revision Engine
-
-One-click revision that re-generates the summary with explicit instructions to incorporate underrepresented voices, then re-scores representation to measure improvement.
-
-### Facilitation Co-Pilot
-
-Generates actionable follow-up plans: gap briefs for facilitators, targeted follow-up questions for underrepresented themes, and structured workshop exercises to address blind spots.
-
-### Participant Verification
-
-Exports individualized verification pages so each participant can confirm whether their voice was faithfully represented — closing the loop between analysis and ground truth.
-
----
-
-## 📊 Interactive Dashboard
-
-The dashboard provides **16+ specialized views** organized into four analysis layers:
-
-### Semantic Analysis
-| View | Description |
-|:---|:---|
-| **Semantic Space** | 2D PCA projection of all inputs — outliers indicate distinct perspectives |
-| **Blind Spot Analysis** | Centrality vs. Representation scatterplot with quadrant classification |
-| **Similarity Network** | Mutual k-NN force-directed graph — structurally isolated nodes are unique voices |
-| **Knowledge Graph** | Entity-relationship graph with community detection |
-
-### Provenance Tracking
-| View | Description |
-|:---|:---|
-| **Contribution Lineage** | Sankey-style flow from inputs → themes → summary sentences |
-| **Provenance Flow** | Information flow visualization with dropped themes and unsourced sentences highlighted |
-| **Language Fidelity** | Per-sentence transformation audit with epistemic profile and stacked bar chart |
-| **Claim Attribution** | Each summary claim traced to source evidence with support classification |
-| **Tension Mapping** | How contradictions between and within source groups were handled in the summary |
-| **Rhetorical Influence** | Does communication style correlate with representation? |
-
-### Statistical Analysis
-| View | Description |
-|:---|:---|
-| **Equity Distribution** | Sorted representation scores — a flat line indicates equal coverage |
-| **Semantic Leverage (LOO)** | Leave-one-out analysis — which inputs pull the semantic center the most |
-| **Group Equity** | Representation comparison across stakeholder groups |
-| **Uncertainty Analysis** | Bootstrap confidence intervals (95% CI) for key metrics |
-
-### Additional Tools
-| View | Description |
-|:---|:---|
-| **Strategy Comparison** | Side-by-side comparison of different summarization strategies |
-| **Citation Trail** | Click any summary sentence to trace its provenance to source inputs |
-| **Facilitation Co-Pilot** | AI-generated follow-up plans, questions, and workshop exercises |
-| **Summary Revision** | Re-generate the summary to improve representation equity |
+- **Semantic Space**: A 2D PCA projection of all inputs, visualizing the spatial arrangement of varying perspectives.
+- **Blind Spot Analysis**: A quadrant scatterplot (Centrality vs. Representation) identifying highly unique voices that the summary ignored.
+- **Contribution Lineage**: An interactive Sankey diagram plotting the flow of concepts from raw input → semantic themes → final summary sentences.
+- **Equity Distribution**: Statistical charting (Lorenz curves, Bootstrap CIs) of representation scores to measure summarization fairness.
 
 ---
 
@@ -198,152 +89,63 @@ The dashboard provides **16+ specialized views** organized into four analysis la
 
 **Prerequisites:** Node.js 18+
 
+#### 1. Local Development
 ```bash
 git clone https://github.com/sachit27/co-creation-provenance-lab.git
 cd co-creation-provenance-lab
 npm install
 npm run dev
 ```
+Open `http://localhost:3000`. The tool works immediately with built-in demo data and local TF-IDF embeddings — no API key required.
 
-Open [http://localhost:3000](http://localhost:3000). Works immediately with built-in demo data and local TF-IDF embeddings — no API key required.
-
-<details>
-<summary><b>🐳 Docker</b></summary>
-
+#### 2. Run with Docker (Optional)
 ```bash
 docker compose up
 ```
 
-Or on Mac/Linux:
-
-```bash
-chmod +x start.sh && ./start.sh
-```
-
-</details>
-
-<details>
-<summary><b>🌐 BGE-M3 — recommended for multilingual datasets</b></summary>
-
-BGE-M3 (1024-dim, multilingual SOTA) significantly improves accuracy on non-English inputs. Runs locally — no API key required.
-
+#### 3. High-Fidelity Embeddings (Optional)
+For state-of-the-art multilingual analysis, you can run the local BGE-M3 Python server (no API key required):
 ```bash
 pip install sentence-transformers flask flask-cors
 python embedding_server.py
 ```
 
-First run downloads ~2 GB of model weights (cached afterwards). The app auto-detects the server at startup.
-
-**Torch compatibility error?**
-```bash
-pip install 'transformers<4.50'
-```
-
-</details>
-
-<details>
-<summary><b>🔒 Ollama — fully local, fully private</b></summary>
-
-```bash
-ollama pull llama3.2:3b       # text generation (fast)
-ollama pull nomic-embed-text  # embeddings
-ollama serve
-```
-
-No data leaves your machine. CORS is handled automatically by the Vite dev proxy.
-
-</details>
-
 ---
 
-## 🤖 AI Providers
+## 🤖 AI Provider Ecosystem
 
-| Provider | Generation | Embeddings | Privacy |
-|:---|:---|:---|:---|
-| **BGE-M3** | — | ✅ 1024-dim SOTA | 🟢 Local |
-| **Google Gemini** | ✅ | ✅ `text-embedding-004` | ☁️ Cloud |
-| **OpenAI** | ✅ GPT-4o, GPT-4.1 | ✅ `text-embedding-3-small` | ☁️ Cloud |
-| **Claude** | ✅ Claude 4 Sonnet/Opus | ❌ (fallback) | ☁️ Cloud |
-| **Groq** | ✅ Llama 3, Gemma 2 | ❌ (fallback) | ☁️ Cloud |
-| **Ollama** | ✅ Any local model | ✅ Any local model | 🟢 Local |
-| **TF-IDF** | — | ✅ Always available | 🟢 Local |
+Provenance Lab is strictly model-agnostic. You can bring your own API keys or run entirely local, private models.
 
-**Embedding priority (automatic):** `BGE-M3 → Ollama → Gemini → Local TF-IDF`
-
-The system selects the best available tier at startup. All AI features route through a unified completion layer — choose a provider once, and every feature uses it consistently.
-
-### API Keys
-
-| Method | How | Persists |
+| Provider | Supported Capabilities | Privacy Tier |
 |:---|:---|:---|
-| `.env` file | `GEMINI_API_KEY=AIza...` | ✅ Yes |
-| Config panel | Paste in browser UI | Session only |
+| **Local Models (Ollama)** | Text generation & Embeddings | 🟢 Fully Private |
+| **BGE-M3 (Python)** | High-dimensional Embeddings | 🟢 Fully Private |
+| **TF-IDF (Built-in)** | Baseline Embeddings | 🟢 Fully Private |
+| **OpenAI / Claude / Gemini** | Target-text Generation & Embeddings | ☁️ Cloud API |
 
-Keys entered in the browser are stored in `sessionStorage` only. Server-side proxies never expose your key in client code.
+*Note: Keys entered in the browser are explicitly stored in `sessionStorage` only and are never exposed by server-side proxies.*
 
 ---
 
 ## 📐 Methodology
 
 <details>
-<summary><b>Representation Score</b></summary>
+<summary><b>Mathematical Representation Scoring</b></summary>
 
-Each input's score combines two signals:
+Each source document's representation score optimally combines two signals:
 
-**1. Embedding similarity** — cosine similarity between the input vector and each summary sentence vector, with exponential decay on secondary matches:
+**1. Embedding similarity** — Cosine similarity between the input vector and each summary sentence vector, scaled with an exponential decay factor ($\gamma = 0.3$) on secondary matches to uniquely penalize redundant coverage.
 
-$$S_{embed} = \cos(e_p, e_{s_1}) + \gamma \cdot \cos(e_p, e_{s_2}) + \gamma^2 \cdot \cos(e_p, e_{s_3}) + \ldots \quad (\gamma = 0.3)$$
-
-The decay factor prevents double-counting when multiple sentences paraphrase the same point. Inspired by coverage-aware scoring in multi-document summarisation (Radev et al., 2004).
-
-**2. Concept overlap** — stemmed keyword intersection normalised by source keyword count (RAKE extraction).
-
-**Final score:**
-- Neural embeddings: `0.8 × embedding_sim + 0.2 × concept_overlap`
-- TF-IDF fallback: `0.5 × embedding_sim + 0.5 × concept_overlap`
+**2. Concept overlap** — Stemmed keyword intersection normalized by the source's total keyword count, extracted via RAKE (Rapid Automatic Keyword Extraction).
 
 </details>
 
 <details>
-<summary><b>Equity Metrics</b></summary>
+<summary><b>Statistical Equity Metrics</b></summary>
 
-| Metric | Formula | Interpretation |
-|:---|:---|:---|
-| Gini | Lorenz curve area | 0 = perfect equality; 1 = full concentration |
-| Coverage uniformity | 1 − Gini | Higher = more even |
-| Distinct gap | mean_rep(mainstream) − mean_rep(top 25% most isolated) | Smaller = fairer |
-| LOO sensitivity | Z-score of Δ centroid when input *i* removed | Identifies dominant voices |
-
-Gini thresholds: Low < 0.2 ≤ Moderate < 0.35 ≤ High
-
-</details>
-
-<details>
-<summary><b>Clustering & Visualization</b></summary>
-
-- **Clustering:** K-Means++ with automatic K via elbow method
-- **Projection:** PCA via power iteration — no browser-side ML library dependency
-- **Similarity network:** Mutual k-nearest neighbors graph. An edge exists iff both nodes rank each other in their top-k. The mutual requirement produces sparse, high-confidence connections.
-- **Bootstrap CIs:** 200-sample resampling of Gini, mean representation, and equity gap
-
-</details>
-
-<details>
-<summary><b>Reproducibility</b></summary>
-
-All stochastic algorithms (PCA initialization, K-Means++ seeding, bootstrap sampling) use a deterministic seeded PRNG derived from the input data. The same dataset produces identical results across runs — no random variation between analyses.
-
-</details>
-
-<details>
-<summary><b>Staged Analysis Execution</b></summary>
-
-For responsiveness with large datasets, analysis runs in two phases:
-
-- **Phase 1** (immediate): embeddings, clustering, summary generation, representation scoring — dashboard renders as soon as this completes
-- **Phase 2** (background): concept fidelity analysis, claim attribution, tension mapping — tabs populate progressively
-
-A generation counter prevents stale state if a new analysis is started before Phase 2 finishes.
+- **Gini Coefficient:** Represents the fundamental inequality of representation across all sources.
+- **Distinct Representation Gap:** Evaluates the mean score difference between clustered mainstream sources and statistically isolated sources.
+- **LOO Sensitivity:** Identifies the input that exerts the highest mathematical leverage over the summary's semantic centroid.
 
 </details>
 
@@ -351,7 +153,7 @@ A generation counter prevents stale state if a new analysis is started before Ph
 
 ## 📄 License & Contributing
 
-Contributions are welcome. Open an issue before submitting large changes.
+Contributions to improve explainability models and visual analytics are welcome. Please open an issue before submitting large architectural changes.
 
 - **License:** [GNU AGPL v3.0](LICENSE)
 - **Author:** Sachit Mahajan — [sachitmahajan90@gmail.com](mailto:sachitmahajan90@gmail.com)
