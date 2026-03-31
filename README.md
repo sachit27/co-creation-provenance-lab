@@ -11,7 +11,7 @@ Trace whose voice was captured, whose was lost, and why.
 
 <br/>
 
-[![Try it live](https://img.shields.io/badge/Try_it_live-Provenance_Lab-2563eb?style=for-the-badge&logo=vercel&logoColor=white)](https://co-creation-provenance-tool.vercel.app)
+[![Try it live](https://img.shields.io/badge/Try_it_live-Provenance_Lab-2563eb?style=for-the-badge&logo=vercel&logoColor=white)](https://co-creation-provenance-lab.vercel.app)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
