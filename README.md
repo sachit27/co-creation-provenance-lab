@@ -309,6 +309,8 @@ Contributions are welcome. Please open an issue before submitting large architec
 - **License:** [GNU AGPL v3.0](LICENSE)
 - **Author:** Sachit Mahajan — [sachitmahajan90@gmail.com](mailto:sachitmahajan90@gmail.com)
 
+For commercial or enterprise licensing inquiries, please contact the author.
+
 <div align="center">
 
 <br/>
