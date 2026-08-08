@@ -23,7 +23,7 @@ const afinn: Record<string, number> = {
   "competent": 2, "complain": -2, "complaint": -2, "comprehensive": 2, "confidence": 2, "conflict": -2,
   "confused": -2, "confusion": -2, "congrats": 2, "consent": 2, "considerate": 2, "constructive": 2,
   "controversial": -2, "convince": 1, "cool": 1, "courage": 2, "crash": -2, "crashes": -2,
-  "crazy": -2, "creative": 2, "crime": -3, "crisis": -3, "critical": -1, "criticism": -2,
+  "crazy": -2, "creative": 2, "crime": -3, "crisis": -3, "criticism": -2,
   "criticize": -2, "cruel": -3, "cry": -1, "damage": -3, "danger": -2, "dangerous": -2,
   "dead": -3, "debt": -2, "deceit": -3, "defect": -3, "defender": 2, "deficit": -2, "delay": -1,
   "delight": 3, "demand": -1, "demoralized": -2, "denied": -2, "deny": -2, "depressed": -2,
@@ -191,21 +191,46 @@ const afinn: Record<string, number> = {
   "yummy": 3, "zealot": -2, "zealous": 2
 };
 
-export const analyzeSentiment = (text: string): { score: number, label: 'positive' | 'negative' | 'neutral' } => {
-  const words = text.toLowerCase().match(/\b\w+\b/g) || [];
-  let score = 0;
-  
-  words.forEach(word => {
-    if (afinn[word]) {
-      score += afinn[word];
-    }
-  });
+// Negation words that flip the sign of the next sentiment-bearing word
+const NEGATORS = new Set([
+  'not', 'no', 'never', 'neither', 'nobody', 'nothing', 'nowhere',
+  'nor', 'cannot', "can't", "won't", "don't", "doesn't", "didn't",
+  "isn't", "aren't", "wasn't", "weren't", "hasn't", "haven't",
+  "wouldn't", "shouldn't", "couldn't", "shan't",
+]);
+const NEGATION_WINDOW = 3; // flip sign for sentiment words within N tokens of a negator
 
-  // Normalize by length loosely
-  const normalized = score / (words.length || 1);
+export const analyzeSentiment = (text: string): { score: number, label: 'positive' | 'negative' | 'neutral' } => {
+  const words = text.toLowerCase().match(/\b[\w']+\b/g) || [];
+  let score = 0;
+  let sentimentWordCount = 0;
+
+  // Track distance since last negator
+  let negationCountdown = 0;
+
+  for (const word of words) {
+    if (NEGATORS.has(word)) {
+      negationCountdown = NEGATION_WINDOW;
+      continue;
+    }
+
+    const wordScore = afinn[word];
+    if (wordScore !== undefined && wordScore !== 0) {
+      const flip = negationCountdown > 0 ? -1 : 1;
+      score += wordScore * flip;
+      sentimentWordCount++;
+      negationCountdown = 0; // reset after applying
+    }
+
+    if (negationCountdown > 0) negationCountdown--;
+  }
+
+  // Normalize by number of sentiment-bearing words (avoids penalizing long texts)
+  const normalized = sentimentWordCount > 0
+    ? score / sentimentWordCount
+    : score / (words.length || 1);
 
   let label: 'positive' | 'negative' | 'neutral' = 'neutral';
-  // Thresholds
   if (normalized > 0.05) label = 'positive';
   else if (normalized < -0.05) label = 'negative';
 

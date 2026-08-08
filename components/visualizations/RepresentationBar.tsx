@@ -3,6 +3,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Respons
 import { ParticipantAnalysis } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
 import { ANALYSIS_CONFIG } from '../../constants';
+import { InfoIcon } from '../ui/MetricGlossary';
 
 interface RepresentationBarProps {
   data: ParticipantAnalysis[];
@@ -25,12 +26,17 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
   // Calculate "Perfect Equity" line (Average)
   const avgScore = data.reduce((a, b) => a + b.representationScore, 0) / data.length;
 
-  // Use config thresholds for interpretation
-  const { atRisk, adequate: targetThreshold } = ANALYSIS_CONFIG.representationInterpretation;
+  // Use config thresholds for interpretation — 3-state model consistent with ExecutiveSummary:
+  //   Well Represented: >= representationTarget (0.6)
+  //   Underrepresented: atRisk (0.3) – representationTarget (0.6)
+  //   At Risk:          < atRisk (0.3)
+  const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
+  const { representationTarget } = ANALYSIS_CONFIG.thresholds;
 
-  // Calculate at-risk count
+  // Calculate counts matching ExecutiveSummary's 3-state bands
   const atRiskCount = data.filter(d => d.representationScore < atRisk).length;
-  const belowAvgCount = data.filter(d => d.representationScore < avgScore).length;
+  const underrepresentedCount = data.filter(d => d.representationScore >= atRisk && d.representationScore < representationTarget).length;
+  const wellRepresentedCount = data.filter(d => d.representationScore >= representationTarget).length;
 
   const chartData = sortedData.map((d, i) => ({
     ...d,
@@ -48,15 +54,14 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
       label: `${(i / NUM_BINS).toFixed(2)}–${((i + 1) / NUM_BINS).toFixed(2)}`,
       count: 0,
       isAtRisk: (i + 1) / NUM_BINS <= atRisk,
-      isBelowAvg: (i + 0.5) / NUM_BINS < avgScore,
-      isAboveTarget: i / NUM_BINS >= targetThreshold,
+      isWellRepresented: i / NUM_BINS >= representationTarget,
     }));
     for (const d of data) {
       const binIdx = Math.min(NUM_BINS - 1, Math.floor(d.representationScore * NUM_BINS));
       bins[binIdx].count++;
     }
     return bins;
-  }, [data, atRisk, avgScore, targetThreshold]);
+  }, [data, atRisk, representationTarget]);
 
   // Dynamic bar size based on data length and container width
   const barSize = Math.max(4, Math.min(24, Math.floor(Math.min(400, width * 0.6) / data.length)));
@@ -114,7 +119,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
           <div className="flex items-start gap-2">
             <span className="text-lg">📊</span>
             <div>
-              <strong>Equity Distribution:</strong>
+              <strong>Equity Distribution</strong> <InfoIcon metricKey="representation" />
               {isCompact ? (
                 <span className="block text-xs mt-0.5">Sorted representation scores</span>
               ) : (
@@ -212,8 +217,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
                       key={`hist-${index}`}
                       fill={
                         entry.isAtRisk ? '#f43f5e' :
-                          entry.isBelowAvg ? '#94a3b8' :
-                            entry.isAboveTarget ? '#10b981' : '#fbbf24'
+                          entry.isWellRepresented ? '#10b981' : '#fbbf24'
                       }
                     />
                   ))}
@@ -252,7 +256,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
                 </YAxis>
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
                 <ReferenceLine y={avgScore} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} />
-                <ReferenceLine y={targetThreshold} stroke="#10b981" strokeDasharray="4 4" strokeWidth={1} />
+                <ReferenceLine y={representationTarget} stroke="#10b981" strokeDasharray="4 4" strokeWidth={1} />
                 <ReferenceLine y={atRisk} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1} />
                 <Bar dataKey="representationScore" barSize={barSize} radius={[2, 2, 0, 0]}>
                   {chartData.map((entry, index) => (
@@ -260,8 +264,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
                       key={`cell-${index}`}
                       fill={
                         entry.representationScore < atRisk ? '#f43f5e' :
-                          entry.representationScore < avgScore ? '#94a3b8' :
-                            entry.representationScore < targetThreshold ? '#fbbf24' : '#10b981'
+                          entry.representationScore < representationTarget ? '#fbbf24' : '#10b981'
                       }
                     />
                   ))}
@@ -288,7 +291,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-0.5 bg-green-500" style={{ borderTop: '2px dashed #10b981' }}></div>
-              <span className="text-slate-600">Target ({targetThreshold})</span>
+              <span className="text-slate-600">Well Rep. ({representationTarget})</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-0.5 bg-red-500" style={{ borderTop: '2px dashed #ef4444' }}></div>
@@ -298,23 +301,19 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
         )}
       </div>
 
-      {/* Color legend */}
+      {/* Color legend — 3-state bands matching ExecutiveSummary */}
       <div className="mt-3 flex flex-wrap gap-3 justify-center text-[10px]">
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-green-500"></span>
-          <span className="text-slate-600">Good (≥{targetThreshold})</span>
+          <span className="text-slate-600">Well Represented ({wellRepresentedCount}) — score &ge; {representationTarget}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-amber-400"></span>
-          <span className="text-slate-600">Moderate</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-slate-400"></span>
-          <span className="text-slate-600">Below Avg</span>
+          <span className="text-slate-600">Underrepresented ({underrepresentedCount}) — score {atRisk}–{representationTarget}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-red-500"></span>
-          <span className="text-slate-600">At Risk (&lt;{atRisk})</span>
+          <span className="text-slate-600">At Risk ({atRiskCount}) — score &lt; {atRisk}</span>
         </div>
       </div>
     </div>

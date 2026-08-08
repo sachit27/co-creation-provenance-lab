@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import { ParticipantAnalysis, ClusterData } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
+import { InfoIcon } from '../ui/MetricGlossary';
 
 interface SemanticMapProps {
   data: ParticipantAnalysis[];
@@ -99,7 +100,7 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
         <div className="flex items-center justify-between gap-2 mb-2 border-b border-slate-100 pb-1.5">
           <span className={`font-semibold text-slate-600 uppercase tracking-wider ${isMobile ? 'text-[8px]' : 'text-[10px]'
             }`}>
-            Topic Clusters
+            Topic Clusters <InfoIcon metricKey="clusters" size="sm" />
           </span>
           <span className="text-[9px] text-slate-400">{data.length} points</span>
         </div>
@@ -135,8 +136,9 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
 
       {/* Chart instructions */}
       {!isMobile && (
-        <div className="absolute top-3 left-3 z-10 text-[10px] text-slate-500 bg-white/80 px-2 py-1 rounded">
-          Click points to select • Size = representation score
+        <div className="absolute top-3 left-3 z-10 text-[10px] text-slate-500 bg-white/80 px-2 py-1.5 rounded flex items-center gap-1">
+          <span>Click points to select • Size = representation score</span>
+          <InfoIcon metricKey="semanticSpace" />
         </div>
       )}
 
@@ -190,10 +192,10 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
       {!isCompact && (
         <>
           <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-[10px] text-slate-400 font-medium">
-            PCA Dimension 1 →
+            PCA Component 1 (max variance direction) →
           </div>
           <div className="absolute left-1 top-1/2 transform -translate-y-1/2 -rotate-90 text-[10px] text-slate-400 font-medium">
-            PCA Dimension 2 →
+            PCA Component 2 →
           </div>
         </>
       )}

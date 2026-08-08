@@ -31,6 +31,8 @@ export const setRuntimeGeminiKey = (key: string): void => {
 const getApiKey = (): string =>
   sessionStorage.getItem(RUNTIME_KEY_STORAGE) || buildTimeKey;
 
+const hasRuntimeKey = (): boolean => !!sessionStorage.getItem(RUNTIME_KEY_STORAGE);
+
 // Build a fresh client each time so it picks up any runtime key change
 const getAI = (): GoogleGenAI | null => {
   const key = getApiKey();
@@ -41,6 +43,10 @@ const getAI = (): GoogleGenAI | null => {
 let proxyAvailable: boolean | null = null;
 
 const checkProxy = async (): Promise<boolean> => {
+  // If the user has provided their own key in the UI, we skip the proxy
+  // check entirely to ensure their key is used and to save a network roundtrip.
+  if (hasRuntimeKey()) return false;
+
   if (proxyAvailable !== null) return proxyAvailable;
   try {
     const res = await fetch('/api/gemini-health', { signal: AbortSignal.timeout(3000) });
@@ -64,7 +70,34 @@ export interface GeminiModelLists {
 export const getGeminiModels = async (): Promise<GeminiModelLists> => {
   const empty: GeminiModelLists = { generation: [], embedding: [] };
 
-  // Try proxy first (deployed mode)
+  // 1. Try direct SDK first if a runtime or build-time key is available.
+  // This ensures that local dev and users with their own keys skip the proxy.
+  const ai = getAI();
+  if (ai) {
+    try {
+      const generation: string[] = [];
+      const embedding: string[] = [];
+      const pager = await ai.models.list({ config: { pageSize: 100 } });
+      for await (const m of pager) {
+        const id = m.name?.replace('models/', '') || '';
+        if (!id) continue;
+        const methods: string[] = (m as any).supportedGenerationMethods || [];
+        const isGen = methods.length > 0
+          ? methods.includes('generateContent')
+          : /^gemini-/.test(id) && !id.includes('embed');
+        const isEmbed = methods.length > 0
+          ? methods.includes('embedContent')
+          : /embed/i.test(id);
+        if (isGen) generation.push(id);
+        if (isEmbed) embedding.push(id);
+      }
+      if (generation.length > 0) return { generation, embedding };
+    } catch (err) {
+      console.warn('Direct SDK model list failed', err);
+    }
+  }
+
+  // 2. Fall back to proxy (deployed mode with server-side key)
   try {
     if (await checkProxy()) {
       const res = await fetch('/api/gemini-models', { signal: AbortSignal.timeout(10000) });
@@ -77,52 +110,46 @@ export const getGeminiModels = async (): Promise<GeminiModelLists> => {
       }
     }
   } catch {
-    console.warn('Gemini proxy models fetch failed, trying direct SDK');
-  }
-
-  // Fall back to direct SDK (local dev / runtime key)
-  const ai = getAI();
-  if (ai) {
-    try {
-      const generation: string[] = [];
-      const embedding: string[] = [];
-      const pager = await ai.models.list({ config: { pageSize: 100 } });
-      for await (const m of pager) {
-        const id = m.name?.replace('models/', '') || '';
-        if (!id) continue;
-        // The newer @google/genai SDK doesn't expose supportedGenerationMethods
-        // on the Model type — fall back to name-based detection when the field
-        // is absent (it's still present at runtime on some SDK versions).
-        const methods: string[] = (m as any).supportedGenerationMethods || [];
-        const isGen = methods.length > 0
-          ? methods.includes('generateContent')
-          : /^gemini-/.test(id) && !id.includes('embed');
-        const isEmbed = methods.length > 0
-          ? methods.includes('embedContent')
-          : /embed/i.test(id);
-        if (isGen) generation.push(id);
-        if (isEmbed) embedding.push(id);
-      }
-      return { generation, embedding };
-    } catch (err) {
-      console.warn('Direct SDK model list failed', err);
-    }
+    console.warn('Gemini proxy models fetch failed');
   }
 
   return empty;
 };
 
 export const checkAIConnection = async (): Promise<boolean> => {
-  // Check proxy first (deployed mode)
-  const proxy = await checkProxy();
-  if (proxy) return true;
-  // Fall back to runtime or build-time key
-  return !!getApiKey();
+  // If user has a key, verify it works with a lightweight API call
+  const key = getApiKey();
+  if (key) {
+    try {
+      const ai = getAI();
+      if (ai) {
+        // Lightweight API call to verify the key is valid
+        await ai.models.list();
+        return true;
+      }
+    } catch {
+      // Key exists but is invalid or network is down
+      console.warn('[Gemini] API key verification failed');
+      return false;
+    }
+  }
+  // Otherwise check if a proxy is serving a server-side key
+  return await checkProxy();
 };
 
 export const generateEmbedding = async (text: string, model: string = 'text-embedding-004'): Promise<number[]> => {
   try {
-    // Try proxy first
+    // 1. Try direct SDK first (local dev / runtime key)
+    const ai = getAI();
+    if (ai && hasRuntimeKey()) {
+      const response = await ai.models.embedContent({
+        model,
+        contents: { role: 'user', parts: [{ text }] },
+      });
+      return response.embeddings?.[0]?.values || [];
+    }
+
+    // 2. Fall back to proxy
     if (await checkProxy()) {
       const res = await fetch('/api/gemini-embed', {
         method: 'POST',
@@ -133,12 +160,11 @@ export const generateEmbedding = async (text: string, model: string = 'text-embe
         const data = await res.json();
         return data.values || [];
       }
-      console.warn('Gemini proxy embed failed, trying direct SDK');
+      console.warn('Gemini proxy embed failed');
     }
 
-    // Fall back to direct SDK (local dev / runtime key)
-    const ai = getAI();
-    if (ai) {
+    // 3. Final fallback: local SDK with buildTimeKey if no runtime key was present
+    if (ai && !hasRuntimeKey()) {
       const response = await ai.models.embedContent({
         model,
         contents: { role: 'user', parts: [{ text }] },
@@ -146,10 +172,15 @@ export const generateEmbedding = async (text: string, model: string = 'text-embe
       return response.embeddings?.[0]?.values || [];
     }
 
-    return new Array(768).fill(0);
+    // Fallback: return a zero vector. Dimension must match the requested model.
+    // text-embedding-004 = 768, other models may differ. The caller should
+    // handle zero vectors as failed embeddings (via the embeddingFailed flag).
+    const fallbackDim = model.includes('text-embedding-3') ? 1536 : 768;
+    return new Array(fallbackDim).fill(0);
   } catch (error) {
     console.warn(`Gemini Embedding Error for text: "${text.substring(0, 20)}..."`, error);
-    return new Array(768).fill(0);
+    const fallbackDim = model.includes('text-embedding-3') ? 1536 : 768;
+    return new Array(fallbackDim).fill(0);
   }
 };
 
@@ -168,7 +199,18 @@ export const generateCompletion = async (
   model: string = 'gemini-2.0-flash'
 ): Promise<string> => {
   try {
-    // Try proxy first
+    // 1. Try direct SDK first (prioritize user's own key)
+    const ai = getAI();
+    if (ai && hasRuntimeKey()) {
+      const response = await ai.models.generateContent({
+        model,
+        contents: { role: 'user', parts: [{ text: prompt }] },
+        config: { systemInstruction, temperature: 0.5 },
+      });
+      return response.text || '';
+    }
+
+    // 2. Fall back to proxy
     if (await checkProxy()) {
       const res = await fetch('/api/gemini-complete', {
         method: 'POST',
@@ -183,12 +225,11 @@ export const generateCompletion = async (
       if (isQuotaError(res.status, errBody)) {
         throw new Error('[QUOTA] Gemini API quota exhausted. Try again later, switch to Groq (free), or use a different API key.');
       }
-      console.warn('Gemini proxy complete failed, trying direct SDK');
+      console.warn('Gemini proxy complete failed');
     }
 
-    // Fall back to direct SDK (local dev / runtime key)
-    const ai = getAI();
-    if (ai) {
+    // 3. Final fallback: local SDK with buildTimeKey if no runtime key was present
+    if (ai && !hasRuntimeKey()) {
       const response = await ai.models.generateContent({
         model,
         contents: { role: 'user', parts: [{ text: prompt }] },

@@ -1,0 +1,31 @@
+# Only the web app is uploaded to Vercel; everything below is excluded.
+
+# Build artifacts / deps (Vercel installs & builds on its side)
+node_modules
+dist
+.git
+.DS_Store
+
+# Secrets / env
+.env
+*.env
+
+# Large datasets & archives (not needed to build or run the app)
+canadian_data
+canadian_data.zip
+_archive_superseded
+_backup_snapshots
+*.zip
+
+# Papers & paper tooling
+paper_acm
+acl-style-files-master
+ProvenanceLab_Expert_Audit_and_Roadmap.md
+*.pdf
+
+# Separate sub-project not used by the web app
+spatial_provenance
+
+# Test artifacts
+test_file.csv
+test_concept_gap.ts

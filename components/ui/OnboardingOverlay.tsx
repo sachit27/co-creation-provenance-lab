@@ -33,7 +33,7 @@ const steps = [
     {
         emoji: '🎯',
         title: 'Step 4: Act on the Insights',
-        body: 'Review the Citation Trail to see which voices shaped each sentence. Use the Revise Summary feature to improve equity. Export a stakeholder report or generate a Facilitation Plan for follow-up workshops.',
+        body: 'Review the Citation Trail to see which voices shaped each sentence. Explore claim attribution, tension mapping, and knowledge graphs to understand how the summary was constructed and where it can be improved.',
     },
 ];
 
@@ -81,9 +81,13 @@ export const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onDismiss 
                     />
                 </div>
 
-                {/* Content */}
-                <div className="p-8 text-center">
-                    <div className="text-5xl mb-4">{step.emoji}</div>
+                {/* Content — key triggers fade animation on step change */}
+                <div key={currentStep} className="p-8 text-center animate-fadeIn">
+                    {currentStep === 0 ? (
+                      <img src="/logo.png" alt="" className="h-16 w-16 mx-auto mb-4 rounded-xl" />
+                    ) : (
+                      <div className="text-5xl mb-4">{step.emoji}</div>
+                    )}
                     <h2 className="text-xl font-bold text-slate-800 mb-3">{step.title}</h2>
                     <p className="text-slate-600 text-sm leading-relaxed max-w-md mx-auto">{step.body}</p>
                 </div>

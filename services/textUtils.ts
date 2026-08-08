@@ -119,48 +119,164 @@ const GENERIC_WORDS = new Set([
 ]);
 
 
-const cleanAndStem = (w: string): string | null => {
-  // 1. Length Check — require at least 4 chars to avoid 3-letter noise
-  if (w.length < 4) return null;
+/**
+ * Porter stemmer (Porter, 1980) — the standard lightweight stemmer for English.
+ * Implements Step 1a/b/c and Steps 2-5 of the original algorithm.
+ * Correctly handles: running→run, agreed→agre→agree, cities→citi,
+ * effective→effect, relational→relat, etc.
+ */
+const porterStem = (word: string): string => {
+  if (word.length < 3) return word;
 
-  // 2. Reject tokens that still contain apostrophes (contractions)
-  if (w.includes("'")) return null;
+  // Helpers
+  const isConsonant = (w: string, i: number): boolean => {
+    const c = w[i];
+    if ('aeiou'.includes(c)) return false;
+    if (c === 'y') return i === 0 || !isConsonant(w, i - 1);
+    return true;
+  };
 
-  // 3. Reject purely numeric tokens
-  if (/^\d+$/.test(w)) return null;
-
-  // 4. Stoplist Check
-  if (STOP_WORDS.has(w)) return null;
-
-  // 3. Simple Stemming (Improved)
-  let stem = w;
-
-  // Order matters: checks specific suffixes first
-  if (stem.endsWith('ing')) {
-    stem = stem.slice(0, -3);
-  } else if (stem.endsWith('ly')) {
-    stem = stem.slice(0, -2);
-  } else if (stem.endsWith('ies') && stem.length > 4) {
-    // "countries" -> "country", "cities" -> "city"
-    stem = stem.slice(0, -3) + 'y';
-  } else if (stem.endsWith('es') && !stem.endsWith('ss') && stem.length > 4) {
-    // "focuses" -> "focus", "buses" -> "bus"
-    // But exclude "analysis" (is->i), "mess"? No.
-    // Heuristic: if penultimate char is s, probably 'ses' -> 's'
-    if (stem.endsWith('ses')) {
-      stem = stem.slice(0, -2); // "focuses" -> "focus", "buses" -> "bus"
-    } else {
-      stem = stem.slice(0, -2); // "boxes" -> "box"
+  // Measure: number of VC sequences in stem
+  const measure = (w: string): number => {
+    let m = 0;
+    let i = 0;
+    const len = w.length;
+    // skip leading consonants
+    while (i < len && isConsonant(w, i)) i++;
+    while (i < len) {
+      // skip vowels
+      while (i < len && !isConsonant(w, i)) i++;
+      if (i >= len) break;
+      m++;
+      // skip consonants
+      while (i < len && isConsonant(w, i)) i++;
     }
-  } else if (stem.endsWith('s') && !stem.endsWith('ss') && !stem.endsWith('us') && !stem.endsWith('is')) {
-    // "cats" -> "cat". 
-    // Exclude "focus" (us), "analysis" (is), "process" (ss)
-    stem = stem.slice(0, -1);
-  } else if (stem.endsWith('ed')) {
+    return m;
+  };
+
+  const hasVowel = (w: string): boolean => {
+    for (let i = 0; i < w.length; i++) {
+      if (!isConsonant(w, i)) return true;
+    }
+    return false;
+  };
+
+  const endsWith = (w: string, s: string): boolean => w.endsWith(s);
+  const endsDoubleConsonant = (w: string): boolean => {
+    const l = w.length;
+    return l >= 2 && w[l - 1] === w[l - 2] && isConsonant(w, l - 1);
+  };
+  const cvc = (w: string): boolean => {
+    const l = w.length;
+    if (l < 3) return false;
+    return isConsonant(w, l - 3) && !isConsonant(w, l - 2) && isConsonant(w, l - 1)
+      && !'wxy'.includes(w[l - 1]);
+  };
+
+  let stem = word;
+
+  // Step 1a
+  if (endsWith(stem, 'sses')) stem = stem.slice(0, -2);
+  else if (endsWith(stem, 'ies')) stem = stem.slice(0, -2);
+  else if (!endsWith(stem, 'ss') && endsWith(stem, 's')) stem = stem.slice(0, -1);
+
+  // Step 1b
+  let step1bFlag = false;
+  if (endsWith(stem, 'eed')) {
+    if (measure(stem.slice(0, -3)) > 0) stem = stem.slice(0, -1);
+  } else if (endsWith(stem, 'ed') && hasVowel(stem.slice(0, -2))) {
     stem = stem.slice(0, -2);
+    step1bFlag = true;
+  } else if (endsWith(stem, 'ing') && hasVowel(stem.slice(0, -3))) {
+    stem = stem.slice(0, -3);
+    step1bFlag = true;
+  }
+  if (step1bFlag) {
+    if (endsWith(stem, 'at') || endsWith(stem, 'bl') || endsWith(stem, 'iz')) {
+      stem += 'e';
+    } else if (endsDoubleConsonant(stem) && !'lsz'.includes(stem[stem.length - 1])) {
+      stem = stem.slice(0, -1);
+    } else if (measure(stem) === 1 && cvc(stem)) {
+      stem += 'e';
+    }
   }
 
-  // 4. Post-Stem Check
+  // Step 1c
+  if (endsWith(stem, 'y') && hasVowel(stem.slice(0, -1))) {
+    stem = stem.slice(0, -1) + 'i';
+  }
+
+  // Step 2
+  const step2: [string, string][] = [
+    ['ational', 'ate'], ['tional', 'tion'], ['enci', 'ence'], ['anci', 'ance'],
+    ['izer', 'ize'], ['abli', 'able'], ['alli', 'al'], ['entli', 'ent'],
+    ['eli', 'e'], ['ousli', 'ous'], ['ization', 'ize'], ['ation', 'ate'],
+    ['ator', 'ate'], ['alism', 'al'], ['iveness', 'ive'], ['fulness', 'ful'],
+    ['ousness', 'ous'], ['aliti', 'al'], ['iviti', 'ive'], ['biliti', 'ble'],
+  ];
+  for (const [suffix, replacement] of step2) {
+    if (endsWith(stem, suffix)) {
+      const base = stem.slice(0, -suffix.length);
+      if (measure(base) > 0) stem = base + replacement;
+      break;
+    }
+  }
+
+  // Step 3
+  const step3: [string, string][] = [
+    ['icate', 'ic'], ['ative', ''], ['alize', 'al'], ['iciti', 'ic'],
+    ['ical', 'ic'], ['ful', ''], ['ness', ''],
+  ];
+  for (const [suffix, replacement] of step3) {
+    if (endsWith(stem, suffix)) {
+      const base = stem.slice(0, -suffix.length);
+      if (measure(base) > 0) stem = base + replacement;
+      break;
+    }
+  }
+
+  // Step 4
+  const step4suffixes = [
+    'al', 'ance', 'ence', 'er', 'ic', 'able', 'ible', 'ant', 'ement',
+    'ment', 'ent', 'ion', 'ou', 'ism', 'ate', 'iti', 'ous', 'ive', 'ize',
+  ];
+  for (const suffix of step4suffixes) {
+    if (endsWith(stem, suffix)) {
+      const base = stem.slice(0, -suffix.length);
+      if (suffix === 'ion') {
+        if (measure(base) > 1 && base.length > 0 && 'st'.includes(base[base.length - 1])) {
+          stem = base;
+        }
+      } else if (measure(base) > 1) {
+        stem = base;
+      }
+      break;
+    }
+  }
+
+  // Step 5a
+  if (endsWith(stem, 'e')) {
+    const base = stem.slice(0, -1);
+    if (measure(base) > 1 || (measure(base) === 1 && !cvc(base))) {
+      stem = base;
+    }
+  }
+
+  // Step 5b
+  if (endsDoubleConsonant(stem) && endsWith(stem, 'l') && measure(stem) > 1) {
+    stem = stem.slice(0, -1);
+  }
+
+  return stem;
+};
+
+const cleanAndStem = (w: string): string | null => {
+  if (w.length < 4) return null;
+  if (w.includes("'")) return null;
+  if (/^\d+$/.test(w)) return null;
+  if (STOP_WORDS.has(w)) return null;
+
+  const stem = porterStem(w);
   if (stem.length < 3 || STOP_WORDS.has(stem)) return null;
   return stem;
 };
@@ -364,7 +480,7 @@ export const analyzeConceptGap = (input: string, summary: string): { kept: strin
  */
 export const computeConceptOverlapScore = (input: string, summary: string): number => {
   const inputKeywords = extractKeywords(input, 8);
-  if (inputKeywords.length === 0) return 0.5; // No keywords = neutral score
+  if (inputKeywords.length === 0) return 0; // No extractable keywords = no evidence of overlap
 
   const summaryLower = summary.toLowerCase();
   const summaryWords = new Set(
@@ -408,15 +524,15 @@ export const computeConceptOverlapScore = (input: string, summary: string): numb
       }
     }
 
-    // Check 4: Fuzzy single-word match (Levenshtein-like for typos/variations)
-    const keywordParts = keyword.split(' ');
-    for (const part of keywordParts) {
-      if (part.length >= 4) {
-        // Check if any summary word starts with same 4+ chars
-        const prefix = part.slice(0, Math.min(4, part.length));
+    // Check 4: Porter-stem match for single-word keywords not caught by Check 2.
+    // The Porter stemmer handles morphological variants more reliably than
+    // prefix matching (which produced false positives like "community" ~ "communicate").
+    if (!keyword.includes(' ') && keyword.length >= 5) {
+      const kwStem = porterStem(keyword.toLowerCase());
+      if (kwStem.length >= 4) {
         for (const summaryWord of summaryWords) {
-          if (summaryWord && summaryWord.startsWith(prefix) && summaryWord.length >= 3) {
-            matchedScore += 0.5;
+          if (summaryWord && porterStem(summaryWord) === kwStem) {
+            matchedScore += 0.4;
             break;
           }
         }

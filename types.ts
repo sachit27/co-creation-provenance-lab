@@ -81,6 +81,11 @@ export interface AnalysisConfig {
   enableAnomalyDetection?: boolean;
   enableGroupAnalysis?: boolean;
   runStrategyComparison?: boolean;
+  wordLimit?: number;
+  /** Optional domain context injected into LLM prompts to adapt analysis
+   *  for specific domains (e.g., legal, finance, healthcare, policy).
+   *  Example: "These are witness depositions from a civil rights case." */
+  domainContext?: string;
 }
 
 // Group Equity Metrics
@@ -257,6 +262,53 @@ export interface AnalysisResult {
   languageAnalysis?: LanguageEquityReport; // Language equity across participant inputs
   enrichmentStatus?: 'pending' | 'complete'; // Phase 2 concept fidelity completion state
   networkGraph?: NetworkGraph; // Participant semantic similarity network
+  languageFidelity?: LanguageFidelity; // Phase 2: how raw language was transformed in summary
+  // Phase 2: advanced provenance features
+  rhetoricalBias?: RhetoricalBiasAnalysis;
+  claimAttribution?: ClaimAttribution;
+  tensionAnalysis?: TensionAnalysis;
+  sankeyData?: SankeyData;
+  knowledgeGraph?: KnowledgeGraph;
+}
+
+// ── Language Fidelity Analysis ────────────────────────────────────────────────
+
+export type TransformationType = 'preserved' | 'softened' | 'sanitized' | 'abstracted' | 'dropped';
+
+/**
+ * Epistemic classification for summary claims.
+ * Adapted from assertion classification literature (ACL 2024):
+ * - explicit:      Directly stated in the source text — verifiable fact
+ * - inferred:      Reasonable derivation from source evidence
+ * - extrapolated:  Requires external knowledge beyond what sources provide
+ * - speculative:   Forward-looking or model-generated claim with no source basis
+ */
+export type EpistemicClass = 'explicit' | 'inferred' | 'extrapolated' | 'speculative';
+
+export interface PhraseMapping {
+  participantId: string;
+  rawPhrase: string;
+  summaryPhrase: string | null;
+  type: TransformationType;
+}
+
+export interface SentenceFidelity {
+  sentenceIndex: number;
+  sentenceText: string;
+  counts: Record<TransformationType, number>;
+  mappings: PhraseMapping[];
+  /** Epistemic classification of the claim made in this sentence */
+  epistemicClass?: EpistemicClass;
+  /** Brief explanation of why this epistemic label was assigned */
+  epistemicExplanation?: string;
+}
+
+export interface LanguageFidelity {
+  sentences: SentenceFidelity[];
+  overallCounts: Record<TransformationType, number>;
+  fidelityScore: number; // 0–1, proportion preserved (adjusted for cross-sentence presence)
+  /** Participant IDs whose key phrases never appear in ANY summary sentence (truly dropped) */
+  summaryDroppedParticipantIds: string[];
 }
 
 export interface NetworkNode {
@@ -278,6 +330,33 @@ export interface NetworkGraph {
   nodes: NetworkNode[];
   edges: NetworkEdge[];
   k: number; // The k value used for mutual-kNN
+  analysis?: NetworkAnalysis; // Graph-level metrics computed post-construction
+}
+
+// ── Network Graph Analysis Metrics ─────────────────────────────────────────────
+
+export interface NodeMetrics {
+  id: string;
+  degree: number;                    // Number of mutual-kNN edges
+  weightedDegree: number;            // Sum of edge weights (strength)
+  clusteringCoefficient: number;     // Fraction of neighbors that are also neighbors of each other
+  betweennessCentrality: number;     // Fraction of shortest paths passing through this node
+  isBridge: boolean;                 // Has edges to multiple clusters
+  crossClusterEdges: number;         // Count of edges to nodes in different clusters
+  intraClusterEdges: number;         // Count of edges to nodes in same cluster
+}
+
+export interface NetworkAnalysis {
+  nodeMetrics: Record<string, NodeMetrics>;
+  // Global metrics
+  modularity: number;                // Newman's Q — how well clusters match network structure (-1 to 1)
+  density: number;                   // Fraction of possible edges that exist
+  avgClusteringCoefficient: number;  // Global transitivity measure
+  connectedComponents: number;       // Number of disconnected subgraphs
+  avgDegree: number;
+  bridgeNodes: string[];             // IDs of cross-cluster connector nodes
+  hubNodes: string[];                // IDs of high-degree nodes (top 10% or degree > 2*avg)
+  peripheralNodes: string[];         // IDs of degree-0 or degree-1 nodes
 }
 
 export interface ConceptFidelityResult {
@@ -369,14 +448,18 @@ export interface ParticipantAnalysis {
   embeddingFailed?: boolean;
   // Feature #3: computed on-the-fly in UI for participants with score < 0.6
   biasAttribution?: BiasAttribution;
+  rhetoricalProfile?: RhetoricalProfile;
 }
 
 export interface DiversityMetrics {
   giniCoefficient: number;
   inputDiversity: number;
+  /** @deprecated Derived metric: always equals `1 - giniCoefficient`. Use giniCoefficient directly. */
   coverageUniformity: number;
   distinctRepresentationGap: number;
   totalParticipants: number;
+  /** Number of participants with valid embeddings included in aggregate metrics (Gini, avg rep). */
+  scoredParticipants?: number;
 }
 
 export interface ClusterData {
@@ -392,4 +475,190 @@ export interface MetricDefinition {
   idealRange: string;
   formula?: string;              // Mathematical formula if applicable
   thresholdJustification?: string; // Statistical justification for thresholds
+}
+
+// ── Rhetorical Influence Analysis ──────────────────────────────────────────────
+
+export interface RhetoricalProfile {
+  assertiveness: number;       // 0–1: imperative verbs, demands, strong modals vs hedges
+  register: 'formal' | 'colloquial' | 'mixed';
+  evidentiality: number;       // 0–1: citations, data references, statistics
+  emotionalIntensity: number;  // 0–1: urgency markers, strong adjectives, exclamation
+  compositeScore: number;      // weighted average = "rhetorical power"
+}
+
+export interface RhetoricalBiasAnalysis {
+  profiles: Array<{
+    participantId: string;
+    profile: RhetoricalProfile;
+    representationScore: number;
+  }>;
+  correlation: number;           // Spearman rank correlation
+  pValue: number;                // statistical significance
+  hasBias: boolean;              // true if correlation positive + significant
+  regressionLine: { slope: number; intercept: number };
+}
+
+// ── Claim-Level Attribution (Atomic Provenance) ───────────────────────────────
+
+export type ClaimSupportLevel = 'supported' | 'inferrable' | 'unsupported' | 'contradicted';
+
+export interface AtomicClaim {
+  claimIndex: number;
+  sentenceIndex: number;
+  claimText: string;
+  supportLevel: ClaimSupportLevel;
+  evidence: Array<{
+    participantId: string;
+    passage: string;
+    similarity: number;
+  }>;
+}
+
+export interface ClaimAttribution {
+  claims: AtomicClaim[];
+  supportedCount: number;
+  inferrableCount: number;
+  unsupportedCount: number;
+  contradictedCount: number;
+  attributionScore: number;  // (supported + inferrable) / total
+}
+
+// ── Tension & Contradiction Mapping ───────────────────────────────────────────
+
+export type TensionHandling = 'acknowledged' | 'suppressed' | 'merged' | 'distorted';
+
+export interface TensionPair {
+  claimA: { participantId: string; text: string; clusterId: number };
+  claimB: { participantId: string; text: string; clusterId: number };
+  tensionDescription: string;
+  summaryHandling: TensionHandling;
+  summaryEvidence: string | null;
+}
+
+export interface TensionAnalysis {
+  pairs: TensionPair[];
+  tensionFidelityScore: number;  // fraction acknowledged / total
+  suppressedCount: number;
+  acknowledgedCount: number;
+  mergedCount: number;
+  distortedCount: number;
+  clusterTensions: Array<{
+    clusterA: number;
+    clusterB: number;
+    tensionCount: number;
+    dominantHandling: TensionHandling;
+  }>;
+}
+
+// ── GraphRAG Knowledge Graph ─────────────────────────────────────────────────
+
+/**
+ * An entity extracted from participant text via LLM-based entity extraction.
+ * Follows KGGen (2025) 3-stage pipeline: extract → aggregate → cluster.
+ */
+export interface KGEntity {
+  /** Normalized title-case name (e.g., "Data Privacy") */
+  name: string;
+  /** Entity type from ontology (e.g., "Concept", "Organization", "Person") */
+  type: string;
+  /** Concise third-person description */
+  description: string;
+  /** IDs of participants whose text mentions this entity */
+  sourceParticipants: string[];
+  /** Number of times this entity was extracted across all inputs */
+  frequency: number;
+  /** Whether this entity concept appears in the summary (provenance link) */
+  summaryPresence?: 'present' | 'absent' | 'partial';
+  /** True if this entity bridges two or more communities (cross-cutting theme) */
+  isBridge?: boolean;
+  /** Community ID assigned by community detection (-1 if unassigned) */
+  communityId: number;
+}
+
+/**
+ * A directed relationship between two entities, extracted via LLM.
+ * Binary relation decomposition (LightRAG, EMNLP 2025).
+ */
+export interface KGRelationship {
+  /** Source entity name (matches KGEntity.name) */
+  source: string;
+  /** Target entity name (matches KGEntity.name) */
+  target: string;
+  /** Verb-phrase relationship type (e.g., "threatens", "enables", "requires") */
+  relationshipType: string;
+  /** Concise description of the relationship */
+  description: string;
+  /** Strength 1–10 (from LLM assessment) */
+  strength: number;
+  /** Relationship keywords for search (comma-separated) */
+  keywords: string;
+  /** ID of the participant whose text sourced this relationship */
+  sourceParticipantId: string;
+}
+
+/**
+ * A community detected via modularity-optimizing community detection
+ * on the knowledge graph. Analogous to GraphRAG communities (Microsoft, 2024).
+ */
+export interface KGCommunity {
+  id: number;
+  /** Human-readable label derived from top entities */
+  label: string;
+  /** Entity names belonging to this community */
+  entityNames: string[];
+  /** Brief summary of what this community represents */
+  summary: string;
+  /** Average relationship strength within community */
+  cohesion: number;
+  /** Participant IDs that contributed entities to this community */
+  participantIds: string[];
+}
+
+/**
+ * Complete knowledge graph constructed via GraphRAG pipeline.
+ * Stored in AnalysisResult after Phase 2 enrichment.
+ */
+export interface KnowledgeGraph {
+  entities: KGEntity[];
+  relationships: KGRelationship[];
+  communities: KGCommunity[];
+  /** Global metrics */
+  metrics: {
+    entityCount: number;
+    relationshipCount: number;
+    communityCount: number;
+    /** Newman modularity Q of the community partition */
+    modularity: number;
+    /** Average entities per community */
+    avgCommunitySize: number;
+    /** Fraction of participants with at least one entity in the graph */
+    participantCoverage: number;
+  };
+}
+
+// ── Provenance Sankey Flow ────────────────────────────────────────────────────
+
+export interface SankeyNode {
+  id: string;
+  column: 'input' | 'theme' | 'summary';
+  label: string;
+  value: number;
+  clusterId?: number;
+  color?: string;
+}
+
+export interface SankeyLink {
+  source: string;
+  target: string;
+  value: number;
+  transformationType?: TransformationType;
+  isOrphan?: boolean;
+  isPhantom?: boolean;
+}
+
+export interface SankeyData {
+  nodes: SankeyNode[];
+  links: SankeyLink[];
+  aggregationLevel: 'individual' | 'cluster' | 'super-cluster';
 }

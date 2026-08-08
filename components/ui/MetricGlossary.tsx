@@ -74,11 +74,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'clusters': {
     label: 'Topic Clusters',
-    description: 'Groups of participants whose contributions are semantically similar. Identified using K-Means clustering with automatic cluster count selection.',
-    implication: 'Clusters represent distinct discussion themes. A well-functioning co-creation should have representation from all major clusters.',
-    idealRange: '2-5 clusters (interpretable)',
-    formula: 'K-Means on PCA-reduced embeddings with elbow method',
-    thresholdJustification: `Max ${ANALYSIS_CONFIG.algorithms.maxClusters} clusters ensures interpretability (rule of thumb: k << √(n/2)). Elbow threshold of ${ANALYSIS_CONFIG.algorithms.elbowThreshold * 100}% stops when adding clusters gives diminishing returns.`
+    description: 'Groups of participants with semantically similar contributions, identified by K-Means clustering on text embeddings. The optimal number of clusters is selected automatically using the elbow method on within-cluster variance.',
+    implication: 'Each cluster represents a distinct thematic perspective in the input. The cluster color is consistent across all views (semantic map, Sankey, similarity network). Cluster membership determines theme extraction for the provenance flow.',
+    idealRange: '2-5 clusters for interpretability',
+    formula: 'K-Means++ (Arthur & Vassilvitskii, 2007) on PCA-reduced embeddings (5 components). Elbow method: stop when WCSS improvement < 15%.',
+    thresholdJustification: `K-Means++ gives O(log k) approximation guarantee. PCA preprocessing addresses curse of dimensionality. Max k=${ANALYSIS_CONFIG.algorithms.maxClusters} ensures interpretability (rule of thumb: k << √(n/2)). ${ANALYSIS_CONFIG.algorithms.elbowThreshold * 100}% elbow threshold balances parsimony vs. fit (Thorndike, 1953).`
   },
   'bootstrap': {
     label: 'Bootstrap Confidence Interval',
@@ -87,6 +87,70 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     idealRange: '95% CI',
     formula: '95% CI from B bootstrap samples',
     thresholdJustification: `${ANALYSIS_CONFIG.algorithms.bootstrapSamples} bootstrap samples provides stable CI estimates. Standard error of bootstrap ~ 1/√B, so 200 samples gives ~7% error in CI width.`
+  },
+  'rhetoric': {
+    label: 'Rhetorical Influence Analysis',
+    description: 'Measures whether a participant\'s communication style (assertiveness, formality, evidence use, emotional intensity) correlates with how well they are represented in the summary.',
+    implication: 'A significant positive correlation (p < 0.05) means the AI summarizer favors certain rhetorical styles over others — a form of systematic bias independent of content quality.',
+    idealRange: 'No significant correlation (p > 0.05)',
+    formula: 'Spearman rank correlation between composite rhetorical score and representation score',
+    thresholdJustification: 'Uses Spearman (non-parametric) to avoid distributional assumptions. Significance at p < 0.05 with |r| > 0.3 indicates meaningful bias. Lexicon-based scoring follows computational stylistics conventions (Biber, 1988).'
+  },
+  'claims': {
+    label: 'Claim-Level Attribution',
+    description: 'Decomposes summary sentences into atomic claims and traces each claim back to source participant text. Inspired by FActScore (Min et al., 2023) methodology for factual precision evaluation.',
+    implication: 'A high attribution score (>70%) means most summary claims are grounded in participant input. Unsupported or contradicted claims indicate the AI introduced information not present in the source data.',
+    idealRange: '> 70% grounded (supported + inferrable)',
+    formula: 'Attribution = (supported + inferrable) / total_claims',
+    thresholdJustification: 'TF-IDF overlap ≥ 0.5 = "supported", ≥ 0.3 = "inferrable". Thresholds from keyword-overlap literature (Robertson & Zaragoza, 2009). LLM refinement disambiguates the 0.25–0.55 boundary zone.'
+  },
+  'tensions': {
+    label: 'Tension & Contradiction Mapping',
+    description: 'Identifies genuine disagreements between participant groups and evaluates whether the AI summary acknowledges, suppresses, merges, or distorts each tension.',
+    implication: 'Suppressed tensions create false consensus. Merged tensions lose nuance. Distorted tensions misrepresent positions. Only acknowledged tensions preserve the deliberative quality of the input.',
+    idealRange: '> 50% acknowledged',
+    formula: 'Tension Fidelity = acknowledged_count / total_tensions',
+    thresholdJustification: 'Uses cross-cluster representative sampling (max 4 per cluster) with LLM-based tension detection. Caps at 25 tension pairs for scalability. Handling classification uses batch LLM evaluation against the summary text.'
+  },
+  'sankey': {
+    label: 'Provenance Flow (Sankey)',
+    description: 'Visualizes the three-column flow from participant inputs through semantic themes to summary sentences. Shows how information is aggregated, filtered, and transformed.',
+    implication: 'Orphan themes (no outgoing links) indicate perspectives dropped from the summary. Phantom sentences (no incoming links) indicate AI-generated content with no source basis.',
+    idealRange: 'No orphans or phantoms',
+    formula: 'Links based on cluster membership (input→theme) and sentence-match similarity ≥ 0.3 (theme→summary)',
+    thresholdJustification: 'Aggregation thresholds: ≤40 participants = individual nodes, 40–200 = cluster-level, >200 = super-cluster. These ensure the diagram remains readable at any scale.'
+  },
+  'thresholdSensitivity': {
+    label: 'Threshold Sensitivity Analysis',
+    description: 'Shows how the number of affected participants changes as you vary the representation and isolation thresholds. Reveals whether results are robust or brittle — highly sensitive to the exact threshold chosen.',
+    implication: 'A steep curve at the current threshold means small changes would reclassify many participants. A flat curve means the results are stable regardless of the exact cutoff.',
+    idealRange: 'Flat curve near current threshold (robust)',
+    formula: 'For each threshold t in [0.1, 1.0]: count participants where score < t (representation) or isolation > t (isolation)',
+    thresholdJustification: 'Sweeps 20 evenly-spaced thresholds. The blue dashed line marks the current threshold. Steep slopes indicate sensitivity — consider reporting confidence intervals instead of point estimates.'
+  },
+  'semanticSpace': {
+    label: 'Semantic Space (PCA)',
+    description: 'A 2D projection of high-dimensional text embeddings using Principal Component Analysis (PCA). Each point represents a participant\'s contribution, positioned so that semantically similar inputs appear close together.',
+    implication: 'Clusters reveal shared themes. Isolated points (far from any cluster) indicate unique perspectives. Point SIZE reflects representation score — small points are underrepresented voices.',
+    idealRange: 'Spread across clusters with no extremely isolated points',
+    formula: 'PCA projects N-dimensional embeddings (where N=384 for BGE-M3 or 150 for TF-IDF) onto the 2 directions of maximum variance. Clusters identified via K-Means on the full-dimensional embeddings.',
+    thresholdJustification: 'PCA preserves global structure and is deterministic (unlike t-SNE/UMAP). The cluster colors match across all views. Axis labels ("Dimension 1/2") represent the principal components — they are abstract directions, not interpretable features.'
+  },
+  'similarityNetwork': {
+    label: 'Participant Similarity Network',
+    description: 'A mutual k-Nearest Neighbors graph where an edge exists between two participants only if both rank each other among their top-k most similar contributions (by cosine similarity on text embeddings). This mutual requirement produces sparse, high-confidence connections.',
+    implication: 'Bridge nodes (connecting different clusters) are natural mediators. Peripheral nodes (0-1 connections) may hold unique perspectives that need amplification. High modularity means clusters are real semantic communities, not arbitrary groupings.',
+    idealRange: 'Modularity > 0.3 (meaningful communities), no disconnected components',
+    formula: 'Mutual k-NN: edge(i,j) iff j in kNN(i) AND i in kNN(j). k = min(5, ceil(sqrt(N))). Metrics: Brandes betweenness O(VE), Newman modularity Q, Watts-Strogatz clustering coefficient.',
+    thresholdJustification: 'Mutual k-NN (von Luxburg, 2007) is standard for manifold learning and spectral clustering. Mutual requirement filters spurious one-directional similarity. Brandes (2001) betweenness is the standard O(VE) algorithm. Newman (2004) modularity compares intra-cluster edges to a random null model.'
+  },
+  'knowledgeGraph': {
+    label: 'Knowledge Graph (GraphRAG)',
+    description: 'A knowledge graph constructed from participant inputs via LLM-based entity and relationship extraction. Entities are concepts, policies, stakeholders, values, etc. mentioned in participant text. Relationships are semantic connections between entities. Communities are groups of densely connected entities detected via the full Louvain algorithm. Unlike the cluster map (which groups people), this graph maps the conceptual structure of the discussion.',
+    implication: 'Communities represent coherent thematic clusters that emerge from participant language — richer than keyword aggregation. Cross-community relationships reveal how different themes connect. Entity frequency shows which concepts dominate the discourse. Isolated entities (with no relationships) are automatically filtered to keep the graph clean.',
+    idealRange: 'Modularity Q > 0.3 (meaningful community structure), coverage > 80%',
+    formula: 'Entity co-extraction: LLM single-pass with gleaning (Microsoft GraphRAG, 2024). Entity resolution: title-case normalization + Levenshtein fuzzy matching + acronym detection. Bidirectional relationship aggregation. Full Louvain: Phase 1 (local moving) + Phase 2 (network contraction), iterated to convergence (Blondel et al., 2008). Q = (1/2m) * Σ[A_ij - (k_i*k_j)/(2m)] * δ(c_i, c_j).',
+    thresholdJustification: 'Single-pass co-extraction is efficient for short deliberative texts. Gleaning (Microsoft GraphRAG, 2024) catches 15-30% additional entities. Fuzzy entity resolution (Levenshtein ≤ 2 + substring + acronym detection) handles near-duplicates. Full Louvain with Phase 2 contraction converges better than Phase 1 alone.'
   },
   'blindspots': {
     label: 'Blind Spots',

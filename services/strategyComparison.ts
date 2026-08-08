@@ -43,22 +43,49 @@ ${getStrategyPrompt(strategy)}`;
   return await generateCompletion(userPrompt, systemPrompt, config);
 };
 
-// Compute metrics for a summary
+/**
+ * Compute representation metrics for a strategy's summary using per-SENTENCE
+ * matching with decay aggregation — the same methodology as the main analysis.
+ *
+ * CRITICAL: Previously, this embedded the whole summary as one vector and computed
+ * cosine similarity per participant. That approach is fundamentally different from
+ * the main analysis (per-sentence matching) and produces incomparable scores.
+ * A long summary's single embedding is dominated by majority themes, making minority
+ * participants appear even less represented than they are.
+ *
+ * Now uses the same per-sentence matching + secondary decay as analysis.ts:
+ *   S_emb = s_1 + γ·s_2 + γ²·s_3 + …  (clamped to [0, 1])
+ */
 const computeSummaryMetrics = (
   summary: string,
   inputEmbeddings: number[][],
-  summaryEmbedding: number[]
+  sentenceEmbeddings: number[][]
 ): { avgRepresentation: number; metrics: DiversityMetrics } => {
-  // Compute representation scores
-  const representationScores = inputEmbeddings.map(emb =>
-    cosineSimilarity(emb, summaryEmbedding)
-  );
+  const SECONDARY_DECAY = 0.3;
+  const MATCH_THRESHOLD = 0.5;
+
+  // Per-participant: match against all summary sentences (same as main analysis)
+  const representationScores = inputEmbeddings.map(emb => {
+    const sims = sentenceEmbeddings
+      .map(sentEmb => cosineSimilarity(emb, sentEmb))
+      .sort((a, b) => b - a);
+
+    if (sims.length === 0) return 0;
+
+    // Aggregate with decay (coverage-aware scoring, Radev et al. 2004)
+    let aggregated = sims[0];
+    for (let k = 1; k < sims.length; k++) {
+      if (sims[k] < MATCH_THRESHOLD) break;
+      aggregated += sims[k] * Math.pow(SECONDARY_DECAY, k);
+    }
+    return Math.min(1, aggregated);
+  });
 
   const avgRepresentation = representationScores.reduce((a, b) => a + b, 0) / representationScores.length;
   const gini = calculateGini(representationScores);
   const inputDiversity = computeAveragePairwiseDistance(inputEmbeddings);
 
-  // Compute distinct representation gap
+  // Distinct representation gap (same as main analysis)
   const globalCentroid = computeGlobalCentroid(inputEmbeddings);
   const isolationScores = inputEmbeddings.map(emb => 1 - cosineSimilarity(emb, globalCentroid));
 
@@ -135,16 +162,28 @@ export const runStrategyComparison = async (
       // Generate summary
       const summary = await generateStrategySummary(inputs, strategy, config);
 
+      onProgress?.(strategy, 'Embedding summary sentences...');
+
+      // Split into sentences (same approach as main analysis)
+      const sentences = summary.match(/[^.!?]+[.!?]+(?=\s+[A-Z]|$)/g) || [summary];
+
+      // Embed each sentence individually (consistent with main analysis methodology)
+      const sentenceEmbeddings: number[][] = [];
+      for (const sent of sentences) {
+        try {
+          sentenceEmbeddings.push(await generateEmbedding(sent.trim()));
+        } catch {
+          sentenceEmbeddings.push(new Array(inputEmbeddings[0]?.length || 768).fill(0));
+        }
+      }
+
       onProgress?.(strategy, 'Computing metrics...');
 
-      // Generate summary embedding
-      const summaryEmbedding = await generateEmbedding(summary);
-
-      // Compute metrics
+      // Compute metrics using per-sentence matching (same as main analysis)
       const { avgRepresentation, metrics } = computeSummaryMetrics(
         summary,
         inputEmbeddings,
-        summaryEmbedding
+        sentenceEmbeddings
       );
 
       results.push({

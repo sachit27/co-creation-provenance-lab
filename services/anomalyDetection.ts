@@ -3,10 +3,11 @@ import { AnomalyFlags, ParticipantInput } from '../types';
 /**
  * Anomaly Detection Service
  * Detects gaming behaviors: keyword stuffing, copy-paste, outlier clusters
- * 
- * Uses tiered approach for copy-paste detection:
- * - Tier 2: HuggingFace semantic similarity (async version)
- * - Tier 3: TF-IDF cosine similarity (sync version)
+ *
+ * Copy-paste detection uses MinHash/LSH (Broder 1997) for O(n) near-duplicate
+ * detection at scale, with TF-IDF cosine similarity verification for precision.
+ * Falls back to O(n²) pairwise comparison for n < 20 where LSH overhead isn't warranted.
+ * Async version uses HuggingFace semantic similarity when available.
  */
 
 // Extended stopwords for robust tokenization
@@ -37,10 +38,12 @@ const tokenize = (text: string): string[] => {
 };
 
 /**
- * Calculate TF-IDF cosine similarity between two texts
- * More robust than Jaccard for detecting paraphrased duplicates
+ * Calculate sublinear-TF cosine similarity between two texts.
+ * Uses term frequency with log-scaling (1 + log(tf)) but no IDF component
+ * since comparisons are pairwise rather than corpus-wide.
+ * More robust than Jaccard for detecting paraphrased duplicates.
  */
-const tfidfCosineSimilarity = (a: string, b: string): number => {
+const sublinearTfCosineSimilarity = (a: string, b: string): number => {
   const tokensA = tokenize(a);
   const tokensB = tokenize(b);
 
@@ -122,10 +125,155 @@ const detectKeywordStuffing = (text: string): { isStuffing: boolean; reason?: st
   return { isStuffing: false };
 };
 
+// ── MinHash for O(n) near-duplicate detection (Broder, 1997) ────────────────────
+// Instead of O(n²) pairwise TF-IDF comparisons, we compute a fixed-size
+// signature per document from character n-gram shingles. Two documents with
+// Jaccard(shingles) ≥ threshold will share ≥ threshold fraction of MinHash values.
+// Candidate pairs are identified by band-based LSH (Locality-Sensitive Hashing),
+// then verified with TF-IDF cosine similarity for precision.
+
+const MINHASH_NUM_HASHES = 100;
+const MINHASH_BANDS = 20;        // 100 hashes / 20 bands = 5 rows per band
+const MINHASH_ROWS_PER_BAND = MINHASH_NUM_HASHES / MINHASH_BANDS;
+const SHINGLE_SIZE = 3;          // Character 3-grams (works well for short texts)
+
+// Simple hash family: h(x) = (a*x + b) mod p, with prime p.
+// Uses a 16-bit prime to avoid exceeding Number.MAX_SAFE_INTEGER (2^53)
+// when multiplying 32-bit shingle hashes by coefficients.
+// The smaller modulus is acceptable for LSH where we only need
+// collision behavior, not cryptographic uniformity.
+const MINHASH_PRIME = 104729; // prime, keeps a*x+b < 2^53
+const hashCoeffs: Array<{ a: number; b: number }> = [];
+{
+  // Deterministic coefficients derived from index, kept < MINHASH_PRIME
+  for (let i = 0; i < MINHASH_NUM_HASHES; i++) {
+    hashCoeffs.push({
+      a: ((i * 73856093 + 19349669) % MINHASH_PRIME) + 1, // a > 0
+      b: ((i * 83492791 + 39916801) % MINHASH_PRIME),
+    });
+  }
+}
+
+// FNV-1a 32-bit hash for shingle strings
+const fnv1a = (s: string): number => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    hash ^= s.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash;
+};
+
+// Extract character n-gram shingle hashes from text
+const getShingleHashes = (text: string): Set<number> => {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const hashes = new Set<number>();
+  for (let i = 0; i <= normalized.length - SHINGLE_SIZE; i++) {
+    hashes.add(fnv1a(normalized.substring(i, i + SHINGLE_SIZE)));
+  }
+  return hashes;
+};
+
+// Compute MinHash signature for a set of shingle hashes
+const computeMinHashSignature = (shingleHashes: Set<number>): Uint32Array => {
+  const sig = new Uint32Array(MINHASH_NUM_HASHES).fill(0xFFFFFFFF);
+  for (const shingle of shingleHashes) {
+    for (let i = 0; i < MINHASH_NUM_HASHES; i++) {
+      const { a, b } = hashCoeffs[i];
+      // Reduce shingle first to keep intermediate products within safe integer range
+      const reduced = shingle % MINHASH_PRIME;
+      const h = (a * reduced + b) % MINHASH_PRIME;
+      if (h < sig[i]) sig[i] = h;
+    }
+  }
+  return sig;
+};
+
+// LSH banding: hash each band of the signature to find candidate pairs
+const lshCandidatePairs = (signatures: Uint32Array[]): Set<string> => {
+  const candidates = new Set<string>();
+  for (let band = 0; band < MINHASH_BANDS; band++) {
+    const buckets = new Map<string, number[]>();
+    const start = band * MINHASH_ROWS_PER_BAND;
+    for (let docIdx = 0; docIdx < signatures.length; docIdx++) {
+      // Band key: concatenate hash values in this band
+      let key = '';
+      for (let r = 0; r < MINHASH_ROWS_PER_BAND; r++) {
+        key += signatures[docIdx][start + r].toString(36) + ',';
+      }
+      const bucket = buckets.get(key);
+      if (bucket) {
+        for (const other of bucket) {
+          const pairKey = other < docIdx ? `${other}:${docIdx}` : `${docIdx}:${other}`;
+          candidates.add(pairKey);
+        }
+        bucket.push(docIdx);
+      } else {
+        buckets.set(key, [docIdx]);
+      }
+    }
+  }
+  return candidates;
+};
+
 /**
- * Check for copy-paste using TF-IDF cosine similarity
- * This detects both exact copies and paraphrased duplicates
+ * Check for copy-paste using MinHash/LSH + TF-IDF verification.
+ *
+ * Complexity: O(n) for signature computation + O(candidates) for verification,
+ * where candidates ≪ n² for typical datasets. Falls back to O(n²) only when
+ * n < 20 (where the overhead of LSH isn't worthwhile).
  */
+const detectCopyPasteAll = (
+  allTexts: string[],
+  threshold: number = 0.7
+): Map<number, { similarTo: string; similarity: number }> => {
+  const results = new Map<number, { similarTo: string; similarity: number }>();
+
+  if (allTexts.length < 2) return results;
+
+  // For small datasets, direct pairwise comparison is faster
+  if (allTexts.length < 20) {
+    for (let i = 0; i < allTexts.length; i++) {
+      for (let j = i + 1; j < allTexts.length; j++) {
+        const sim = sublinearTfCosineSimilarity(allTexts[i], allTexts[j]);
+        if (sim >= threshold) {
+          if (!results.has(i) || results.get(i)!.similarity < sim) {
+            results.set(i, { similarTo: allTexts[j].substring(0, 50) + '...', similarity: sim });
+          }
+          if (!results.has(j) || results.get(j)!.similarity < sim) {
+            results.set(j, { similarTo: allTexts[i].substring(0, 50) + '...', similarity: sim });
+          }
+        }
+      }
+    }
+    return results;
+  }
+
+  // MinHash/LSH pipeline for larger datasets
+  const shingleSets = allTexts.map(getShingleHashes);
+  const signatures = shingleSets.map(computeMinHashSignature);
+  const candidates = lshCandidatePairs(signatures);
+
+  // Verify candidate pairs with TF-IDF cosine similarity
+  for (const pairKey of candidates) {
+    const [iStr, jStr] = pairKey.split(':');
+    const i = parseInt(iStr);
+    const j = parseInt(jStr);
+    const sim = sublinearTfCosineSimilarity(allTexts[i], allTexts[j]);
+    if (sim >= threshold) {
+      if (!results.has(i) || results.get(i)!.similarity < sim) {
+        results.set(i, { similarTo: allTexts[j].substring(0, 50) + '...', similarity: sim });
+      }
+      if (!results.has(j) || results.get(j)!.similarity < sim) {
+        results.set(j, { similarTo: allTexts[i].substring(0, 50) + '...', similarity: sim });
+      }
+    }
+  }
+
+  return results;
+};
+
+/** @deprecated Use detectCopyPasteAll for batch detection. Kept for detectCopyPasteAsync fallback. */
 const detectCopyPaste = (
   text: string,
   allTexts: string[],
@@ -134,7 +282,7 @@ const detectCopyPaste = (
   for (const otherText of allTexts) {
     if (otherText === text) continue;
 
-    const similarity = tfidfCosineSimilarity(text, otherText);
+    const similarity = sublinearTfCosineSimilarity(text, otherText);
     if (similarity >= threshold) {
       return {
         isCopyPaste: true,
@@ -195,7 +343,9 @@ const detectOutlierCluster = (
   const variance = n > 1
     ? allScores.reduce((sum, s) => sum + (s - mean) ** 2, 0) / (n - 1)
     : 0;
-  const stdDev = Math.sqrt(variance) || 0.01;
+  const rawStdDev = Math.sqrt(variance);
+  // Only apply floor when variance is exactly zero (all scores identical)
+  const stdDev = rawStdDev === 0 ? 0.01 : rawStdDev;
 
   const zScore = Math.abs(representationScore - mean) / stdDev;
 
@@ -243,6 +393,9 @@ export const detectAnomalies = (
   const results = new Map<string, AnomalyFlags>();
   const allTexts = inputs.map(i => i.text);
 
+  // Batch copy-paste detection using MinHash/LSH — O(n) instead of O(n²)
+  const copyPasteResults = detectCopyPasteAll(allTexts);
+
   inputs.forEach((input, idx) => {
     const reasons: string[] = [];
 
@@ -252,10 +405,11 @@ export const detectAnomalies = (
       reasons.push(stuffingResult.reason);
     }
 
-    // Check copy-paste
-    const copyResult = detectCopyPaste(input.text, allTexts);
-    if (copyResult.isCopyPaste) {
-      reasons.push(`High similarity (${((copyResult.similarity || 0) * 100).toFixed(0)}%) with another input`);
+    // Check copy-paste (from batch MinHash/LSH results)
+    const copyResult = copyPasteResults.get(idx);
+    const isCopyPaste = !!copyResult;
+    if (isCopyPaste) {
+      reasons.push(`High similarity (${((copyResult.similarity) * 100).toFixed(0)}%) with another input`);
     }
 
     // Check outlier cluster
@@ -271,15 +425,15 @@ export const detectAnomalies = (
     // Compute composite score
     const anomalyScore = computeAnomalyScore({
       isKeywordStuffing: stuffingResult.isStuffing,
-      isCopyPaste: copyResult.isCopyPaste,
+      isCopyPaste,
       isOutlierCluster: outlierResult.isOutlier,
       zScore: outlierResult.zScore,
-      similarity: copyResult.similarity
+      similarity: copyResult?.similarity
     });
 
     results.set(input.id, {
       isKeywordStuffing: stuffingResult.isStuffing,
-      isCopyPaste: copyResult.isCopyPaste,
+      isCopyPaste,
       isOutlierCluster: outlierResult.isOutlier,
       anomalyScore,
       reasons

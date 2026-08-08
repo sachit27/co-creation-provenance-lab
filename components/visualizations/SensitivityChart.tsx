@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SensitivityResult } from '../../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, ReferenceLine, Label } from 'recharts';
 import { useResponsiveChart, truncateText, calculateDynamicHeight, formatMetric } from '../../hooks/useResponsiveChart';
+import { InfoIcon } from '../ui/MetricGlossary';
 
 interface SensitivityChartProps {
   data: SensitivityResult[];
@@ -84,7 +85,7 @@ export const SensitivityChart: React.FC<SensitivityChartProps> = ({ data }) => {
           <div className="text-2xl hidden md:block">⚖️</div>
           <div className="flex-1 min-w-[200px]">
             <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
-              <strong className="text-sm text-rose-900">Semantic Leverage (LOO Z-Score)</strong>
+              <strong className="text-sm text-rose-900">Semantic Leverage (LOO Z-Score) <InfoIcon metricKey="leverage" /></strong>
               <button
                 onClick={() => setShowAll(!showAll)}
                 className="text-[10px] font-bold bg-white border border-rose-200 px-2 py-1 rounded hover:bg-rose-100 transition-colors shadow-sm whitespace-nowrap"

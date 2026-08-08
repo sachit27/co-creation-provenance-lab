@@ -1,13 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnalysisResult, ParticipantInput, AnalysisConfig, QuestionAnalysis, ColumnInfo, ColumnSelection } from './types';
 import { runAnalysis, runCoreAnalysis, enrichAnalysisResult } from './services/analysis';
 import { Card } from './components/ui/Card';
 import { SemanticMap } from './components/visualizations/SemanticMap';
 import { RepresentationBar } from './components/visualizations/RepresentationBar';
 import { ContributionLineage } from './components/visualizations/RepresentationFlow';
-import { ConceptDistortion } from './components/visualizations/ConceptDistortion';
 import { BlindSpotPlot } from './components/visualizations/BlindSpotPlot';
 import { SimilarityNetwork } from './components/visualizations/SimilarityNetwork';
+import { LanguageFidelityViz } from './components/visualizations/LanguageFidelityViz';
+import { RhetoricalInfluenceViz } from './components/visualizations/RhetoricalInfluenceViz';
+import { ClaimAttributionViz } from './components/visualizations/ClaimAttributionViz';
+import { TensionNetworkViz } from './components/visualizations/TensionNetworkViz';
+import { ProvenanceSankeyViz } from './components/visualizations/ProvenanceSankeyViz';
+import { KnowledgeGraphViz } from './components/visualizations/KnowledgeGraphViz';
 import { ConfigPanel } from './components/ui/ConfigPanel';
 import { SensitivityChart } from './components/visualizations/SensitivityChart';
 import { ProcessingState } from './components/ui/ProcessingState';
@@ -33,6 +38,36 @@ import { interpretGini, interpretEquityGap } from './services/plainLanguage';
 import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from './types';
 import { preprocessWithSelections, PreprocessResult } from './services/dataPreprocessor';
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay';
+import { ANALYSIS_CONFIG } from './constants';
+
+// Error boundary — prevents one crashing visualization from white-screening the entire app
+class VizErrorBoundary extends React.Component<{ children: React.ReactNode; tabName?: string }, { hasError: boolean; error?: Error }> {
+  constructor(props: { children: React.ReactNode; tabName?: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error(`[VizErrorBoundary] ${this.props.tabName || 'Unknown'} crashed:`, error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center text-slate-500">
+          <div className="text-lg font-semibold text-red-600 mb-2">Visualization Error</div>
+          <div className="text-sm mb-4">The {this.props.tabName || 'visualization'} encountered an error and could not render.</div>
+          <div className="text-xs text-slate-400 bg-slate-50 p-3 rounded font-mono">{this.state.error?.message}</div>
+          <button className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700" onClick={() => this.setState({ hasError: false })}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Icons
 const Icons = {
@@ -50,11 +85,11 @@ const Icons = {
   Activity: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>,
   CheckSquare: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>,
   Layers: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>,
-  Graph: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><line x1="6.7" y1="7.5" x2="10.8" y2="16.2"/><line x1="17.3" y1="7.5" x2="13.2" y2="16.2"/><line x1="7" y1="6" x2="17" y2="6"/></svg>
+  Graph: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><line x1="6.7" y1="7.5" x2="10.8" y2="16.2" /><line x1="17.3" y1="7.5" x2="13.2" y2="16.2" /><line x1="7" y1="6" x2="17" y2="6" /></svg>
 };
 
 type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
-type TabState = 'map' | 'blindspot' | 'flow' | 'stats' | 'sensitivity' | 'concepts' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity';
+type TabState = 'map' | 'blindspot' | 'flow' | 'sankey' | 'stats' | 'sensitivity' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity' | 'fidelity' | 'claims' | 'tensions' | 'rhetoric' | 'knowledge';
 
 export default function App() {
   const [viewState, setViewState] = useState<ViewState>('setup');
@@ -77,10 +112,13 @@ export default function App() {
   const [facilitationPlan, setFacilitationPlan] = useState<FacilitationGapBrief | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [showFacilitationPanel, setShowFacilitationPanel] = useState(false);
-  // Phase 2 enrichment state (concept fidelity runs in background after dashboard renders)
+  // Phase 2 enrichment state (language fidelity runs in background after dashboard renders)
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichProgressMsg, setEnrichProgressMsg] = useState('');
   const analysisGenRef = useRef(0); // incremented on each new analysis; guards stale Phase 2 updates
+  // Mobile sidebar
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   // Load pre-computed demo data on startup (if available)
   useEffect(() => {
@@ -260,7 +298,7 @@ export default function App() {
       } else {
         // ── Standard single / combined mode: staged execution ──
         // Phase 1: core analysis (embeddings, summary, scoring, all pure-math analyses).
-        // Renders the dashboard immediately without waiting for concept fidelity.
+        // Renders the dashboard immediately without waiting for language fidelity.
         const gen = ++analysisGenRef.current;
         const coreResult = await runCoreAnalysis(inputs, config, (msg) => setProgressMsg(msg));
 
@@ -271,7 +309,7 @@ export default function App() {
         setIsEnriching(true);
         setEnrichProgressMsg('');
 
-        // Phase 2: concept fidelity runs in background, fills the Concepts tab.
+        // Phase 2: language fidelity runs in background, fills the Language Fidelity tab.
         enrichAnalysisResult(coreResult, inputs, config, (msg) => {
           if (gen !== analysisGenRef.current) return;
           setEnrichProgressMsg(msg);
@@ -323,16 +361,16 @@ export default function App() {
 
     return (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <Card className="border-l-4 border-l-blue-500 hover:shadow-md transition-shadow" allowOverflow={true}>
+        <Card className="border-l-4 border-l-blue-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
           <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
             Avg Representation <InfoIcon metricKey="representation" />
           </div>
-          <div className={`text-2xl font-bold mt-1 ${avgScore >= 0.6 ? 'text-green-600' : avgScore >= 0.5 ? 'text-amber-600' : 'text-red-600'}`}>
+          <div className={`text-2xl font-bold mt-1 ${avgScore >= ANALYSIS_CONFIG.thresholds.representationTarget ? 'text-green-600' : avgScore >= ANALYSIS_CONFIG.representationInterpretation.low ? 'text-amber-600' : 'text-red-600'}`}>
             {avgScore.toFixed(2)}
           </div>
           <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
-            <span className={`px-1 rounded ${avgScore >= 0.6 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-              Target: {'>'}0.6
+            <span className={`px-1 rounded ${avgScore >= ANALYSIS_CONFIG.thresholds.representationTarget ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+              Target: {'>'}{ANALYSIS_CONFIG.thresholds.representationTarget}
             </span>
             {uncertaintyMetrics?.avgRepresentationCI && (
               <span className="text-slate-400 text-[10px]">
@@ -341,11 +379,11 @@ export default function App() {
             )}
           </div>
         </Card>
-        <Card className="border-l-4 border-l-purple-500 hover:shadow-md transition-shadow" allowOverflow={true}>
+        <Card className="border-l-4 border-l-purple-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
           <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
             Gini Coefficient <InfoIcon metricKey="gini" />
           </div>
-          <div className={`text-2xl font-bold mt-1 ${metrics.giniCoefficient <= 0.2 ? 'text-green-600' : metrics.giniCoefficient <= 0.35 ? 'text-amber-600' : 'text-red-600'}`}>
+          <div className={`text-2xl font-bold mt-1 ${metrics.giniCoefficient <= ANALYSIS_CONFIG.giniInterpretation.low ? 'text-green-600' : metrics.giniCoefficient <= ANALYSIS_CONFIG.giniInterpretation.moderate ? 'text-amber-600' : 'text-red-600'}`}>
             {metrics.giniCoefficient.toFixed(3)}
           </div>
           <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
@@ -357,10 +395,10 @@ export default function App() {
             </span>
           </div>
           <div className="text-xs text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
-            <span>Inequality {metrics.giniCoefficient <= 0.2 ? '(Low)' : metrics.giniCoefficient <= 0.35 ? '(Moderate)' : '(High)'}</span>
+            <span>Inequality {metrics.giniCoefficient <= ANALYSIS_CONFIG.giniInterpretation.low ? '(Low)' : metrics.giniCoefficient <= ANALYSIS_CONFIG.giniInterpretation.moderate ? '(Moderate)' : '(High)'}</span>
           </div>
         </Card>
-        <Card className="border-l-4 border-l-amber-500 hover:shadow-md transition-shadow" allowOverflow={true}>
+        <Card className="border-l-4 border-l-amber-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
           <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
             Equity Gap <InfoIcon metricKey="gap" />
           </div>
@@ -371,7 +409,7 @@ export default function App() {
             {metrics.distinctRepresentationGap > 0.1 ? '⚠️ Distinct voices underrepresented' : '✓ Balanced coverage'}
           </div>
         </Card>
-        <Card className="border-l-4 border-l-teal-500 hover:shadow-md transition-shadow" allowOverflow={true}>
+        <Card className="border-l-4 border-l-teal-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
           <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
             Coverage Stats <InfoIcon metricKey="diversity" />
           </div>
@@ -396,15 +434,19 @@ export default function App() {
 
   if (viewState === 'setup') {
     return (
-      <div className="min-h-screen bg-slate-50 p-8">
+      <div className="min-h-screen setup-bg p-6 md:p-8 view-transition">
         <OnboardingOverlay />
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-8">
-            <div className="inline-block p-3 rounded-full bg-blue-100 text-blue-600 text-2xl mb-4">🌍</div>
-            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight">Co-Creation Provenance Lab</h1>
-            <p className="text-lg text-slate-500 mt-2 max-w-2xl mx-auto">Advanced AI-driven visualization for collaborative decision making. Analyze inclusivity, consensus, and bias in real-time.</p>
+          <div className="text-center mb-8 animate-fadeIn">
+            <div className="logo-glow inline-block mb-5">
+              <img src="/logo.png" alt="Co-Creation Provenance Lab" className="h-20 w-20 mx-auto rounded-2xl animate-float" />
+            </div>
+            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight animate-fadeIn stagger-1">Co-Creation Provenance Lab</h1>
+            <p className="text-lg text-slate-500 mt-3 max-w-2xl mx-auto animate-fadeIn stagger-2">Advanced AI-driven visualization for collaborative decision making. Analyze inclusivity, consensus, and bias in real-time.</p>
           </div>
-          <ConfigPanel onRun={startAnalysis} />
+          <div className="animate-fadeIn stagger-3">
+            <ConfigPanel onRun={startAnalysis} />
+          </div>
         </div>
       </div>
     );
@@ -418,8 +460,8 @@ export default function App() {
     const isQuota = errorMsg.startsWith('[QUOTA]');
     const displayMsg = isQuota ? errorMsg.replace('[QUOTA] ', '') : errorMsg;
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full text-center border border-slate-200">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8 view-transition">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full text-center border border-slate-200 animate-scaleIn">
           {isQuota ? (
             <>
               <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🚫</div>
@@ -453,13 +495,43 @@ export default function App() {
     );
   }
 
+  // Helper: set tab and close sidebar on mobile
+  const switchTab = (tab: TabState) => {
+    setActiveTab(tab);
+    closeSidebar();
+  };
+
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 view-transition">
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="md:hidden fixed top-3 left-3 z-30 bg-slate-900/90 backdrop-blur text-white p-2.5 rounded-xl shadow-lg btn-hover"
+        aria-label="Toggle navigation"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {sidebarOpen
+            ? <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
+            : <><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>
+          }
+        </svg>
+      </button>
+
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/50 z-10 sidebar-overlay" onClick={closeSidebar} />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex-shrink-0 flex flex-col shadow-2xl z-20">
-        <div className="p-6 border-b border-slate-800">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl">🌍</span>
+      <aside className={`
+        fixed inset-y-0 left-0 z-20 w-72 bg-slate-900 text-slate-300 flex-shrink-0 flex flex-col shadow-2xl
+        transform transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:sticky md:top-0 md:h-screen md:translate-x-0 md:w-64
+      `}>
+        <div className="p-5 border-b border-slate-800">
+          <div className="flex items-center gap-2.5 mb-1">
+            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg flex-shrink-0" />
             <h1 className="text-white font-bold text-lg tracking-tight">Provenance Lab</h1>
           </div>
           <p className="text-xs text-slate-500 font-medium">
@@ -474,94 +546,113 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="p-4 space-y-2 flex-1">
-          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2">Visualizations</div>
-          <button onClick={() => setActiveTab('map')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'map' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+        <nav className="p-3 space-y-1 flex-1 overflow-y-auto sidebar-scroll">
+          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-1">Visualizations</div>
+          <button onClick={() => switchTab('map')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'map' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Map /> Discussion Map
           </button>
-          <button onClick={() => setActiveTab('blindspot')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'blindspot' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('blindspot')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'blindspot' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Eye /> Blind Spot Plot
           </button>
-          <button onClick={() => setActiveTab('similarity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'similarity' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('similarity')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'similarity' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Graph /> Similarity Network
           </button>
-          <button onClick={() => setActiveTab('flow')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'flow' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('knowledge')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'knowledge' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.Network /> Knowledge Graph
+            {isEnriching && !data?.knowledgeGraph && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
+          </button>
+          <button onClick={() => switchTab('flow')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'flow' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Flow /> Contribution Lineage
           </button>
-
-          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-4">Auditing</div>
-          <button onClick={() => setActiveTab('concepts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'concepts' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Icons.Tag /> Concept Fidelity
+          <button onClick={() => switchTab('sankey')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'sankey' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.Layers /> Provenance Flow
             {isEnriching && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
           </button>
-          <button onClick={() => setActiveTab('sensitivity')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'sensitivity' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+
+          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-3">Auditing</div>
+          <button onClick={() => switchTab('fidelity')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'fidelity' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.Flow /> Language Fidelity
+            {isEnriching && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
+          </button>
+          <button onClick={() => switchTab('claims')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'claims' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.CheckSquare /> Claim Attribution
+            {isEnriching && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
+          </button>
+          <button onClick={() => switchTab('tensions')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'tensions' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.Network /> Tension Mapping
+            {isEnriching && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />}
+          </button>
+          <button onClick={() => switchTab('rhetoric')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'rhetoric' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <Icons.User /> Rhetorical Influence
+          </button>
+          <button onClick={() => switchTab('sensitivity')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'sensitivity' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Zap /> Sensitivity (LOO)
           </button>
-          <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('stats')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'stats' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Bar /> Inclusion Metrics
           </button>
 
-          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-4">Advanced</div>
+          <div className="text-[10px] font-bold text-slate-500 uppercase px-4 mb-2 mt-3">Advanced</div>
           {data?.groupAnalysis && (
-            <button onClick={() => setActiveTab('groups')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'groups' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <button onClick={() => switchTab('groups')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'groups' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
               <Icons.Users /> Group Equity
             </button>
           )}
-          <button onClick={() => setActiveTab('uncertainty')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'uncertainty' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('uncertainty')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'uncertainty' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Icons.Activity /> Uncertainty
           </button>
           {data?.strategyComparison && data.strategyComparison.length > 0 && (
-            <button onClick={() => setActiveTab('strategies')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'strategies' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+            <button onClick={() => switchTab('strategies')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'strategies' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
               <Icons.Layers /> Compare Strategies
             </button>
           )}
-          <button onClick={() => setActiveTab('provenance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'provenance' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => switchTab('provenance')} className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'provenance' ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-400'}`}>
             📜 Citation Trail
           </button>
         </nav>
 
-        <div className="p-4 border-t border-slate-800 space-y-2">
-          <button onClick={() => { setIsDemo(false); setViewState('setup'); setRevisedData(null); setShowRevisionEditor(false); }} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-medium border border-slate-700 group">
+        <div className="p-3 border-t border-slate-800 space-y-1.5">
+          <button onClick={() => { setIsDemo(false); setViewState('setup'); setRevisedData(null); setShowRevisionEditor(false); closeSidebar(); }} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-medium border border-slate-700 group btn-hover">
             <Icons.Refresh /> <span className="group-hover:text-blue-200 transition-colors">New Analysis</span>
           </button>
           {data && (
             <button
               onClick={() => downloadReport(data)}
-              className="w-full bg-blue-800/50 hover:bg-blue-700 text-blue-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-blue-700/50"
+              className="w-full bg-blue-800/50 hover:bg-blue-700 text-blue-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-blue-700/50 btn-hover"
               title="Download a comprehensive HTML report for stakeholders"
             >
-              📊 Export Report (HTML)
+              📊 Export Report
             </button>
           )}
           {data && (
             <button
               onClick={() => downloadProvenanceCertificate(data)}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover"
               title="Download W3C PROV-O audit certificate (JSON-LD)"
             >
-              📜 Export Provenance (JSON-LD)
+              📜 Provenance (JSON-LD)
             </button>
           )}
           {data && (
             <button
               onClick={() => downloadVerificationPage(data)}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover"
               title="Download standalone HTML page for participant verification"
             >
-              ✅ Participant Verification
+              ✅ Verification Page
             </button>
           )}
           {data && (
             <button
               onClick={handleGenerateFacilitationPlan}
               disabled={isGeneratingPlan}
-              className="w-full bg-emerald-800/60 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-wait text-emerald-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-emerald-700/50"
+              className="w-full bg-emerald-800/60 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-wait text-emerald-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-emerald-700/50 btn-hover"
               title="Generate facilitation plan with follow-up questions and workshop exercises"
             >
               {isGeneratingPlan ? (
                 <>
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
-                  Generating…
+                  Generating...
                 </>
               ) : (
                 '🧭 Facilitation Co-Pilot'
@@ -569,15 +660,15 @@ export default function App() {
             </button>
           )}
           {data && !isDemo && (
-            <button onClick={exportDemoData} className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50">
-              Export as Demo Data
+            <button onClick={exportDemoData} className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover">
+              Export Demo Data
             </button>
           )}
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 relative">
+      <main className="flex-1 p-4 pt-14 md:pt-4 md:p-8 relative">
         {data && (
           <div className="max-w-7xl mx-auto space-y-6">
 
@@ -592,8 +683,8 @@ export default function App() {
                   </div>
                 </div>
                 <button
-                  onClick={() => { setIsDemo(false); setViewState('setup'); }}
-                  className="bg-white/20 hover:bg-white/30 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors whitespace-nowrap"
+                  onClick={() => { setIsDemo(false); setViewState('setup'); closeSidebar(); }}
+                  className="bg-white/20 hover:bg-white/30 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors whitespace-nowrap btn-hover"
                 >
                   Try Your Own Data
                 </button>
@@ -796,166 +887,226 @@ export default function App() {
               </div>
             </details>
 
-            {/* Bridging Suggestion Banner (New XAI Feature) */}
-            {data.bridgingOpportunities && data.bridgingOpportunities.length > 0 && (
-              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 mb-4 shadow-sm relative overflow-hidden group">
-                <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-white/50 to-transparent"></div>
-                <div className="flex items-start gap-4">
-                  <div className="bg-indigo-100 p-2 rounded-lg text-2xl">🌉</div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-indigo-900">Bridging Opportunities Detected</h3>
-                      <div className="text-[10px] bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">AI Suggestion</div>
-                    </div>
-                    <p className="text-sm text-indigo-700/80 mb-3 max-w-3xl">
-                      The system identified participants who raised <strong>unique concepts</strong> (high isolation) that were <strong>not included</strong> in the final summary (low representation).
-                    </p>
-
-                    <div className="grid grid-cols-1 gap-3">
-                      {data.bridgingOpportunities.map((op, i) => (
-                        <div key={i} className="bg-white/90 p-3 rounded border border-indigo-100 shadow-sm text-sm hover:bg-white transition-colors cursor-pointer flex flex-col gap-2" onClick={() => setSelectedParticipant(op.participantId)}>
-                          <div className="flex justify-between text-xs text-indigo-400 uppercase font-bold tracking-wider">
-                            <span>Participant {op.participantId}</span>
-                            <span>Facilitation Prompt</span>
-                          </div>
-                          <div className="italic text-slate-700 font-medium">
-                            {op.facilitationPrompt}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-              {/* Left Column (Viz) */}
-              <div className="xl:col-span-2 space-y-6">
+              {/* Left Column (Viz) — tab transitions via key remount */}
+              <div className="xl:col-span-2 space-y-6" key={activeTab}>
+              <VizErrorBoundary tabName={activeTab}>
+                <div className="tab-content">
 
-                {activeTab === 'map' && (
-                  <Card title="Semantic Space" subtitle="Spatial arrangement of contributions. Outliers indicate distinct perspectives." className="border-t-4 border-t-blue-500" expandable>
-                    <SemanticMap
-                      data={data.participants}
-                      clusters={data.clusters}
-                      selectedId={selectedParticipant}
-                      onSelect={setSelectedParticipant}
-                    />
-                  </Card>
-                )}
-
-
-                {activeTab === 'blindspot' && (
-                  <Card title="Blind Spot Analysis" subtitle="Identifying excluded voices by comparing Centrality vs. Representation." className="border-t-4 border-t-red-500" expandable>
-                    <BlindSpotPlot data={data.participants} onSelect={setSelectedParticipant} />
-                  </Card>
-                )}
-
-                {activeTab === 'similarity' && data.networkGraph && (
-                  <Card title="Participant Similarity Network" subtitle="Mutual k-NN graph — edges connect participants whose embeddings are mutually among each other's top-k nearest neighbors." className="border-t-4 border-t-violet-500" expandable>
-                    <div style={{ height: 600 }}>
-                      <SimilarityNetwork
-                        networkGraph={data.networkGraph}
+                  {activeTab === 'map' && (
+                    <Card title="Semantic Space" subtitle="Spatial arrangement of contributions. Outliers indicate distinct perspectives." className="border-t-4 border-t-blue-500" expandable>
+                      <SemanticMap
+                        data={data.participants}
                         clusters={data.clusters}
-                        onSelect={setSelectedParticipant}
                         selectedId={selectedParticipant}
+                        onSelect={setSelectedParticipant}
                       />
-                    </div>
-                  </Card>
-                )}
-
-                {activeTab === 'flow' && (
-                  <Card title="Contribution Lineage" subtitle="Traceability from raw input to summary sentences. Thicker lines indicate stronger semantic influence." className="border-t-4 border-t-blue-500" expandable>
-                    <ContributionLineage data={data.participants} sentences={data.summarySentences} />
-                  </Card>
-                )}
-
-                {activeTab === 'concepts' && (
-                  data.conceptAnalysis ? (
-                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500" expandable>
-                      <ConceptDistortion data={data.conceptAnalysis} />
                     </Card>
-                  ) : (
-                    <Card title="Concept Fidelity Analysis" subtitle="Lexical preservation: Which key concepts survived the summarization?" className="border-t-4 border-t-emerald-500">
-                      <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
-                        <svg className="animate-spin h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
-                        Running concept fidelity analysis in background…
+                  )}
+
+
+                  {activeTab === 'blindspot' && (
+                    <Card title="Blind Spot Analysis" subtitle="Identifying excluded voices by comparing Centrality vs. Representation." className="border-t-4 border-t-red-500" expandable>
+                      <BlindSpotPlot data={data.participants} onSelect={setSelectedParticipant} />
+                    </Card>
+                  )}
+
+                  {activeTab === 'similarity' && !data.networkGraph && (
+                    <Card title="Participant Similarity Network"><div className="flex items-center justify-center h-48 text-slate-400 text-sm">Network graph data not available.</div></Card>
+                  )}
+                  {activeTab === 'similarity' && data.networkGraph && (
+                    <Card title="Participant Similarity Network" subtitle="Mutual k-NN graph — edges connect participants whose embeddings are mutually among each other's top-k nearest neighbors." className="border-t-4 border-t-violet-500" expandable>
+                      <div style={{ height: 600 }}>
+                        <SimilarityNetwork
+                          networkGraph={data.networkGraph}
+                          clusters={data.clusters}
+                          onSelect={setSelectedParticipant}
+                          selectedId={selectedParticipant}
+                        />
                       </div>
                     </Card>
-                  )
-                )}
+                  )}
 
-                {activeTab === 'stats' && (
-                  <Card title="Equity Distribution Plot" subtitle="Sorted representation scores. A flat line indicates equal semantic coverage." className="border-t-4 border-t-blue-500" expandable>
-                    <RepresentationBar data={data.participants} />
-                  </Card>
-                )}
-
-                {activeTab === 'sensitivity' && (
-                  <Card title="Semantic Leverage (LOO)" subtitle="Which inputs pull the conversation's semantic center the most?" className="border-t-4 border-t-rose-500" expandable>
-                    {data.sensitivityAnalysis && data.sensitivityAnalysis.length > 0 ? (
-                      <SensitivityChart data={data.sensitivityAnalysis} />
+                  {activeTab === 'knowledge' && (
+                    data?.knowledgeGraph ? (
+                      <Card title="Knowledge Graph" subtitle="Entity-relationship graph constructed via GraphRAG pipeline — LLM-based extraction with community detection (Louvain modularity optimization)." className="border-t-4 border-t-indigo-500" expandable>
+                        <KnowledgeGraphViz
+                          knowledgeGraph={data.knowledgeGraph}
+                          clusters={data.clusters}
+                          onSelectParticipant={setSelectedParticipant}
+                        />
+                      </Card>
                     ) : (
-                      <div className="text-center py-10 text-slate-400">LOO Analysis was disabled in configuration.</div>
-                    )}
-                  </Card>
-                )}
+                      <Card title="Knowledge Graph" subtitle="Building knowledge graph from participant inputs..." className="border-t-4 border-t-indigo-500">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
+                          <svg className="animate-spin h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          {isEnriching ? 'Extracting entities and relationships via GraphRAG...' : 'Knowledge graph will be available after enrichment completes.'}
+                        </div>
+                      </Card>
+                    )
+                  )}
 
-                {activeTab === 'groups' && data.groupAnalysis && (
-                  <Card title="Stakeholder Group Equity" subtitle="Comparing representation across different stakeholder groups." className="border-t-4 border-t-indigo-500" expandable>
-                    <GroupEquityChart data={data.groupAnalysis} />
-                  </Card>
-                )}
+                  {activeTab === 'flow' && (
+                    <Card title="Contribution Lineage" subtitle="Traceability from raw input to summary sentences. Thicker lines indicate stronger semantic influence." className="border-t-4 border-t-blue-500" expandable>
+                      <ContributionLineage data={data.participants} sentences={data.summarySentences} />
+                    </Card>
+                  )}
 
-                {activeTab === 'uncertainty' && data.uncertaintyMetrics && (
-                  <Card title="Uncertainty Analysis" subtitle="Bootstrap confidence intervals for key metrics (95% CI)." className="border-t-4 border-t-purple-500" expandable>
-                    <UncertaintyViz data={data.uncertaintyMetrics} />
-                    {data.thresholdSensitivity && (
-                      <div className="mt-4 border-t pt-4">
-                        <div className="text-sm font-semibold text-slate-700 mb-2">Threshold Sensitivity</div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="bg-slate-50 rounded-lg p-3">
-                            <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Representation Threshold Impact</div>
-                            <ThresholdSensitivityMini
-                              data={data.thresholdSensitivity}
-                              currentThreshold={0.6}
-                              thresholdType="representation"
-                            />
-                            <ThresholdImpactBadges
-                              thresholds={{ representationTarget: 0.6, matchingThreshold: 0.45 }}
-                              representationScores={data.participants.map(p => p.representationScore)}
-                            />
-                          </div>
-                          <div className="bg-slate-50 rounded-lg p-3">
-                            <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Isolation Threshold Impact</div>
-                            <ThresholdSensitivityMini
-                              data={data.thresholdSensitivity}
-                              currentThreshold={0.5}
-                              thresholdType="isolation"
-                            />
+                  {activeTab === 'fidelity' && (
+                    data.languageFidelity ? (
+                      <Card title="Language Fidelity Analysis" subtitle="How raw participant language was transformed in the summary — preserved, softened, sanitized, abstracted, or dropped." className="border-t-4 border-t-orange-500" expandable>
+                        <LanguageFidelityViz data={data.languageFidelity} participants={data.participants} summarySentenceSentiments={data.summarySentenceSentiments} summarySentences={data.summarySentences} />
+                      </Card>
+                    ) : (
+                      <Card title="Language Fidelity Analysis" subtitle="Analyzing how participant language was transformed..." className="border-t-4 border-t-orange-500">
+                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+                          <svg className="animate-spin h-4 w-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Running language fidelity analysis in background...
+                        </div>
+                      </Card>
+                    )
+                  )}
+
+                  {activeTab === 'claims' && (
+                    data.claimAttribution ? (
+                      <Card title="Claim-Level Attribution" subtitle="Each summary claim traced to its source evidence. Unsupported or contradicted claims are flagged." className="border-t-4 border-t-indigo-500" expandable>
+                        <ClaimAttributionViz data={data.claimAttribution} summarySentences={data.summarySentences} />
+                      </Card>
+                    ) : (
+                      <Card title="Claim-Level Attribution" subtitle="Decomposing summary into atomic claims..." className="border-t-4 border-t-indigo-500">
+                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+                          <svg className="animate-spin h-4 w-4 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Running claim attribution analysis in background...
+                        </div>
+                      </Card>
+                    )
+                  )}
+
+                  {activeTab === 'tensions' && (
+                    data.tensionAnalysis ? (
+                      <Card title="Tension & Contradiction Mapping" subtitle="How disagreements between participants were handled in the summary — acknowledged, suppressed, merged, or distorted." className="border-t-4 border-t-red-500" expandable>
+                        <TensionNetworkViz data={data.tensionAnalysis} clusters={data.clusters} />
+                      </Card>
+                    ) : (
+                      <Card title="Tension & Contradiction Mapping" subtitle="Identifying disagreements across participants..." className="border-t-4 border-t-red-500">
+                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+                          <svg className="animate-spin h-4 w-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Running tension analysis in background...
+                        </div>
+                      </Card>
+                    )
+                  )}
+
+                  {activeTab === 'rhetoric' && !data.rhetoricalBias && (
+                    <Card title="Rhetorical Influence Analysis"><div className="flex items-center justify-center h-48 text-slate-400 text-sm">Rhetorical analysis data not available.</div></Card>
+                  )}
+                  {activeTab === 'rhetoric' && data.rhetoricalBias && (
+                    <Card title="Rhetorical Influence Analysis" subtitle="Does communication style (assertive vs hedged, formal vs colloquial) correlate with representation? A positive correlation suggests the summarizer favors certain speaking styles." className="border-t-4 border-t-amber-500" expandable>
+                      <RhetoricalInfluenceViz data={data.rhetoricalBias} onSelectParticipant={(id) => setSelectedParticipant(id)} />
+                    </Card>
+                  )}
+
+                  {activeTab === 'sankey' && (
+                    data.sankeyData ? (
+                      <Card title="Provenance Flow" subtitle="How information flows from participant inputs through semantic themes into summary sentences. Dropped themes and unsourced sentences are highlighted." className="border-t-4 border-t-teal-500" expandable>
+                        <ProvenanceSankeyViz data={data.sankeyData} />
+                      </Card>
+                    ) : (
+                      <Card title="Provenance Flow" subtitle="Building provenance flow diagram..." className="border-t-4 border-t-teal-500">
+                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+                          <svg className="animate-spin h-4 w-4 text-teal-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Building provenance flow in background...
+                        </div>
+                      </Card>
+                    )
+                  )}
+
+                  {activeTab === 'stats' && (
+                    <Card title="Equity Distribution Plot" subtitle="Sorted representation scores. A flat line indicates equal semantic coverage." className="border-t-4 border-t-blue-500" expandable>
+                      <RepresentationBar data={data.participants} />
+                    </Card>
+                  )}
+
+                  {activeTab === 'sensitivity' && (
+                    <Card title="Semantic Leverage (LOO)" subtitle="Which inputs pull the conversation's semantic center the most?" className="border-t-4 border-t-rose-500" expandable>
+                      {data.sensitivityAnalysis && data.sensitivityAnalysis.length > 0 ? (
+                        <SensitivityChart data={data.sensitivityAnalysis} />
+                      ) : (
+                        <div className="text-center py-10 text-slate-400">LOO Analysis was disabled in configuration.</div>
+                      )}
+                    </Card>
+                  )}
+
+                  {activeTab === 'groups' && data.groupAnalysis && (
+                    <Card title="Stakeholder Group Equity" subtitle="Comparing representation across different stakeholder groups." className="border-t-4 border-t-indigo-500" expandable>
+                      <GroupEquityChart data={data.groupAnalysis} />
+                    </Card>
+                  )}
+
+                  {activeTab === 'uncertainty' && data.uncertaintyMetrics && (
+                    <Card title="Uncertainty Analysis" subtitle="Bootstrap confidence intervals for key metrics (95% CI)." className="border-t-4 border-t-purple-500" expandable>
+                      <UncertaintyViz data={data.uncertaintyMetrics} />
+                      {data.thresholdSensitivity && (
+                        <div className="mt-4 border-t pt-4">
+                          <div className="text-sm font-semibold text-slate-700 mb-2">Threshold Sensitivity <InfoIcon metricKey="thresholdSensitivity" /></div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="bg-slate-50 rounded-lg p-3">
+                              <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Representation Threshold Impact <InfoIcon metricKey="representation" /></div>
+                              <ThresholdSensitivityMini
+                                data={data.thresholdSensitivity}
+                                currentThreshold={0.6}
+                                thresholdType="representation"
+                              />
+                              <ThresholdImpactBadges
+                                thresholds={{ representationTarget: 0.6, matchingThreshold: 0.45 }}
+                                representationScores={data.participants.map(p => p.representationScore)}
+                              />
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-3">
+                              <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Isolation Threshold Impact <InfoIcon metricKey="isolation" /></div>
+                              <ThresholdSensitivityMini
+                                data={data.thresholdSensitivity}
+                                currentThreshold={0.5}
+                                thresholdType="isolation"
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </Card>
-                )}
+                      )}
+                    </Card>
+                  )}
 
-                {activeTab === 'strategies' && data.strategyComparison && (
-                  <StrategyComparison
-                    comparisons={data.strategyComparison}
-                    currentStrategy={data.config.strategy}
-                  />
-                )}
+                  {activeTab === 'strategies' && data.strategyComparison && (
+                    <StrategyComparison
+                      comparisons={data.strategyComparison}
+                      currentStrategy={data.config.strategy}
+                    />
+                  )}
 
-                {activeTab === 'provenance' && (
-                  <Card title="Citation Provenance Trail" subtitle="For each summary sentence, which participant voices shaped it — and which were silent." className="border-t-4 border-t-indigo-500" expandable>
-                    <ProvenanceTrail data={data} onSelectParticipant={setSelectedParticipant} />
-                  </Card>
-                )}
+                  {activeTab === 'provenance' && (
+                    <Card title="Citation Provenance Trail" subtitle="For each summary sentence, which participant voices shaped it — and which were silent." className="border-t-4 border-t-indigo-500" expandable>
+                      <ProvenanceTrail data={data} onSelectParticipant={setSelectedParticipant} />
+                    </Card>
+                  )}
+                </div>{/* /tab-content */}
+                </VizErrorBoundary>
 
                 <Card title="Summary" subtitle={`Model: ${data.config.model} | Method: ${data.config.summaryMethod}`} className="bg-white border border-slate-200 shadow-sm">
                   <div className="prose prose-slate max-w-none p-2">
@@ -1066,7 +1217,7 @@ export default function App() {
                               <div className="mt-4">
                                 <div className="text-xs font-bold text-slate-400 uppercase mb-2">Primary Summary Link</div>
                                 <div className="text-xs text-slate-600 bg-amber-50 p-3 rounded border border-amber-100">
-                                  "{data.summarySentences[p.topSentenceMatchIndex]}"
+                                  "{p.topSentenceMatchIndex < data.summarySentences.length ? data.summarySentences[p.topSentenceMatchIndex] : 'N/A'}"
                                 </div>
                               </div>
 
@@ -1137,7 +1288,7 @@ export default function App() {
                             <div
                               key={p.id}
                               onClick={() => setSelectedParticipant(p.id)}
-                              className="group p-3 mb-2 bg-white border border-slate-100 rounded-lg cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all"
+                              className="group p-3 mb-2 bg-white border border-slate-100 rounded-lg cursor-pointer hover:border-blue-400 participant-item"
                             >
                               <div className="flex items-center gap-3 mb-1">
                                 <div className={`w-2 h-6 rounded-full flex-shrink-0 ${p.representationScore < 0.4 ? 'bg-red-400' : p.representationScore < 0.7 ? 'bg-orange-400' : 'bg-green-400'}`}></div>
@@ -1165,14 +1316,14 @@ export default function App() {
         )}
       </main>
 
-      {/* Phase 2 enrichment status bar — shown while concept fidelity runs in background */}
+      {/* Phase 2 enrichment status bar */}
       {isEnriching && (
-        <div className="fixed bottom-0 left-0 right-0 bg-indigo-50 border-t border-indigo-200 px-4 py-1.5 text-xs text-indigo-700 flex items-center gap-2 z-40">
+        <div className="fixed bottom-0 left-0 right-0 bg-indigo-50/95 backdrop-blur-sm border-t border-indigo-200 px-4 py-2 text-xs text-indigo-700 flex items-center gap-2 z-40 enrichment-bar">
           <svg className="animate-spin h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <span>{enrichProgressMsg || 'Running concept fidelity analysis in background…'}</span>
+          <span>{enrichProgressMsg || 'Running deep analysis in background (fidelity, claims, tensions)...'}</span>
         </div>
       )}
     </div>

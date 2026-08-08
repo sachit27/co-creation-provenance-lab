@@ -118,22 +118,10 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
       return b.participants.length - a.participants.length;
     });
 
-    // Generate suggested additions
-    const suggestedAdditions: string[] = [];
-    missedGroups.forEach(group => {
-      if (group.keywords.length > 0) {
-        const keywordStr = group.keywords.slice(0, 3).join(', ');
-        suggestedAdditions.push(
-          `Consider adding perspectives on: ${keywordStr}`
-        );
-      }
-    });
-
     return {
       totalMissed: underrepresented.length,
       atRiskCount: atRiskParticipants.length,
       missedGroups,
-      suggestedAdditions,
       atRiskParticipants
     };
   }, [participants, clusters]);
@@ -250,28 +238,6 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
         ))}
       </div>
 
-      {/* Suggestions */}
-      {analysis.suggestedAdditions.length > 0 && (
-        <div className="px-6 py-4 bg-blue-50 border-t border-blue-100">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-sm">💡</span>
-            </div>
-            <div>
-              <div className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-1">
-                Suggested Additions to Summary
-              </div>
-              <ul className="space-y-1">
-                {analysis.suggestedAdditions.slice(0, 3).map((suggestion, i) => (
-                  <li key={i} className="text-sm text-blue-800">
-                    • {suggestion}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

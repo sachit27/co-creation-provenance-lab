@@ -40,10 +40,11 @@ export const checkClaudeConnection = (): boolean => !!getClaudeApiKey();
 // ── Available models ──────────────────────────────────────────────────────────
 
 export const CLAUDE_MODELS = [
-    'claude-3-5-sonnet-20241022',  // Best quality
-    'claude-3-5-haiku-20241022',   // Fastest, cheapest
-    'claude-3-opus-20240229',      // Most powerful (legacy)
-    'claude-3-haiku-20240307',     // Fast (legacy)
+    'claude-sonnet-4-6',            // Latest, best quality/speed balance
+    'claude-opus-4-6',              // Most powerful
+    'claude-haiku-4-5-20251001',    // Fastest, cheapest
+    'claude-3-5-sonnet-20241022',   // Previous generation
+    'claude-3-5-haiku-20241022',    // Previous generation (fast)
 ];
 
 // ── Chat completion ───────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ export const generateClaudeCompletion = async (
             model,
             system: systemInstruction,
             messages: [{ role: 'user', content: prompt }],
-            max_tokens: 1024,
+            max_tokens: 4096,
             temperature: 0.5,
         }),
     });

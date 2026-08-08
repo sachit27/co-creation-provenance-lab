@@ -1,0 +1,221 @@
+import React, { useState, useMemo } from 'react';
+import { TensionAnalysis, TensionHandling, ClusterData } from '../../types';
+import { InfoIcon } from '../ui/MetricGlossary';
+
+interface Props {
+  data: TensionAnalysis;
+  clusters: ClusterData[];
+}
+
+const HANDLING_CONFIG: Record<TensionHandling, { label: string; color: string; bg: string; icon: string; description: string }> = {
+  acknowledged: { label: 'Acknowledged', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Summary presents both sides' },
+  suppressed: { label: 'Suppressed', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'One side dropped entirely' },
+  merged: { label: 'Merged', color: '#d97706', bg: '#fef3c7', icon: '\u21C4', description: 'False consensus created by averaging' },
+  distorted: { label: 'Distorted', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'Disagreement mischaracterized' },
+};
+
+const HANDLINGS: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'distorted'];
+
+export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
+  const [selectedPair, setSelectedPair] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'pairs' | 'clusters'>('pairs');
+
+  const total = data.pairs.length || 1;
+
+  // Overall bar
+  const OverallBar = () => (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-semibold text-slate-700">Tension Fidelity <InfoIcon metricKey="tensions" /></div>
+        <div className="text-sm font-bold" style={{ color: data.tensionFidelityScore >= 0.5 ? '#059669' : data.tensionFidelityScore >= 0.25 ? '#d97706' : '#dc2626' }}>
+          {(data.tensionFidelityScore * 100).toFixed(0)}% acknowledged
+        </div>
+      </div>
+      <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
+        {HANDLINGS.map(h => {
+          const count = h === 'acknowledged' ? data.acknowledgedCount
+            : h === 'suppressed' ? data.suppressedCount
+            : h === 'merged' ? data.mergedCount : data.distortedCount;
+          if (count === 0) return null;
+          const pct = (count / total) * 100;
+          return (
+            <div key={h}
+              title={`${HANDLING_CONFIG[h].label}: ${count} (${pct.toFixed(0)}%)`}
+              className="flex items-center justify-center text-[10px] font-bold transition-all hover:opacity-80"
+              style={{ width: `${pct}%`, backgroundColor: HANDLING_CONFIG[h].bg, color: HANDLING_CONFIG[h].color, minWidth: pct > 3 ? undefined : '2px' }}
+            >
+              {pct >= 12 ? `${pct.toFixed(0)}%` : ''}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-3 mt-2">
+        {HANDLINGS.map(h => {
+          const count = h === 'acknowledged' ? data.acknowledgedCount
+            : h === 'suppressed' ? data.suppressedCount
+            : h === 'merged' ? data.mergedCount : data.distortedCount;
+          if (count === 0) return null;
+          return (
+            <div key={h} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: HANDLING_CONFIG[h].color }} />
+              {HANDLING_CONFIG[h].label} ({count})
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Cluster-level aggregation view
+  const ClusterView = () => {
+    if (data.clusterTensions.length === 0) {
+      return <div className="text-sm text-slate-400 text-center py-8">No inter-cluster tensions detected.</div>;
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-slate-700">Inter-Cluster Tensions</div>
+        {data.clusterTensions.map((ct, i) => {
+          const clusterA = clusters.find(c => c.id === ct.clusterA);
+          const clusterB = clusters.find(c => c.id === ct.clusterB);
+          const cfg = HANDLING_CONFIG[ct.dominantHandling];
+          return (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
+              <div className="flex items-center gap-2 flex-1">
+                <span className="px-2 py-0.5 rounded text-xs font-bold text-white" style={{ backgroundColor: clusterA?.color || '#64748b' }}>
+                  {clusterA?.label || `Cluster ${ct.clusterA}`}
+                </span>
+                <svg width="24" height="16" viewBox="0 0 24 16" className="flex-shrink-0">
+                  <line x1="0" y1="8" x2="24" y2="8" stroke={cfg.color} strokeWidth="2" />
+                  <line x1="0" y1="4" x2="0" y2="12" stroke={cfg.color} strokeWidth="2" />
+                  <line x1="24" y1="4" x2="24" y2="12" stroke={cfg.color} strokeWidth="2" />
+                </svg>
+                <span className="px-2 py-0.5 rounded text-xs font-bold text-white" style={{ backgroundColor: clusterB?.color || '#64748b' }}>
+                  {clusterB?.label || `Cluster ${ct.clusterB}`}
+                </span>
+              </div>
+              <span className="text-xs font-medium text-slate-500">{ct.tensionCount} tension{ct.tensionCount !== 1 ? 's' : ''}</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: cfg.bg, color: cfg.color }}>
+                {cfg.icon} {cfg.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Individual tension pairs view
+  const PairsView = () => (
+    <div className="space-y-3">
+      <div className="text-sm font-semibold text-slate-700">Detected Tensions ({data.pairs.length})</div>
+      {data.pairs.map((pair, i) => {
+        const isSelected = selectedPair === i;
+        const cfg = HANDLING_CONFIG[pair.summaryHandling];
+        const clusterA = clusters.find(c => c.id === pair.claimA.clusterId);
+        const clusterB = clusters.find(c => c.id === pair.claimB.clusterId);
+
+        return (
+          <div key={i} className="border border-slate-200 rounded-lg overflow-hidden hover:border-slate-300 transition-colors">
+            <button
+              onClick={() => setSelectedPair(isSelected ? null : i)}
+              className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5"
+                  style={{ backgroundColor: cfg.bg, color: cfg.color }}>
+                  {cfg.icon} {cfg.label}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                    {pair.tensionDescription}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    {clusterA && <span className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium" style={{ backgroundColor: clusterA.color }}>{clusterA.label}</span>}
+                    <span className="text-[10px] text-slate-400">vs</span>
+                    {clusterB && <span className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium" style={{ backgroundColor: clusterB.color }}>{clusterB.label}</span>}
+                  </div>
+                </div>
+                <span className="text-slate-400 text-sm flex-shrink-0">{isSelected ? '-' : '+'}</span>
+              </div>
+            </button>
+
+            {isSelected && (
+              <div className="border-t border-slate-100 bg-slate-50/50 p-4 space-y-3">
+                {/* Side A */}
+                <div className="p-3 rounded-lg border-l-4" style={{ borderColor: clusterA?.color || '#64748b', backgroundColor: '#f8fafc' }}>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Position A — {pair.claimA.participantId}</div>
+                  <p className="text-sm text-slate-700 italic">"{pair.claimA.text}"</p>
+                </div>
+
+                {/* Side B */}
+                <div className="p-3 rounded-lg border-l-4" style={{ borderColor: clusterB?.color || '#64748b', backgroundColor: '#f8fafc' }}>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Position B — {pair.claimB.participantId}</div>
+                  <p className="text-sm text-slate-700 italic">"{pair.claimB.text}"</p>
+                </div>
+
+                {/* Summary handling */}
+                <div className="p-3 rounded-lg border" style={{ borderColor: cfg.color + '40', backgroundColor: cfg.bg + '40' }}>
+                  <div className="text-[10px] font-bold uppercase mb-1" style={{ color: cfg.color }}>
+                    Summary handling: {cfg.label}
+                  </div>
+                  {pair.summaryEvidence ? (
+                    <p className="text-sm text-slate-700 italic">"{pair.summaryEvidence}"</p>
+                  ) : (
+                    <p className="text-sm text-slate-400 italic">No evidence of this tension in the summary.</p>
+                  )}
+                  <p className="text-[10px] text-slate-500 mt-1">{cfg.description}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {data.pairs.length === 0 && (
+        <div className="text-sm text-slate-400 text-center py-8">
+          No significant tensions or contradictions detected between participant positions.
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <OverallBar />
+
+      {/* Legend */}
+      <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">How Summary Handles Disagreements</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {HANDLINGS.map(h => (
+            <div key={h} className="flex items-start gap-1.5">
+              <span className="w-2 h-2 rounded-sm mt-1 flex-shrink-0" style={{ backgroundColor: HANDLING_CONFIG[h].color }} />
+              <div>
+                <div className="text-[11px] font-semibold" style={{ color: HANDLING_CONFIG[h].color }}>{HANDLING_CONFIG[h].label}</div>
+                <div className="text-[10px] text-slate-500 leading-tight">{HANDLING_CONFIG[h].description}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* View toggle */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setViewMode('pairs')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${viewMode === 'pairs' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+        >
+          Individual Pairs ({data.pairs.length})
+        </button>
+        <button
+          onClick={() => setViewMode('clusters')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${viewMode === 'clusters' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+        >
+          Cluster Summary ({data.clusterTensions.length})
+        </button>
+      </div>
+
+      {viewMode === 'pairs' ? <PairsView /> : <ClusterView />}
+    </div>
+  );
+};

@@ -25,3 +25,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+
+# Environment files
+.env
+*.env
+.env.local
+
+# Large datasets & raw data
+canadian_data/
+canadian_data.zip
+*.zip
+
+# Papers, drafts, and LaTeX sources
+*.pdf
+paper_acm/
+acl-style-files-master/
+
+# Internal archives & backups
+_archive_superseded/
+_backup_snapshots/
+

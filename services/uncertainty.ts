@@ -1,18 +1,18 @@
 import { UncertaintyMetrics, ParticipantAnalysis } from '../types';
-import { calculateGini } from './mathUtils';
+import { calculateGini, SeededRNG } from './mathUtils';
 
 /**
  * Uncertainty Quantification Service
  * Uses bootstrap resampling to compute confidence intervals for key metrics
  */
 
-// Bootstrap resampling: randomly sample with replacement
-const bootstrapSample = <T>(data: T[]): T[] => {
+// Bootstrap resampling: randomly sample with replacement (seeded PRNG)
+const bootstrapSample = <T>(data: T[], rng: SeededRNG): T[] => {
   const n = data.length;
   const sample: T[] = [];
 
   for (let i = 0; i < n; i++) {
-    const randomIndex = Math.floor(Math.random() * n);
+    const randomIndex = Math.floor(rng.next() * n);
     sample.push(data[randomIndex]);
   }
 
@@ -105,7 +105,7 @@ const computeGap = (participants: ParticipantAnalysis[]): number => {
  */
 export const computeUncertaintyMetrics = (
   participants: ParticipantAnalysis[],
-  numSamples: number = 100,
+  numSamples: number = 1000,
   confidenceLevel: number = 0.95
 ): UncertaintyMetrics => {
   if (participants.length < 3) {
@@ -127,9 +127,16 @@ export const computeUncertaintyMetrics = (
   const avgRepSamples: number[] = [];
   const gapSamples: number[] = [];
 
+  // Seed from participant data for reproducibility
+  let seed = participants.length * 31;
+  for (let i = 0; i < Math.min(participants.length, 8); i++) {
+    seed = (seed * 31 + ((participants[i].representationScore * 1e6) | 0)) | 0;
+  }
+  const rng = new SeededRNG(seed);
+
   // Run bootstrap sampling
   for (let i = 0; i < numSamples; i++) {
-    const sample = bootstrapSample(participants);
+    const sample = bootstrapSample(participants, rng);
     const scores = sample.map(p => p.representationScore);
 
     giniSamples.push(computeGiniFromScores(scores));
@@ -153,12 +160,20 @@ export const formatCI = (ci: { lower: number; upper: number; point: number }): s
 };
 
 /**
- * Check if confidence interval is wide (high uncertainty)
+ * Check if confidence interval is wide (high uncertainty).
+ *
+ * Uses ABSOLUTE width threshold rather than relative (width/point).
+ * Relative thresholds are misleading for bounded [0,1] metrics:
+ *   - For Gini = 0.15 (typical), relative 20% = 0.03 width (flags too easily)
+ *   - For Gini = 0.50, relative 20% = 0.10 (appropriate)
+ *
+ * Absolute threshold of 0.10 means: the metric could shift by ±5% points
+ * if different participants were sampled. This is calibrated to the [0,1] scale
+ * of representation scores, Gini, and equity gap.
  */
 export const isHighUncertainty = (ci: { lower: number; upper: number; point: number }): boolean => {
   const width = ci.upper - ci.lower;
-  // Consider high uncertainty if CI width is > 20% of the point estimate
-  return ci.point > 0 && (width / ci.point) > 0.2;
+  return width > 0.10;
 };
 
 /**

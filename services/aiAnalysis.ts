@@ -76,8 +76,9 @@ export const analyzeSentimentNLP = (text: string): { score: number; label: 'posi
         quite: 1.1, somewhat: 0.8, slightly: 0.7, too: 1.2, much: 1.1
     };
 
+    const NEGATION_WINDOW = 3; // flip sign for sentiment words within N tokens of a negator
     let totalScore = 0;
-    let isNegated = false;
+    let negationCountdown = 0;
     let intensifier = 1.0;
 
     for (let i = 0; i < words.length; i++) {
@@ -85,7 +86,7 @@ export const analyzeSentimentNLP = (text: string): { score: number; label: 'posi
 
         // Check for negation
         if (negations.has(word)) {
-            isNegated = true;
+            negationCountdown = NEGATION_WINDOW;
             continue;
         }
 
@@ -98,12 +99,13 @@ export const analyzeSentimentNLP = (text: string): { score: number; label: 'posi
         // Check sentiment
         if (lexicon[word]) {
             let wordScore = lexicon[word] * intensifier;
-            if (isNegated) wordScore *= -0.74; // VADER's negation scalar
+            if (negationCountdown > 0) wordScore *= -0.74; // VADER's negation scalar
             totalScore += wordScore;
+            negationCountdown = 0; // reset after applying to a sentiment word
         }
 
-        // Reset after applying
-        isNegated = false;
+        // Decrement negation window for non-sentiment words
+        if (negationCountdown > 0) negationCountdown--;
         intensifier = 1.0;
     }
 

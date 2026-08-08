@@ -6,7 +6,7 @@ interface ProcessingStateProps {
 
 export const ProcessingState: React.FC<ProcessingStateProps> = ({ message }) => {
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden view-transition">
       {/* Background decoration */}
       <div className="absolute top-0 left-0 w-full h-full opacity-10">
         <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500 rounded-full blur-[100px] animate-pulse"></div>
@@ -18,7 +18,7 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({ message }) => 
             <div className="w-20 h-20 border-t-2 border-r-2 border-b-2 border-blue-400 rounded-full animate-spin"></div>
             <div className="absolute top-0 left-0 w-20 h-20 border-t-2 border-blue-600 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
             <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-2xl">🧠</span>
+                <img src="/logo.png" alt="" className="h-10 w-10 rounded-lg" />
             </div>
         </div>
         

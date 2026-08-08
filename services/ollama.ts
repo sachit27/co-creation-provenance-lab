@@ -120,7 +120,7 @@ export const generateOllamaCompletion = async (
         system: systemInstruction,
         stream: false,
         options: {
-          temperature: 0.7,
+          temperature: 0.5,
           top_p: 0.9,
         }
       })

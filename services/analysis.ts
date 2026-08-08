@@ -1,4 +1,4 @@
-import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, SensitivityResult, BridgingSuggestion, ConceptFidelityResult, SentenceMatch, StrategyComparisonResult, NetworkGraph } from '../types';
+import { AnalysisResult, ParticipantInput, ParticipantAnalysis, AnalysisConfig, SensitivityResult, BridgingSuggestion, SentenceMatch, StrategyComparisonResult, NetworkGraph, LanguageFidelity, SentenceFidelity, PhraseMapping, TransformationType, EpistemicClass } from '../types';
 import { checkAIConnection, generateEmbedding as generateGeminiEmbedding } from './gemini';
 import { checkOllamaConnection, generateOllamaEmbedding } from './ollama';
 import { checkGroqConnection } from './groq';
@@ -6,12 +6,12 @@ import { checkOpenAIConnection, generateOpenAIEmbedding } from './openai';
 import { checkClaudeConnection } from './claude';
 import { checkApertusConnection } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
-import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN } from './mathUtils';
+import { cosineSimilarity, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN, analyzeNetworkGraph } from './mathUtils';
 // Note: analyzeSentimentAI has built-in 3-tier fallback (AI → HuggingFace → NLP)
 // so we always use it regardless of AI connection status
-import { analyzeSentimentAI, analyzeConceptGapAI, extractKeywordsAI, analyzeSentimentNLP } from './aiAnalysis';
+import { analyzeSentimentAI, analyzeSentimentNLP } from './aiAnalysis';
 import { LocalVectorizer } from './vectorizer';
-import { analyzeConceptGap, computeConceptFidelity, computeConceptOverlapScore, extractKeywords } from './textUtils';
+import { computeConceptOverlapScore, extractKeywords } from './textUtils';
 import { computeUncertaintyMetrics } from './uncertainty';
 import { analyzeGroups } from './groupAnalysis';
 import { checkHuggingFaceAvailable, analyzeSentimentBatchHF } from './huggingface';
@@ -21,11 +21,16 @@ import { ANALYSIS_CONFIG } from '../constants';
 import { getCachedEmbedding, setCachedEmbedding, prewarmCache, getCachedEmbeddingAsync } from './embeddingCache';
 import { detectLanguage, analyzeLanguageEquity } from './languageDetection';
 import { generateCompletion } from './completionRouter';
+import { scoreRhetoricalMarkers, analyzeRhetoricalBias, scoreRhetoricalWithLLM, mergeRhetoricalProfiles } from './rhetoricalAnalysis';
+import { performClaimAttribution } from './claimAttribution';
+import { performTensionAnalysis } from './tensionAnalysis';
+import { buildSankeyData } from './sankeyBuilder';
+import { buildKnowledgeGraph } from './graphRAG';
 
 // --- Prompt Engineering ---
 
 const getSystemPrompt = (strategy: string): string => {
-  const base = "You are an expert AI facilitator for a collaborative decision-making process. Your goal is to synthesize participant inputs into a concise, actionable summary.";
+  const base = "You are an expert AI facilitator for a collaborative decision-making process. Your goal is to synthesize participant inputs into a concise, actionable summary.\n\nCRITICAL INSTRUCTION: Output ONLY plain text paragraphs. Do NOT use markdown formatting, bolding (**), italics, bullet points, or section headings.";
   switch (strategy) {
     case 'diversity': return `${base} \n\nCRITICAL INSTRUCTION: Prioritize DIVERSITY. Explicitly mention minority viewpoints, outliers, and unique perspectives.`;
     case 'consensus': return `${base} \n\nCRITICAL INSTRUCTION: Prioritize CONSENSUS. Identify shared goals and agreements. Minimize minor disagreements.`;
@@ -41,7 +46,9 @@ const formatInputsForPrompt = (inputs: ParticipantInput[]): string => {
 
 // Embedding priority: BGE-M3 (best quality) → provider-specific → local TF-IDF
 // BGE-M3 is used for embeddings regardless of which provider handles text generation
-let bgeM3Available: boolean | null = null;
+// Note: bgeM3Available is checked per-call via checkBgeM3Connection() rather than
+// stored in module-level state, to avoid race conditions when multiple analyses run
+// concurrently (e.g., multi-question mode).
 
 /**
  * Route an embedding call to the correct provider based on config.embeddingProvider.
@@ -106,16 +113,26 @@ const batchAnalyzeSentiment = async (
 
         const prompt = `You are analyzing participant responses from a co-creation or deliberative research session.
 Participants are sharing their opinions and experiences about a social/policy/education topic.
-Sentiment here means their overall ATTITUDE (positive = supportive/optimistic, negative = critical/concerned, neutral = balanced/descriptive).
-Do NOT penalize factual or academic language — "accelerates", "enables", "supports", "fosters" are POSITIVE.
-Terms like "barrier", "concern", "risk" are NEGATIVE only if the participant is directly expressing concern — not if they say these things are PREVENTED or OVERCOME.
 
-Analyze the sentiment of each numbered participant response below.
+Sentiment means overall ATTITUDE toward the topic:
+- POSITIVE: supportive, optimistic, constructive, advocating FOR something (even urgently)
+- NEGATIVE: opposed, pessimistic, frustrated, raising complaints or fears
+- NEUTRAL: balanced, purely descriptive, no clear valence
+
+IMPORTANT disambiguation rules:
+- "critical" meaning "essential/important" (e.g. "X is critical for Y") → POSITIVE, not negative
+- "critical" meaning "disapproving" (e.g. "I am critical of X") → NEGATIVE
+- Advocating for reforms, improvements, or solutions → POSITIVE (constructive intent)
+- Identifying problems without proposing solutions → NEGATIVE or NEUTRAL depending on tone
+- Academic/policy language ("accelerates", "enables", "fosters", "reforms", "essential") → typically POSITIVE
+- "barrier", "concern", "risk" → NEGATIVE only if the speaker expresses worry; POSITIVE if they say these are OVERCOME
+
+Analyze each numbered response:
 
 RESPONSES:
 ${numberedInputs}
 
-Return a JSON array (one entry per input, in the same order, index 0 = first response):
+Return a JSON array (one entry per input, same order, index 0 = first):
 [{"score": <-1.0 to 1.0>, "label": "<positive|negative|neutral>"}, ...]
 
 Rules:
@@ -199,206 +216,7 @@ Rules:
   return results as SentimentResult[];
 };
 
-// --- Concept Fidelity (AI & Manual) ---
-const performConceptFidelityAnalysis = async (
-  inputs: string[],
-  summary: string,
-  config: AnalysisConfig,
-  isConnected: boolean,
-  onProgress?: (msg: string) => void
-): Promise<ConceptFidelityResult> => {
 
-  // Always use Tiered Analysis (AI -> HF -> NLP)
-  onProgress?.("Running concept fidelity analysis...");
-  const summaryConcepts = await extractKeywordsAI(summary, config, 20);
-
-  const participantMap: Record<string, { kept: string[], dropped: string[] }> = {};
-  const allExampleConcepts = new Set<string>();
-  let totalConcepts = 0;
-  let retainedCount = 0;
-
-  // ── Batched concept gap analysis ──────────────────────────────────────────
-  // Instead of 1 AI call per participant (N calls = slow + expensive), we batch
-  // multiple participants into a single AI call. For 30 inputs with CHUNK_SIZE=15
-  // that's only 2 API round-trips instead of 30, while preserving semantic
-  // accuracy. Any participant that fails JSON parsing falls back to local NLP.
-  const AI_CHUNK_SIZE = 15; // Max participants per AI call (keeps prompt under context window)
-
-  if (isConnected && config.summaryMethod === 'ai') {
-    for (let i = 0; i < inputs.length; i += AI_CHUNK_SIZE) {
-      const chunk = inputs.slice(i, i + AI_CHUNK_SIZE);
-      onProgress?.(`Analyzing concepts (batch ${Math.floor(i / AI_CHUNK_SIZE) + 1}/${Math.ceil(inputs.length / AI_CHUNK_SIZE)})...`);
-
-      try {
-        const numberedInputs = chunk.map((text, idx) => `[${idx}] "${text.slice(0, 300)}"`).join('\n');
-        const prompt = `Compare the key concepts in each numbered INPUT to those in the SUMMARY.
-Return MEANINGFUL multi-word concept phrases (e.g. "regulatory compliance", "data privacy", "public consultation").
-NEVER return single generic words like "people", "more", "dont", "cant", "real", "show", "focus".
-Each concept should be a substantive topic that a policy-maker or researcher could act on.
-
-SUMMARY: "${summary.slice(0, 1500)}"
-
-INPUTS:
-${numberedInputs}
-
-For EACH input, identify which substantive concepts are kept in the SUMMARY and which are dropped.
-Respond with ONLY a JSON array where index matches input number:
-[{"kept": ["concept phrase 1", ...], "dropped": ["concept phrase 1", ...]}, ...]`;
-
-        const response = await generateCompletion(prompt, 'You are a concept analysis expert. Respond only with a valid JSON array.', config);
-        const match = response.match(/\[[\s\S]*\]/);
-        if (match) {
-          const parsed = JSON.parse(match[0]) as { kept: string[], dropped: string[] }[];
-          for (let j = 0; j < chunk.length; j++) {
-            const actualIdx = i + j;
-            if (parsed[j]?.kept && parsed[j]?.dropped) {
-              participantMap[actualIdx] = {
-                kept: parsed[j].kept.map((k: string) => String(k).toLowerCase()),
-                dropped: parsed[j].dropped.map((k: string) => String(k).toLowerCase()),
-              };
-            } else {
-              // AI didn't return valid data for this participant — use NLP fallback
-              participantMap[actualIdx] = analyzeConceptGap(chunk[j], summary);
-            }
-          }
-        } else {
-          // JSON parse failed — fall back to NLP for entire chunk
-          for (let j = 0; j < chunk.length; j++) {
-            participantMap[i + j] = analyzeConceptGap(chunk[j], summary);
-          }
-        }
-      } catch (e) {
-        console.warn(`[ConceptFidelity] Batched AI call failed for chunk at ${i}, falling back to NLP:`, e);
-        for (let j = 0; j < chunk.length; j++) {
-          participantMap[i + j] = analyzeConceptGap(chunk[j], summary);
-        }
-      }
-    }
-  } else {
-    // No AI connection — use fast local NLP for all participants
-    onProgress?.("Using local NLP concept analysis...");
-    for (let i = 0; i < inputs.length; i++) {
-      participantMap[i] = analyzeConceptGap(inputs[i], summary);
-    }
-  }
-
-  // Aggregate concept counts
-  Object.values(participantMap).forEach(gap => {
-    gap.kept.forEach(c => allExampleConcepts.add(c));
-    gap.dropped.forEach(c => allExampleConcepts.add(c));
-    totalConcepts += (gap.kept.length + gap.dropped.length);
-    retainedCount += gap.kept.length;
-  });
-  onProgress?.(`Concept analysis complete for ${inputs.length} inputs`);
-
-  // Calculate added concepts (potential hallucinations or AI-introduced framing).
-  // Use stemmed matching to avoid false positives from morphological variants
-  // (e.g. "communities" vs "community", "well-being" vs "wellbeing").
-  const flatInputText = inputs.join(' ').toLowerCase();
-  const flatInputWords = new Set(
-    flatInputText
-      .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 2)
-  );
-  // Build a set of stemmed input words for fuzzy matching
-  const simpleStemWord = (w: string): string => {
-    if (w.length < 4) return w;
-    if (w.endsWith('ing') && w.length > 5) return w.slice(0, -3);
-    if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y';
-    if (w.endsWith('es') && w.length > 4 && !w.endsWith('ss')) return w.slice(0, -2);
-    if (w.endsWith('ed') && w.length > 4) return w.slice(0, -2);
-    if (w.endsWith('s') && w.length > 3 && !w.endsWith('ss')) return w.slice(0, -1);
-    return w;
-  };
-  const stemmedInputWords = new Set([...flatInputWords].map(simpleStemWord));
-
-  const addedConcepts = summaryConcepts.filter(sc => {
-    const scLower = sc.toLowerCase();
-    // Check 1: Direct substring match in combined inputs
-    if (flatInputText.includes(scLower)) return false;
-    // Check 2: Stem match — stem each word in the concept and check
-    const conceptWords = scLower.replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-    if (conceptWords.length === 0) return false;
-    const matchedParts = conceptWords.filter(w =>
-      flatInputWords.has(w) || stemmedInputWords.has(simpleStemWord(w))
-    );
-    // If > 60% of concept words have stemmed matches in inputs, it's not hallucinated
-    if (matchedParts.length / conceptWords.length > 0.6) return false;
-    return true; // Genuinely added concept
-  });
-
-  /*
-  // Aggregate preserved/dropped concepts across all participants
-  const allConceptsArray = Array.from(allExampleConcepts);
-  // Re-check summary inclusion globally (just in case individual checks were partial)
-  const summaryLower = summary.toLowerCase();
-  
-  // Use robust matching logic (same as analyzeConceptGap from textUtils) for final categorization
-  // Note: we're doing this globally now instead of just relying on the per-participant map
-  // This ensures consistent counts
-  const { analyzeConceptGap } = await import('./textUtils');
-  
-  // We reconstruct the lists based on the set of unique concepts found
-  const uniqueConcepts = Array.from(allExampleConcepts);
-  const preservedConcepts: string[] = [];
-  const droppedConcepts: string[] = [];
-  
-  // Check each concept against summary using robust matching
-  // We can treat the list of concepts as "input text" for checking purposes, 
-  // but better to check one by one
-  for (const concept of uniqueConcepts) {
-    // Check if concept is in summary (using robust logic)
-    const gap = analyzeConceptGap(concept, summary);
-    if (gap.kept.length > 0) {
-      preservedConcepts.push(concept);
-    } else {
-      droppedConcepts.push(concept);
-    }
-  }
-  */
-
-  // Simplification based on accumulated results (participantMap)
-  // Since we already ran analyzeConceptGapAI/analyzeConceptGap for each participant,
-  // we can just aggregate the results directly.
-  const preservedSet = new Set<string>();
-  const droppedSet = new Set<string>();
-
-  Object.values(participantMap).forEach(gap => {
-    gap.kept.forEach(c => preservedSet.add(c));
-    gap.dropped.forEach(c => droppedSet.add(c));
-  });
-
-  // If a concept was kept in one place but dropped in another (context dependent), 
-  // we count it as preserved overall if it appears in the summary
-  const summaryDesc = summary.toLowerCase();
-
-  // Refine sets: verify strictly against summary
-  const finalPreserved: string[] = [];
-  const finalDropped: string[] = [];
-
-  // Check all unique concepts found
-  const allFound = new Set([...preservedSet, ...droppedSet]);
-
-  // analyzeConceptGap is imported at the top level from './textUtils'
-
-  for (const concept of allFound) {
-    const res = analyzeConceptGap(concept, summary);
-    if (res.kept.length > 0) {
-      finalPreserved.push(concept);
-    } else {
-      finalDropped.push(concept);
-    }
-  }
-
-  return {
-    preservedConcepts: finalPreserved,
-    droppedConcepts: finalDropped,
-    addedConcepts,
-    fidelityScore: totalConcepts === 0 ? 0 : retainedCount / totalConcepts,
-    participantMap
-  };
-};
 
 
 // --- Main Analysis Function ---
@@ -440,7 +258,7 @@ export const runCoreAnalysis = async (
   let activeConfig = { ...config };
 
   // Check BGE-M3 availability (independent of AI provider — used for embeddings only)
-  bgeM3Available = await checkBgeM3Connection();
+  let bgeM3Available = await checkBgeM3Connection();
   if (bgeM3Available) {
     onProgress?.("BGE-M3 embedding server detected");
     console.log('[Analysis] BGE-M3 available — using state-of-the-art embeddings');
@@ -595,12 +413,18 @@ export const runCoreAnalysis = async (
   // 4. Generate Summary
   onProgress?.("Synthesizing summary...");
   let summaryText = "";
+  // Tracks which input indices are part of an extractive summary (for data-leakage prevention)
+  const extractiveIndices = new Set<number>();
 
   if (activeConfig.summaryMethod === 'manual') {
     summaryText = activeConfig.manualSummaryText || "No summary provided.";
   } else if (activeConfig.summaryMethod === 'extractive') {
     onProgress?.("Running extractive algorithm...");
-    // Centroid-based extraction
+    // Centroid-based extraction: select the most representative participant inputs.
+    // IMPORTANT: When scoring participants against this extractive summary, we must
+    // exclude their own text to avoid data leakage (a participant whose text IS the
+    // summary trivially gets similarity ≈ 1.0). The extractiveIndices set tracks
+    // which inputs were selected for the summary so downstream scoring can adjust.
     const dim = inputEmbeddings[0].length;
     const centroid = new Array(dim).fill(0);
     for (const vec of inputEmbeddings) {
@@ -608,26 +432,31 @@ export const runCoreAnalysis = async (
     }
     for (let i = 0; i < dim; i++) centroid[i] /= inputEmbeddings.length;
 
-    // Rank by similarity to centroid
     const ranked = inputs.map((input, idx) => ({
       text: input.text,
+      idx,
       sim: cosineSimilarity(inputEmbeddings[idx], centroid)
     })).sort((a, b) => b.sim - a.sim);
 
-    // Take top 3-5 sentences
-    summaryText = ranked.slice(0, 4).map(r => r.text).join(' ');
+    const selected = ranked.slice(0, 4);
+    summaryText = selected.map(r => r.text).join(' ');
+    // Track which participant indices were used in the extractive summary
+    for (const r of selected) extractiveIndices.add(r.idx);
   } else {
     // AI Mode
     // For very large datasets, sending all inputs would overflow the LLM context window.
     // Instead, select proportional cluster representatives — actual participant texts, not
     // abstractions — so the summary preserves authentic voice and scores stay accurate.
     try {
-      // Dynamic length guidance based on dataset size
-      // We don't want a hard word limit as it forces the model to drop perspectives.
-      // Instead, we encourage a comprehensive summary proportional to the input diversity.
-      const lengthGuidance = inputs.length > 30
-        ? "Provide a comprehensive summary (approximately 3-5 paragraphs) that captures all distinct perspectives."
-        : "Provide a concise but complete summary that captures all distinct perspectives.";
+      // Length guidance: user-specified word limit takes priority, otherwise auto-scale.
+      let lengthGuidance: string;
+      if (activeConfig.wordLimit && activeConfig.wordLimit > 0) {
+        lengthGuidance = `Limit your summary to approximately ${activeConfig.wordLimit} words. Capture all distinct perspectives within this limit.`;
+      } else {
+        lengthGuidance = inputs.length > 30
+          ? "Provide a comprehensive summary (approximately 3-5 paragraphs) that captures all distinct perspectives."
+          : "Provide a concise but complete summary that captures all distinct perspectives.";
+      }
 
       const prompt = `Here are the contributions:\n${formatInputsForPrompt(inputs)}\n\n${lengthGuidance}`;
       summaryText = await generateCompletion(prompt, getSystemPrompt(activeConfig.strategy), activeConfig);
@@ -734,14 +563,6 @@ export const runCoreAnalysis = async (
 
   const globalCentroid = computeGlobalCentroid(inputEmbeddings);
 
-  // Concept Fidelity Analysis is deferred to Phase 2 (enrichAnalysisResult).
-  // participantMap is empty so keywords default to [] via the fallback on the
-  // line below: `conceptFidelity.participantMap[idx] || { kept: [], dropped: [] }`.
-  // Keywords are backfilled into participants by enrichAnalysisResult.
-  const conceptFidelity: ConceptFidelityResult = {
-    preservedConcepts: [], droppedConcepts: [], addedConcepts: [],
-    fidelityScore: 0, participantMap: {},
-  };
 
   // 6a. Pre-compute sentiment for ALL participants in batches (before the per-participant loop).
   // This reduces N individual AI calls down to N/100 batched calls.
@@ -766,8 +587,9 @@ export const runCoreAnalysis = async (
     let maxSim = 0;
     let topSentIdx = 0;
 
-    // Use configurable threshold for what constitutes a "significant" semantic match
-    const { matchingThreshold } = ANALYSIS_CONFIG.thresholds;
+    // Use configurable threshold for what constitutes a "significant" semantic match.
+    // User-provided thresholds take precedence over defaults.
+    const { matchingThreshold } = activeConfig.thresholds ?? ANALYSIS_CONFIG.thresholds;
 
     sentenceEmbeddings.forEach((sentEmb, sIdx) => {
       const sim = cosineSimilarity(embedding, sentEmb);
@@ -806,12 +628,17 @@ export const runCoreAnalysis = async (
     if (sentenceMatches.length <= 1) {
       embeddingSimilarity = maxSim;
     } else {
-      // sentenceMatches is already sorted descending by similarity
+      // sentenceMatches is already sorted descending by similarity.
+      // Normalize by the geometric series sum so distributed representation
+      // is not penalized by a hard ceiling at 1.0.
       let aggregated = sentenceMatches[0].similarity;
+      let normFactor = 1;
       for (let k = 1; k < sentenceMatches.length; k++) {
-        aggregated += sentenceMatches[k].similarity * Math.pow(SECONDARY_DECAY, k);
+        const weight = Math.pow(SECONDARY_DECAY, k);
+        aggregated += sentenceMatches[k].similarity * weight;
+        normFactor += weight;
       }
-      embeddingSimilarity = Math.min(1, aggregated);
+      embeddingSimilarity = aggregated / normFactor;
     }
 
     const conceptOverlap = computeConceptOverlapScore(input.text, summaryText);
@@ -843,8 +670,18 @@ export const runCoreAnalysis = async (
 
     representationScore = Math.max(0, Math.min(1, representationScore));
 
+    // Data-leakage guard for extractive summaries: if this participant's text IS
+    // part of the summary, the high similarity is tautological, not evidence of good
+    // representation. Discount their score to the median of other participants' scores
+    // (computed in a post-pass after all scores are known). For now, flag them.
+    const isExtractiveSource = extractiveIndices.has(idx);
+    if (isExtractiveSource) {
+      // Will be corrected in post-pass below; mark for now
+      representationScore = -1; // sentinel
+    }
+
     if (idx < 5) {
-      console.log(`[Analysis] ${input.id}: emb=${embeddingSimilarity.toFixed(2)} (maxSim=${maxSim.toFixed(2)}, matches=${sentenceMatches.length}), concept=${conceptOverlap.toFixed(2)}, useLocal=${useLocalVectors} => final=${representationScore.toFixed(2)}`);
+      console.log(`[Analysis] ${input.id}: emb=${embeddingSimilarity.toFixed(2)} (maxSim=${maxSim.toFixed(2)}, matches=${sentenceMatches.length}), concept=${conceptOverlap.toFixed(2)}, useLocal=${useLocalVectors} => final=${representationScore.toFixed(2)}${isExtractiveSource ? ' (extractive source — will be corrected)' : ''}`);
     }
 
     // --- Semantic Isolation: Distance from Global Centroid ---
@@ -864,7 +701,6 @@ export const runCoreAnalysis = async (
     // Sentiment — already pre-computed in batch above
     const sentiment = allSentiments[idx];
 
-    const concepts = conceptFidelity.participantMap[idx] || { kept: [], dropped: [] };
 
     // Detect whether this participant's embedding was a zero-vector failure.
     // A zero vector is the sentinel returned when the embedding API fails or
@@ -886,8 +722,27 @@ export const runCoreAnalysis = async (
       embeddingTier: embeddingTierUsed,
       detectedLanguage: detectLanguage(input.text),
       embeddingFailed: embeddingFailed || undefined, // only set when true
+      rhetoricalProfile: scoreRhetoricalMarkers(input.text),
     };
   }));
+
+  // Post-pass: fix extractive summary data leakage.
+  // Participants whose text IS the summary get the median score of non-extractive participants.
+  if (extractiveIndices.size > 0) {
+    const nonExtractiveScores = participants
+      .filter(p => p.representationScore >= 0) // sentinel is -1
+      .map(p => p.representationScore)
+      .sort((a, b) => a - b);
+    const median = nonExtractiveScores.length > 0
+      ? nonExtractiveScores[Math.floor(nonExtractiveScores.length / 2)]
+      : 0.5;
+    for (const p of participants) {
+      if (p.representationScore < 0) p.representationScore = median;
+    }
+  }
+
+  // Rhetorical bias analysis (deterministic, runs on all participants)
+  const rhetoricalBias = analyzeRhetoricalBias(participants);
 
   // Aggregate Metrics
   // Exclude participants with failed embeddings from aggregate metrics.
@@ -903,7 +758,10 @@ export const runCoreAnalysis = async (
   }
   const repScores = validParticipants.map(p => p.representationScore);
   const gini = calculateGini(repScores);
-  const inputDiversity = computeAveragePairwiseDistance(inputEmbeddings);
+  // Filter out zero-vector failed embeddings from diversity computation —
+  // zero vectors have cosine similarity 0 with everything, artificially inflating distance.
+  const validEmbeddings = inputEmbeddings.filter((_, i) => !participants[i].embeddingFailed);
+  const inputDiversity = computeAveragePairwiseDistance(validEmbeddings.length >= 2 ? validEmbeddings : inputEmbeddings);
 
   const { isolationPercentile } = ANALYSIS_CONFIG.thresholds;
 
@@ -922,17 +780,22 @@ export const runCoreAnalysis = async (
   const languageAnalysis = analyzeLanguageEquity(participants);
 
   // 7. Influence Analysis (LOO Z-Score) + Representation Delta
+  // Exclude participants with failed embeddings — a zero-vector removal would
+  // artificially shift the centroid, making failed participants look "influential".
   onProgress?.("Calculating influence leverage...");
   const dim = inputEmbeddings[0].length;
-  const globalMean = computeGlobalCentroid(inputEmbeddings);
+  // Compute centroid only from valid (non-zero) embeddings
+  const validIdxs = inputs.map((_, i) => i).filter(i => !participants[i].embeddingFailed);
+  const looCentroid = computeGlobalCentroid(validIdxs.map(i => inputEmbeddings[i]));
 
   const shifts: number[] = inputs.map((_, i) => {
+    if (participants[i].embeddingFailed) return 0; // No influence computable
     const looMean = new Array(dim).fill(0);
     for (let d = 0; d < dim; d++) {
-      const sumWithoutI = (globalMean[d] * inputs.length) - inputEmbeddings[i][d];
-      looMean[d] = sumWithoutI / (inputs.length - 1);
+      const sumWithoutI = (looCentroid[d] * validIdxs.length) - inputEmbeddings[i][d];
+      looMean[d] = sumWithoutI / Math.max(1, validIdxs.length - 1);
     }
-    return 1 - cosineSimilarity(globalMean, looMean);
+    return 1 - cosineSimilarity(looCentroid, looMean);
   });
 
   const avgShift = shifts.reduce((a, b) => a + b, 0) / shifts.length;
@@ -943,20 +806,21 @@ export const runCoreAnalysis = async (
   const variance = shifts.reduce((a, b) => a + (b - avgShift) ** 2, 0) / Math.max(1, n_loo - 1);
   const stdDev = Math.sqrt(variance) || 1e-9;
 
-  // representationDelta: how removing participant i changes the OTHER participants' avg representation.
-  // Positive = removal raises the group average (participant drags it down — below-average rep).
-  // Negative = removal lowers the group average (participant pulls it up — above-average rep).
-  const overallAvgRep = participants.reduce((s, p) => s + p.representationScore, 0) / participants.length;
+  // representationDelta: how far this participant's representation score deviates
+  // from the group average. Positive = above average, negative = below average.
+  // This is a simpler, more interpretable metric than a true LOO re-analysis
+  // (which would require re-summarizing without the participant).
+  const overallAvgRep = validParticipants.length > 0
+    ? validParticipants.reduce((s, p) => s + p.representationScore, 0) / validParticipants.length
+    : 0;
 
   const sensitivityAnalysis: SensitivityResult[] = inputs.map((input, i) => {
     const zScore = (shifts[i] - avgShift) / stdDev;
-    const sumOthers = participants.reduce((s, p, idx) => idx !== i ? s + p.representationScore : s, 0);
-    const othersAvgRep = participants.length > 1 ? sumOthers / (participants.length - 1) : overallAvgRep;
     return {
       participantId: input.id,
       shiftScore: zScore,
       semanticDelta: shifts[i],
-      representationDelta: othersAvgRep - overallAvgRep,
+      representationDelta: participants[i].representationScore - overallAvgRep,
     };
   }).sort((a, b) => b.shiftScore - a.shiftScore);
 
@@ -1013,17 +877,20 @@ export const runCoreAnalysis = async (
     inputs.map(inp => inp.id),
     knnK
   );
+  const networkNodes = participants.map(p => ({
+    id: p.id,
+    clusterId: p.clusterId,
+    representationScore: p.representationScore,
+    semanticIsolation: p.semanticIsolation,
+    x: p.semanticCoords.x,
+    y: p.semanticCoords.y,
+  }));
+  const networkAnalysis = analyzeNetworkGraph(networkNodes, networkEdges);
   const networkGraph: NetworkGraph = {
-    nodes: participants.map(p => ({
-      id: p.id,
-      clusterId: p.clusterId,
-      representationScore: p.representationScore,
-      semanticIsolation: p.semanticIsolation,
-      x: p.semanticCoords.x,
-      y: p.semanticCoords.y,
-    })),
+    nodes: networkNodes,
     edges: networkEdges,
     k: knnK,
+    analysis: networkAnalysis,
   };
 
   // 9. Compute Uncertainty Metrics (Bootstrap CI)
@@ -1080,13 +947,13 @@ export const runCoreAnalysis = async (
       inputDiversity: inputDiversity,
       coverageUniformity: 1 - gini,
       distinctRepresentationGap: distinctGap,
-      totalParticipants: inputs.length
+      totalParticipants: inputs.length,
+      scoredParticipants: validParticipants.length
     },
     clusters,
     networkGraph,
     sensitivityAnalysis,
     bridgingOpportunities,
-    conceptAnalysis: undefined,
     enrichmentStatus: 'pending' as const,
     uncertaintyMetrics,
     groupAnalysis,
@@ -1095,47 +962,338 @@ export const runCoreAnalysis = async (
     inputEmbeddings,
     embeddingTierUsed,
     languageAnalysis,
+    rhetoricalBias,
   };
 };
 
-// --- Phase 2: Concept Fidelity Enrichment ---
+// --- Phase 2: Language Fidelity Enrichment ---
+
+// ── Language Fidelity Analysis ────────────────────────────────────────────────
+// For each summary sentence, traces how raw participant language was transformed.
+// Runs one LLM call per summary sentence — classifies each phrase-level change.
+
+const performLanguageFidelityAnalysis = async (
+  summarySentences: string[],
+  participants: ParticipantAnalysis[],
+  inputs: ParticipantInput[],
+  config: AnalysisConfig,
+  isConnected: boolean,
+  onProgress?: (msg: string) => void
+): Promise<LanguageFidelity> => {
+  const sentences: SentenceFidelity[] = [];
+  const overallCounts: Record<TransformationType, number> = {
+    preserved: 0, softened: 0, sanitized: 0, abstracted: 0, dropped: 0
+  };
+
+  if (!isConnected) {
+    // Without LLM, return empty analysis
+    return { sentences: [], overallCounts, fidelityScore: 0, summaryDroppedParticipantIds: [] };
+  }
+
+  for (let si = 0; si < summarySentences.length; si++) {
+    onProgress?.(`Language fidelity: sentence ${si + 1}/${summarySentences.length}`);
+    const sentence = summarySentences[si];
+
+    // Get participants genuinely matched to this sentence.
+    // Primary: participants whose top match is this sentence.
+    // Secondary: participants with any significant similarity (>= 0.3) to this sentence.
+    let matched = participants
+      .filter(p => p.topSentenceMatchIndex === si)
+      .slice(0, 15);
+
+    if (matched.length === 0) {
+      matched = participants
+        .filter(p => p.sentenceMatches.some(m => m.sentenceIndex === si && m.similarity >= 0.3))
+        .sort((a, b) => {
+          const simA = a.sentenceMatches.find(m => m.sentenceIndex === si)?.similarity ?? 0;
+          const simB = b.sentenceMatches.find(m => m.sentenceIndex === si)?.similarity ?? 0;
+          return simB - simA;
+        })
+        .slice(0, 10);
+    }
+
+    // When no participant genuinely relates to this sentence, do epistemic-only analysis.
+    // Using top-scored participants as proxy for phrase mapping would produce meaningless
+    // "dropped" labels for content that simply doesn't relate to this sentence.
+    const hasMatchedParticipants = matched.length > 0;
+
+    // For epistemic context when no participants match, use a broad sample
+    const epistemicContext = hasMatchedParticipants
+      ? matched
+      : [...participants].sort((a, b) => b.representationScore - a.representationScore).slice(0, 5);
+
+    const inputBlock = epistemicContext
+      .map(p => `[${p.id}] "${inputs.find(inp => inp.id === p.id)?.text?.slice(0, 300) || p.originalText.slice(0, 300)}"`)
+      .join('\n');
+
+    // Provide the full summary as context so the LLM can distinguish between
+    // "concept dropped from the entire summary" vs "concept captured in a different sentence."
+    // Without this, the LLM frequently marks content as "dropped" when it's just expressed elsewhere.
+    const summaryContext = summarySentences.map((s, i) =>
+      `${i === si ? '>>> ' : '    '}[${i + 1}] ${s}`
+    ).join('\n');
+
+    // Two different prompts: full analysis when participants match, epistemic-only otherwise.
+    const prompt = hasMatchedParticipants
+      ? `You are analyzing how raw participant language was transformed in a summary.
+
+FULL SUMMARY (the sentence being analyzed is marked with >>>):
+${summaryContext}
+
+RAW PARTICIPANT INPUTS THAT MAP TO THE MARKED SENTENCE:
+${inputBlock}
+
+Perform TWO analyses:
+
+## PART 1: Phrase Transformation
+For each participant input, identify their single most important claim or phrase and classify how it was transformed in the MARKED summary sentence:
+
+- "preserved": the core meaning AND emotional intensity/specificity are kept faithfully in this sentence
+- "softened": same topic but intensity/urgency is clearly reduced (e.g. "will destroy jobs" → "may displace workers", "furious" → "concerned")
+- "sanitized": a specific accusation, demand, or criticism is replaced with neutral/bureaucratic framing (e.g. "stolen datasets" → "data usage concerns", "corrupt officials" → "governance challenges")
+- "abstracted": a concrete, specific experience becomes a vague category (e.g. "I can't pay rent this month" → "financial difficulties", "three patients died" → "adverse events occurred")
+- "dropped": the participant's most important concept does not appear in this sentence AND is also absent from the rest of the summary
+
+IMPORTANT:
+- Only classify as "softened"/"sanitized"/"abstracted" when there is a CLEAR, identifiable shift in meaning, intensity, or specificity — not when the summary simply paraphrases using different words.
+- Before marking "dropped", check the other summary sentences. If the concept appears elsewhere in the summary, classify as "preserved" with a note that it appears in a different sentence.
+- Default to "preserved" when the meaning is captured with reasonable fidelity.
+
+## PART 2: Epistemic Classification
+Classify the overall claim in the marked summary sentence:
+- "explicit": directly stated or closely paraphrased from source inputs
+- "inferred": reasonable synthesis from the evidence, not directly stated
+- "extrapolated": requires knowledge or context beyond what the sources provide
+- "speculative": forward-looking, predictive, or generated without source basis
+
+Return ONLY this JSON:
+{"mappings": [{"participantId": "...", "rawPhrase": "exact phrase from their input", "summaryPhrase": "matching phrase in summary or null", "type": "preserved|softened|sanitized|abstracted|dropped"}], "epistemicClass": "explicit|inferred|extrapolated|speculative", "epistemicExplanation": "one sentence reason"}`
+
+      : `You are classifying the epistemic status of a summary sentence relative to source inputs.
+
+SUMMARY SENTENCE:
+"${sentence}"
+
+SOURCE INPUTS (context):
+${inputBlock}
+
+Classify the overall claim in the summary sentence:
+- "explicit": directly stated or closely paraphrased from source inputs
+- "inferred": reasonable synthesis from the evidence, not directly stated
+- "extrapolated": requires knowledge or context beyond what the sources provide
+- "speculative": forward-looking, predictive, or generated without clear source basis
+
+Return ONLY this JSON:
+{"mappings": [], "epistemicClass": "explicit|inferred|extrapolated|speculative", "epistemicExplanation": "one sentence reason"}`;
+
+    try {
+      const response = await generateCompletion(
+        prompt,
+        'You are a linguistic analysis expert specializing in discourse transformation. Return only valid JSON.',
+        config
+      );
+
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as any;
+        const validTypes: TransformationType[] = ['preserved', 'softened', 'sanitized', 'abstracted', 'dropped'];
+        const validEpistemic: EpistemicClass[] = ['explicit', 'inferred', 'extrapolated', 'speculative'];
+        const mappings: PhraseMapping[] = [];
+        const counts: Record<TransformationType, number> = {
+          preserved: 0, softened: 0, sanitized: 0, abstracted: 0, dropped: 0
+        };
+
+        const mappingEntries = Array.isArray(parsed) ? parsed : (parsed.mappings || []);
+        for (const entry of mappingEntries) {
+          // Skip entries with unrecognized types — do NOT silently reclassify them,
+          // as that inflates whichever category we default to.
+          if (!validTypes.includes(entry.type)) continue;
+          const type = entry.type as TransformationType;
+          counts[type]++;
+          overallCounts[type]++;
+          mappings.push({
+            participantId: entry.participantId || 'unknown',
+            rawPhrase: entry.rawPhrase || '',
+            summaryPhrase: entry.summaryPhrase || null,
+            type,
+          });
+        }
+
+        const epistemicClass = validEpistemic.includes(parsed.epistemicClass)
+          ? parsed.epistemicClass as EpistemicClass
+          : undefined;
+        const epistemicExplanation = typeof parsed.epistemicExplanation === 'string'
+          ? parsed.epistemicExplanation
+          : undefined;
+
+        sentences.push({
+          sentenceIndex: si, sentenceText: sentence, counts, mappings,
+          epistemicClass, epistemicExplanation,
+        });
+      } else {
+        sentences.push({
+          sentenceIndex: si, sentenceText: sentence,
+          counts: { preserved: 0, softened: 0, sanitized: 0, abstracted: 0, dropped: 0 },
+          mappings: [],
+        });
+      }
+    } catch (e) {
+      console.warn(`[LanguageFidelity] Sentence ${si} failed:`, e);
+      sentences.push({
+        sentenceIndex: si, sentenceText: sentence,
+        counts: { preserved: 0, softened: 0, sanitized: 0, abstracted: 0, dropped: 0 },
+        mappings: [],
+      });
+    }
+  }
+
+  // ── Post-processing: distinguish per-sentence "dropped" from summary-level drops ──
+  // A participant whose phrase is "dropped" from sentence S1 but "preserved" in sentence S3
+  // is not truly dropped from the summary — the label is only meaningful within that sentence.
+  // We compute summaryDroppedParticipantIds separately and adjust the fidelity score to not
+  // double-penalize participants who appear elsewhere.
+  const participantsRepresentedAnywhere = new Set<string>();
+  for (const sf of sentences) {
+    for (const m of sf.mappings) {
+      if (m.type !== 'dropped') participantsRepresentedAnywhere.add(m.participantId);
+    }
+  }
+
+  const summaryDroppedParticipantIds = participants
+    .map(p => p.id)
+    .filter(id => !participantsRepresentedAnywhere.has(id));
+
+  // Fidelity score: preserved / (total - cross-sentence dropped)
+  // "dropped" mappings for participants who appear elsewhere in the summary don't count
+  // against fidelity since the content was captured, just in a different sentence.
+  let effectiveTotal = 0;
+  let preservedCount = 0;
+  for (const sf of sentences) {
+    for (const m of sf.mappings) {
+      if (m.type === 'dropped' && participantsRepresentedAnywhere.has(m.participantId)) continue;
+      effectiveTotal++;
+      if (m.type === 'preserved') preservedCount++;
+    }
+  }
+  const fidelityScore = effectiveTotal > 0 ? preservedCount / effectiveTotal : 0;
+
+  return { sentences, overallCounts, fidelityScore, summaryDroppedParticipantIds };
+};
 
 /**
- * Runs concept fidelity analysis in the background and merges the result
+ * Runs language fidelity analysis in the background and merges the result
  * into the core analysis. Called after runCoreAnalysis so the dashboard
- * can render immediately without waiting for the N/5 LLM batches.
+ * can render immediately without waiting for the per-sentence LLM calls.
  */
 export const enrichAnalysisResult = async (
-  coreResult: AnalysisResult,
+  coreResultArg: AnalysisResult,
   inputs: ParticipantInput[],
   config: AnalysisConfig,
   onProgress?: (msg: string) => void
 ): Promise<AnalysisResult> => {
+  // Mutable copy so we can update participants/rhetoricalBias without mutating the input
+  let coreResult = coreResultArg;
   // Re-check connection (same pattern as runCoreAnalysis)
   let isConnected = false;
   if (config.aiProvider === 'ollama') {
     isConnected = await checkOllamaConnection();
   } else if (config.aiProvider === 'groq') {
     isConnected = checkGroqConnection();
+  } else if (config.aiProvider === 'openai') {
+    isConnected = checkOpenAIConnection();
+  } else if (config.aiProvider === 'claude') {
+    isConnected = checkClaudeConnection();
+  } else if (config.aiProvider === 'apertus') {
+    isConnected = checkApertusConnection();
   } else {
     isConnected = await checkAIConnection();
   }
 
-  const conceptFidelity = await performConceptFidelityAnalysis(
-    inputs.map(i => i.text),
-    coreResult.summary,
-    { ...config, summaryMethod: config.summaryMethod },
+  // Language fidelity: how raw language was transformed in the summary
+  const languageFidelity = await performLanguageFidelityAnalysis(
+    coreResult.summarySentences,
+    coreResult.participants,
+    inputs,
+    config,
     isConnected,
     onProgress
   );
 
-  // Return new objects (not mutations) so React detects the state change.
-  // Keywords (RAKE-extracted) are already set in Phase 1 — do not overwrite.
-  return {
+  // Claim-level attribution (LLM-heavy, decomposes summary into atomic claims)
+  // Pass input embeddings + embedding function for hybrid semantic+TF-IDF evidence search
+  let claimAttribution = undefined;
+  try {
+    if (isConnected) {
+      const embedFn = (text: string) => generateEmbedding(text, config);
+      claimAttribution = await performClaimAttribution(
+        coreResult.summarySentences, coreResult.participants, inputs, config, onProgress,
+        coreResult.inputEmbeddings, embedFn
+      );
+    }
+  } catch (e) {
+    console.warn('[Enrichment] Claim attribution failed, skipping:', e);
+  }
+
+  // Tension & contradiction mapping (LLM-heavy, finds disagreements)
+  let tensionAnalysis = undefined;
+  try {
+    if (isConnected) {
+      tensionAnalysis = await performTensionAnalysis(
+        coreResult.participants, inputs, coreResult.summary,
+        coreResult.clusters, config, onProgress
+      );
+    }
+  } catch (e) {
+    console.warn('[Enrichment] Tension analysis failed, skipping:', e);
+  }
+
+  // GraphRAG: Build knowledge graph from participant inputs
+  let knowledgeGraph = undefined;
+  try {
+    if (isConnected) {
+      knowledgeGraph = await buildKnowledgeGraph(inputs, config, onProgress, coreResult.summary);
+    }
+  } catch (e) {
+    console.warn('[Enrichment] Knowledge graph construction failed, skipping:', e);
+  }
+
+  // LLM-enhanced rhetorical scoring: blends context-aware LLM scores with lexicon baseline
+  try {
+    if (isConnected) {
+      onProgress?.('Rhetorical analysis: LLM-enhanced scoring...');
+      const textsForRhetorical = inputs.map(inp => ({ id: inp.id, text: inp.text }));
+      const llmRhetoricalScores = await scoreRhetoricalWithLLM(textsForRhetorical, config, onProgress);
+      if (llmRhetoricalScores.size > 0) {
+        // Work on a copy of participants to avoid mutating coreResult in place
+        const updatedParticipants = coreResult.participants.map(p => ({ ...p }));
+        mergeRhetoricalProfiles(updatedParticipants, llmRhetoricalScores);
+        // Replace participants and re-run bias analysis with updated profiles
+        coreResult = { ...coreResult, participants: updatedParticipants };
+        coreResult = { ...coreResult, rhetoricalBias: analyzeRhetoricalBias(updatedParticipants) };
+      }
+    }
+  } catch (e) {
+    console.warn('[Enrichment] LLM rhetorical scoring failed, using lexicon-only:', e);
+  }
+
+  // Assemble enriched result (before Sankey so Sankey can use all data)
+  const enrichedResult: AnalysisResult = {
     ...coreResult,
-    conceptAnalysis: conceptFidelity,
+    languageFidelity,
+    claimAttribution,
+    tensionAnalysis,
+    knowledgeGraph,
     enrichmentStatus: 'complete' as const,
   };
+
+  // Provenance Sankey (deterministic, assembles from all available data)
+  try {
+    enrichedResult.sankeyData = buildSankeyData(enrichedResult, inputs);
+  } catch (e) {
+    console.warn('[Enrichment] Sankey build failed, skipping:', e);
+  }
+
+  return enrichedResult;
 };
 
 // --- Backward-Compatible Wrapper (used by multi-question mode and other callers) ---

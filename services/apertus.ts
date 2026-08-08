@@ -89,9 +89,9 @@ export const generateApertusCompletion = async (
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${key}`,
-                // PublicAI REQUIRES a User-Agent header to prevent bot spam.
-                // Requests without it are blocked (returns 403/network error).
-                'User-Agent': 'co-creation-provenance-tool/1.0',
+                // Note: User-Agent is a forbidden header in browsers and will be silently
+                // stripped. Direct browser calls to PublicAI may fail with 403 if the
+                // server requires it. Use the Vite proxy (/api/apertus) in that case.
             },
             body: JSON.stringify({
                 model,
@@ -99,9 +99,9 @@ export const generateApertusCompletion = async (
                     { role: 'system', content: systemInstruction },
                     { role: 'user', content: prompt },
                 ],
-                temperature: 0.8,   // Swiss-AI recommended default
-                top_p: 0.9,         // Swiss-AI recommended default
-                max_tokens: 2048,   // Generous limit for multi-paragraph summaries
+                temperature: 0.5,
+                top_p: 0.9,
+                max_tokens: 4096,
             }),
         });
     } catch (networkErr) {

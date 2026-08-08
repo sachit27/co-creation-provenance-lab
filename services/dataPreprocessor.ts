@@ -176,7 +176,8 @@ const GROUP_MAP: Record<string, StakeholderGroup> = {
   expert: 'expert', professional: 'expert', scientist: 'expert', researcher: 'expert',
   youth: 'youth', student: 'youth', young: 'youth',
   government: 'government', official: 'government', policy: 'government', municipal: 'government',
-  business: 'business', company: 'business', corporate: 'business', ngo: 'business',
+  business: 'business', company: 'business', corporate: 'business',
+  ngo: 'community', nonprofit: 'community', 'non-profit': 'community',
   other: 'other',
 };
 
@@ -563,3 +564,162 @@ export const preprocessWithSelections = (
     });
   }
 };
+
+// ─── Multi-Document Input ─────────────────────────────────────────────────────
+
+/**
+ * Converts an array of distinct text blocks into ParticipantInput[].
+ * Each block is treated as one "source" (e.g., a witness statement,
+ * an earnings transcript, a policy memo). Empty/junk blocks are filtered out.
+ * Labels default to "Source 1", "Source 2", etc. unless explicit labels are given.
+ */
+export const parseMultiDocumentText = (
+  texts: string[],
+  labels?: string[],
+): ParticipantInput[] => {
+  return texts
+    .map((text, i) => ({
+      id: labels?.[i]?.trim() || `Source_${i + 1}`,
+      text: text.trim(),
+    }))
+    .filter(t => t.text.length >= MIN_CONTENT_CHARS && !isMissingValue(t.text));
+};
+
+
+// ─── Single Document Chunking ─────────────────────────────────────────────────
+
+/**
+ * Regex patterns that identify section headings in legal, financial,
+ * regulatory, and academic documents. Order matters — more specific patterns first.
+ */
+const SECTION_HEADING_PATTERNS = [
+  // Legal: § 3, §3.1, Section 3.1, Article IV, Clause 5
+  /^(§+\s*[\d.]+[a-z]?|(?:section|article|clause|subsection|chapter)\s+[\dIVXLCivxlc]+(?:\.\d+)*)/i,
+  // Financial: ITEM 1, ITEM 1A, Item 7A, Part II
+  /^(item\s+\d+[a-z]?|part\s+[IVXLCivxlc]+)/i,
+  // Numbered headings: 1. Introduction, 2.1 Methods, A. Background
+  /^(\d+(?:\.\d+)*\.?\s+[A-Z][a-zA-Z\s]{3,}|[A-Z]\.\s+[A-Z][a-zA-Z\s]{3,})$/,
+  // ALL CAPS headings (common in legal briefs and 10-K filings)
+  /^[A-Z][A-Z\s\-–:]{6,}$/,
+  // Markdown headings (for structured text exports)
+  /^#{1,3}\s+.+/,
+];
+
+const looksLikeSectionHeading = (line: string): boolean => {
+  const trimmed = line.trim();
+  if (trimmed.length < 3 || trimmed.length > 120) return false;
+  return SECTION_HEADING_PATTERNS.some(p => p.test(trimmed));
+};
+
+/**
+ * Convert a section heading to a clean, provenance-friendly ID.
+ * e.g. "ITEM 1A. Risk Factors" → "ITEM_1A_Risk_Factors"
+ */
+const headingToId = (heading: string, index: number): string => {
+  const cleaned = heading
+    .trim()
+    .replace(/^#+\s*/, '')         // strip markdown #
+    .replace(/[^\w\s-]/g, '')      // strip non-word chars
+    .replace(/\s+/g, '_')          // spaces → underscores
+    .replace(/_+/g, '_')           // collapse double underscores
+    .slice(0, 50);                  // max 50 chars
+  return cleaned.length >= 3 ? cleaned : `Section_${index + 1}`;
+};
+
+/**
+ * Segments a single long document into chunks for provenance analysis.
+ * Each chunk becomes one ParticipantInput (like a "source segment").
+ *
+ * Strategies:
+ * - 'paragraph': Split on double newlines (best for generic documents).
+ * - 'sentence':  Split on sentence boundaries (for dense prose).
+ * - 'section':   Split on detected section headings — yields semantically
+ *                meaningful IDs like "ITEM_1A_Risk_Factors" instead of
+ *                "Segment_7". Best for legal briefs, 10-K filings,
+ *                clinical reports, policy papers.
+ *
+ * Very short chunks (< MIN_CONTENT_CHARS) are merged into the previous chunk
+ * to avoid noise from headers, page numbers, or short transition phrases.
+ */
+export const chunkSingleDocument = (
+  text: string,
+  strategy: 'paragraph' | 'sentence' | 'section' = 'paragraph',
+): ParticipantInput[] => {
+  if (strategy === 'section') {
+    // Split into lines, detect heading boundaries
+    const lines = text.split(/\r?\n/);
+    const sections: Array<{ heading: string; body: string[] }> = [];
+    let currentHeading = 'Introduction';
+    let currentBody: string[] = [];
+    let headingCount = 0;
+
+    for (const line of lines) {
+      if (looksLikeSectionHeading(line)) {
+        // Save previous section if it has content
+        if (currentBody.some(l => l.trim().length > 0)) {
+          sections.push({ heading: currentHeading, body: currentBody });
+        }
+        currentHeading = line.trim();
+        currentBody = [];
+        headingCount++;
+      } else {
+        currentBody.push(line);
+      }
+    }
+    // Push last section
+    if (currentBody.some(l => l.trim().length > 0)) {
+      sections.push({ heading: currentHeading, body: currentBody });
+    }
+
+    // If no headings were detected, fall back to paragraph chunking
+    if (headingCount === 0) {
+      return chunkSingleDocument(text, 'paragraph');
+    }
+
+    return sections
+      .map((sec, i) => ({
+        id: headingToId(sec.heading, i),
+        text: sec.body.join('\n').trim(),
+      }))
+      .filter(s => {
+        const meaningful = s.text.replace(/[\s\p{P}\p{N}]/gu, '');
+        return meaningful.length >= MIN_CONTENT_CHARS && !isMissingValue(s.text);
+      });
+  }
+
+  let rawChunks: string[];
+
+  if (strategy === 'paragraph') {
+    // Split on blank lines (double newlines), handling mixed line endings
+    rawChunks = text
+      .split(/\n\s*\n/)
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+  } else {
+    // Sentence splitting — handle abbreviations, decimal numbers, ellipsis
+    rawChunks = text
+      .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n')
+      .split('\n')
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+  }
+
+  // Merge very short chunks into previous
+  const merged: string[] = [];
+  for (const chunk of rawChunks) {
+    const meaningful = chunk.replace(/[\s\p{P}\p{N}]/gu, '');
+    if (meaningful.length < MIN_CONTENT_CHARS && merged.length > 0) {
+      merged[merged.length - 1] += ' ' + chunk;
+    } else if (meaningful.length >= MIN_CONTENT_CHARS) {
+      merged.push(chunk);
+    }
+  }
+
+  return merged
+    .filter(c => !isMissingValue(c))
+    .map((chunk, i) => ({
+      id: `Segment_${i + 1}`,
+      text: chunk,
+    }));
+};
+

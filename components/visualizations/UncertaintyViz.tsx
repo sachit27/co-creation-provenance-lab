@@ -10,7 +10,7 @@ interface UncertaintyVizProps {
 }
 
 interface ConfidenceIntervalBarProps {
-  label: string;
+  label: React.ReactNode;
   ci: { lower: number; upper: number; point: number };
   domain?: [number, number];
   colorScheme: 'blue' | 'purple' | 'amber';
@@ -148,14 +148,14 @@ export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
       {/* Metrics with CI bars */}
       <div className="space-y-6 flex-1">
         <ConfidenceIntervalBar
-          label="Average Representation"
+          label={<>Average Representation <InfoIcon metricKey="representation" /></>}
           ci={data.avgRepresentationCI}
           colorScheme="blue"
           target={representationTarget}
         />
 
         <ConfidenceIntervalBar
-          label="Gini Coefficient (Inequality)"
+          label={<>Gini Coefficient (Inequality) <InfoIcon metricKey="gini" /></>}
           ci={data.giniCI}
           colorScheme="purple"
           target={giniLow}
@@ -163,7 +163,7 @@ export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
         />
 
         <ConfidenceIntervalBar
-          label="Equity Gap (Majority vs Distinct)"
+          label={<>Equity Gap (Majority vs Distinct) <InfoIcon metricKey="gap" /></>}
           ci={data.gapCI}
           domain={[-0.5, 0.5]}
           colorScheme="amber"

@@ -8,7 +8,7 @@ import { checkGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GR
 import { checkOpenAIConnection, setOpenAIApiKey, getOpenAIApiKey, OPENAI_CHAT_MODELS, OPENAI_EMBEDDING_MODELS, fetchOpenAIChatModels } from '../../services/openai';
 import { checkClaudeConnection, setClaudeApiKey, getClaudeApiKey, CLAUDE_MODELS } from '../../services/claude';
 import { checkApertusConnection, setApertusApiKey, getApertusApiKey, APERTUS_MODELS } from '../../services/apertus';
-import { preprocessCSV, scanColumns, preprocessWithSelections, PreprocessReport, PreprocessResult } from '../../services/dataPreprocessor';
+import { preprocessCSV, scanColumns, preprocessWithSelections, PreprocessReport, PreprocessResult, parseMultiDocumentText, chunkSingleDocument } from '../../services/dataPreprocessor';
 import { ColumnSelector } from './ColumnSelector';
 
 interface ConfigPanelProps {
@@ -39,10 +39,26 @@ P006,"We should preserve the historic buildings while allowing modern developmen
 P007,"Environmental impact assessments should be mandatory for all projects.",expert
 P008,"Students need more affordable housing options near the university.",youth`;
 
+// Domain preset templates
+const DOMAIN_PRESETS = [
+  { id: 'legal', label: 'Legal / Depositions', context: 'These are legal testimonies, depositions, and witness statements.', biasHint: 'Watch for the softening of liability claims or sanitization of accusations.' },
+  { id: 'finance', label: 'Financial / 10-K', context: 'These are excerpts from corporate earnings calls and 10-K financial filings.', biasHint: 'Watch for speculative forward-guidance or omission of risk factors.' },
+  { id: 'healthcare', label: 'Clinical / Medical', context: 'These are patient records, clinical trial results, and medical notes.', biasHint: 'Watch for abstraction of concrete adverse events or omission of null results.' },
+  { id: 'policy', label: 'Policy / Gov', context: 'These are public consultations, committee reports, and policy memos.', biasHint: 'Ensure minority stakeholder voices are not marginalized or dropped.' },
+  { id: 'academic', label: 'Academic / Research', context: 'These are academic literature reviews and peer review reports.', biasHint: 'Watch for softened negative findings or dropped contradictory evidence.' },
+  { id: 'media', label: 'Journalism / Media', context: 'These are press releases, interview transcripts, and media statements.', biasHint: 'Watch for cross-source claims becoming speculative or abstracted.' },
+];
+
 export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [step, setStep] = useState<number>(1);
   const [inputs, setInputs] = useState<ParticipantInput[]>([]);
-  const [inputType, setInputType] = useState<'sample' | 'paste' | 'upload'>('sample');
+  const [inputType, setInputType] = useState<'sample' | 'paste' | 'upload' | 'multi_doc' | 'single_doc'>('sample');
+  // Multi-document mode state
+  const [multiDocTexts, setMultiDocTexts] = useState<string[]>(['', '']);
+  const [multiDocLabels, setMultiDocLabels] = useState<string[]>(['', '']);
+  // Single-document mode state
+  const [singleDocText, setSingleDocText] = useState<string>('');
+  const [chunkStrategy, setChunkStrategy] = useState<'paragraph' | 'sentence' | 'section'>('paragraph');
   const [selectedDataset, setSelectedDataset] = useState<string>('citizen');
   const [rawText, setRawText] = useState('');
 
@@ -215,11 +231,22 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       const parsed = parseRawText(rawText);
       setInputs(parsed);
       setParsedPreview(parsed);
+    } else if (inputType === 'multi_doc') {
+      const parsed = parseMultiDocumentText(
+        multiDocTexts.filter(t => t.trim().length > 0),
+        multiDocLabels.filter((_, i) => multiDocTexts[i]?.trim().length > 0),
+      );
+      setInputs(parsed);
+      setParsedPreview(parsed);
+    } else if (inputType === 'single_doc') {
+      const parsed = chunkSingleDocument(singleDocText, chunkStrategy);
+      setInputs(parsed);
+      setParsedPreview(parsed);
     } else {
       // Upload mode reset if needed
       if (inputs.length === 0) setParsedPreview([]);
     }
-  }, [inputType, rawText, selectedDataset]);
+  }, [inputType, rawText, selectedDataset, multiDocTexts, multiDocLabels, singleDocText, chunkStrategy]);
 
   // Download template CSV
   const downloadTemplate = () => {
@@ -342,6 +369,26 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
         }
         return { id: `P_${i + 1}`, text: line };
       });
+  };
+
+  // Handle per-slot .txt / .md uploads in multi_doc mode
+  const handleTextFileUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string;
+      const newTexts = [...multiDocTexts];
+      newTexts[index] = content;
+      const newLabels = [...multiDocLabels];
+      if (!newLabels[index] || newLabels[index] === `Source ${index + 1}`) {
+        newLabels[index] = file.name.replace(/\.[^/.]+$/, "");
+      }
+      setMultiDocTexts(newTexts);
+      setMultiDocLabels(newLabels);
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset so same file can be selected again
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -549,11 +596,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                 <p className="text-slate-500 mt-2">Select how you want to import participant contributions.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 {[
-                  { id: 'sample', icon: '📊', label: 'Sample Data', desc: 'Pre-loaded citizen science dataset' },
-                  { id: 'paste', icon: '✍️', label: 'Paste Text', desc: 'Direct input with CSV support' },
-                  { id: 'upload', icon: '📂', label: 'Upload CSV', desc: 'Columns: id, text' }
+                  { id: 'sample', icon: '📊', label: 'Sample Data', desc: 'Pre-loaded dataset' },
+                  { id: 'paste', icon: '✍️', label: 'Paste Text', desc: 'CSV or line-per-input' },
+                  { id: 'upload', icon: '📂', label: 'Upload CSV', desc: 'Auto-detect columns' },
+                  { id: 'multi_doc', icon: '📄', label: 'Multi-Document', desc: 'Multiple text sources' },
+                  { id: 'single_doc', icon: '📃', label: 'Document Segments', desc: 'Single doc auto-chunked' }
                 ].map((opt) => (
                   <button
                     key={opt.id}
@@ -561,11 +610,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       setInputType(opt.id as any);
                       if (opt.id === 'paste' && inputs.length === 0) setRawText('');
                     }}
-                    className={`p-6 rounded-xl border-2 text-left transition-all duration-200 group ${inputType === opt.id ? 'border-blue-500 bg-blue-50/50 shadow-sm' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
+                    className={`p-4 rounded-xl border-2 text-left transition-all duration-200 group ${inputType === opt.id ? 'border-blue-500 bg-blue-50/50 shadow-sm' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
                   >
-                    <div className="text-3xl mb-3 group-hover:scale-110 transition-transform">{opt.icon}</div>
-                    <div className={`font-bold ${inputType === opt.id ? 'text-blue-700' : 'text-slate-700'}`}>{opt.label}</div>
-                    <div className="text-xs text-slate-500 mt-1">{opt.desc}</div>
+                    <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">{opt.icon}</div>
+                    <div className={`font-bold text-sm ${inputType === opt.id ? 'text-blue-700' : 'text-slate-700'}`}>{opt.label}</div>
+                    <div className="text-[10px] text-slate-500 mt-1">{opt.desc}</div>
                   </button>
                 ))}
               </div>
@@ -658,6 +707,104 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                               </span>
                             )}
                           </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {inputType === 'multi_doc' && (
+                    <div className="space-y-3">
+                      <p className="text-xs text-slate-500">Paste multiple text sources (e.g., witness statements, earnings transcripts, policy memos). Each block is analyzed as one source.</p>
+                      {multiDocTexts.map((text, i) => (
+                        <div key={i} className="flex gap-2 items-start">
+                          <div className="flex-shrink-0 w-28 flex flex-col gap-2">
+                            <input
+                              type="text"
+                              value={multiDocLabels[i] || ''}
+                              onChange={(e) => {
+                                const newLabels = [...multiDocLabels];
+                                newLabels[i] = e.target.value;
+                                setMultiDocLabels(newLabels);
+                              }}
+                              placeholder={`Source ${i + 1}`}
+                              className="w-full p-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                            />
+                            <div className="relative w-full">
+                              <input
+                                type="file"
+                                accept=".txt,.md,.csv"
+                                onChange={(e) => handleTextFileUpload(e, i)}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                title="Upload .txt or .md file"
+                              />
+                              <button type="button" className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors border border-slate-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                                Upload .TXT
+                              </button>
+                            </div>
+                          </div>
+                          <textarea
+                            value={text}
+                            onChange={(e) => {
+                              const newTexts = [...multiDocTexts];
+                              newTexts[i] = e.target.value;
+                              setMultiDocTexts(newTexts);
+                            }}
+                            rows={3}
+                            className="flex-1 p-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-slate-700 placeholder:text-slate-400"
+                            placeholder={`Paste source text #${i + 1} here...`}
+                          />
+                          {multiDocTexts.length > 2 && (
+                            <button
+                              onClick={() => {
+                                setMultiDocTexts(multiDocTexts.filter((_, j) => j !== i));
+                                setMultiDocLabels(multiDocLabels.filter((_, j) => j !== i));
+                              }}
+                              className="text-slate-400 hover:text-red-500 text-sm flex-shrink-0 mt-2"
+                            >✕</button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          setMultiDocTexts([...multiDocTexts, '']);
+                          setMultiDocLabels([...multiDocLabels, '']);
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                      >
+                        + Add Another Source
+                      </button>
+                    </div>
+                  )}
+
+                  {inputType === 'single_doc' && (
+                    <div className="space-y-3">
+                      <p className="text-xs text-slate-500">Paste a single long document. It will be automatically segmented into chunks for provenance analysis.</p>
+                      <textarea
+                        value={singleDocText}
+                        onChange={(e) => setSingleDocText(e.target.value)}
+                        rows={6}
+                        className="w-full p-4 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-slate-700 placeholder:text-slate-400 font-mono"
+                        placeholder="Paste the full document text here. The tool will auto-segment it into source chunks..."
+                      />
+                      <div className="flex items-center gap-4">
+                        <span className="text-xs font-semibold text-slate-600">Chunking Strategy:</span>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="chunkStrategy" checked={chunkStrategy === 'paragraph'} onChange={() => setChunkStrategy('paragraph')} className="accent-blue-600" />
+                          <span className="text-sm text-slate-700">By Paragraph</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="chunkStrategy" checked={chunkStrategy === 'sentence'} onChange={() => setChunkStrategy('sentence')} className="accent-blue-600" />
+                          <span className="text-sm text-slate-700">By Sentence</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer" title="Auto-detects semantic sections like 'ITEM 1A' or '§3.1' as provenance IDs">
+                          <input type="radio" name="chunkStrategy" checked={chunkStrategy === 'section'} onChange={() => setChunkStrategy('section')} className="accent-blue-600" />
+                          <span className="text-sm text-slate-700">By Section <span className="text-slate-400 text-xs font-normal ml-0.5">(e.g. ITEM 1, §3)</span></span>
+                        </label>
+                      </div>
+                      {singleDocText.trim().length > 0 && (
+                        <div className="text-xs text-slate-500">
+                          {chunkSingleDocument(singleDocText, chunkStrategy).length} segments detected
                         </div>
                       )}
                     </div>
@@ -824,7 +971,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                 <div className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border ${currentStatus === 'connected' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                   <div className={`w-2 h-2 rounded-full ${currentStatus === 'connected' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
                   {currentStatus === 'connected'
-                    ? `${config.aiProvider === 'gemini' ? 'Gemini' : config.aiProvider === 'groq' ? 'Groq' : 'Ollama'} Online`
+                    ? `${providerLabel} Online`
                     : 'Service Unavailable (Offline Mode)'}
                 </div>
               </div>
@@ -837,6 +984,37 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     value={config.datasetName}
                     onChange={(e) => setConfig({ ...config, datasetName: e.target.value })}
                     className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-end justify-between mb-1">
+                    <label className="block text-sm font-semibold text-slate-700">Domain Context <span className="text-slate-400 font-normal">(Optional)</span></label>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">Select a preset to auto-configure context and bias hints, or write your own.</p>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
+                    {DOMAIN_PRESETS.map(preset => {
+                      const isActive = config.domainContext?.includes(preset.context);
+                      return (
+                        <button
+                          key={preset.id}
+                          onClick={() => setConfig({ ...config, domainContext: `${preset.context}\n\nBIAS HINT: ${preset.biasHint}` })}
+                          className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${isActive ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                        >
+                          <div className="font-semibold mb-0.5">{preset.label}</div>
+                          <div className={`text-[9px] leading-tight line-clamp-2 ${isActive ? 'text-blue-600/80' : 'text-slate-400'}`}>{preset.biasHint}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <textarea
+                    value={config.domainContext || ''}
+                    onChange={(e) => setConfig({ ...config, domainContext: e.target.value })}
+                    rows={2}
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-shadow text-sm text-slate-700 placeholder:text-slate-400 resize-y"
+                    placeholder="e.g. &quot;These are witness depositions from a civil law case&quot; or &quot;Quarterly earnings call transcripts from tech companies&quot;"
                   />
                 </div>
 
@@ -1130,6 +1308,20 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                           <option value="consensus">🤝 Consensus Focus (Agreements)</option>
                         </select>
                       </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Word Limit <span className="text-slate-400 font-normal">(optional)</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={50}
+                          step={50}
+                          placeholder="No limit — auto-scales"
+                          value={config.wordLimit || ''}
+                          onChange={(e) => setConfig({ ...config, wordLimit: e.target.value ? parseInt(e.target.value) : undefined })}
+                          className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        />
+                      </div>
 
                       {/* Gemini Specifics */}
                       {config.aiProvider === 'gemini' && (
@@ -1355,14 +1547,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                                   <div className="mt-1.5 text-[10px] text-slate-500 space-y-1">
                                     <p>Run the BGE-M3 embedding server locally:</p>
                                     <code className="block bg-slate-100 text-slate-700 px-2 py-1 rounded text-[10px] font-mono">
-                                      docker run -p 8787:8787 semitechnologies/transformers-inference:baai-bge-m3
-                                    </code>
-                                    <p className="text-slate-400">Or without Docker (Python):</p>
-                                    <code className="block bg-slate-100 text-slate-700 px-2 py-1 rounded text-[10px] font-mono">
                                       pip install sentence-transformers flask<br />
-                                      python bge_m3_server.py
+                                      python embedding_server.py
                                     </code>
-                                    <p className="text-slate-400 mt-1">Once running, refresh this page — it auto-detects on port 8787.</p>
+                                    <p className="text-slate-400">Or use Docker:</p>
+                                    <code className="block bg-slate-100 text-slate-700 px-2 py-1 rounded text-[10px] font-mono">
+                                      docker compose up bge-m3
+                                    </code>
+                                    <p className="text-slate-400 mt-1">Once running, refresh this page — it auto-detects on port 5001.</p>
                                   </div>
                                 </details>
                               </div>
