@@ -32,29 +32,7 @@ dist-ssr
 *.env
 .env.local
 
-# ─── Core application logic (kept local, deployed via Vercel CLI) ───
-# Main application entry & orchestration
-App.tsx
-index.tsx
-index.css
-constants.ts
-vite.config.ts
-
-# Analysis engine & AI service integrations
-services/
-
-# Serverless API functions
-api/
-
-# React hooks
-hooks/
-
-# Build & deploy configs that reveal architecture
-docker-compose.yml
-embedding_server.py
-start.sh
-
-# ─── Data & research (never pushed) ───
+# Large datasets & raw data
 canadian_data/
 canadian_data.zip
 *.zip
@@ -67,6 +45,13 @@ acl-style-files-master/
 # Internal archives & backups
 _archive_superseded/
 _backup_snapshots/
+
+# Application entry & orchestration (local only)
+App.tsx
+constants.ts
+services/aiAnalysis.ts
+services/analysis.ts
+services/completionRouter.ts
 
 # Test files
 test_*.ts
