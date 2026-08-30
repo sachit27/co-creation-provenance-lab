@@ -4,11 +4,10 @@ import type { CompletionResult } from '../types';
 /**
  * Gemini Service
  *
- * Two modes:
- *   1. Proxy mode (deployed on Vercel) — calls /api/gemini-* serverless functions.
- *      API key stays server-side, never exposed to the browser.
- *   2. Direct mode (local dev) — uses @google/genai SDK with client-side env var.
- *      Only used when proxy is unavailable (e.g., running npm run dev locally).
+ * Two optional modes:
+ *   1. Direct BYOK mode uses @google/genai with a browser-entered key.
+ *   2. A separately self-hosted deployment may expose secured /api/gemini-*
+ *      relays. The public GitHub Pages build does not provide these routes.
  */
 
 // Client-side key from build-time env (local dev only via vite.config.ts)
@@ -27,7 +26,7 @@ export const setRuntimeGeminiKey = (key: string): void => {
   } else {
     sessionStorage.removeItem(RUNTIME_KEY_STORAGE);
   }
-  // Note: proxyAvailable is intentionally NOT reset here. The Vercel proxy
+  // Note: proxyAvailable is intentionally NOT reset here. A self-hosted proxy
   // doesn't use the user's API key — it runs server-side. Resetting on every
   // keystroke would cause a 3-second timeout delay before each model fetch.
 };
@@ -101,7 +100,7 @@ export const getGeminiModels = async (): Promise<GeminiModelLists> => {
     }
   }
 
-  // 2. Fall back to proxy (deployed mode with server-side key)
+  // 2. Fall back to an optional self-hosted proxy.
   try {
     if (await checkProxy()) {
       const res = await fetch('/api/gemini-models', { signal: AbortSignal.timeout(10000) });

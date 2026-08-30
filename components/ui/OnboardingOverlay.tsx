@@ -13,7 +13,7 @@ const steps = [
     {
         emoji: '🌍',
         title: 'Welcome to the Co-Creation Provenance Lab',
-        body: 'This tool audits AI-generated summaries to make the invisible visible — showing whose voice was captured, whose was lost, and what opportunities were missed.',
+        body: 'This tool records a summary workflow and surfaces source-to-summary alignment and evidence candidates for review. It does not prove that a voice was captured, lost, or causally influential.',
     },
     {
         emoji: '📄',

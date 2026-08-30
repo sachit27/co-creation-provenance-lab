@@ -100,13 +100,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [isFetchingModels, setIsFetchingModels] = useState<'openai' | 'groq' | 'claude' | 'apertus' | null>(null);
   const [bgeM3Status, setBgeM3Status] = useState<'checking' | 'connected' | 'offline'>('checking');
   // API key inputs — values are written to sessionStorage. Provider routing is
-  // disclosed in the corresponding UI; Apertus uses a same-origin BYOK relay.
+  // disclosed in the corresponding UI. Apertus uses the Vite relay during
+  // local development; the public static build has no provider relay.
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [groqKeyInput, setGroqKeyInput] = useState(() => getGroqApiKey());
   const [openAIKeyInput, setOpenAIKeyInput] = useState(() => getOpenAIApiKey());
   const [claudeKeyInput, setClaudeKeyInput] = useState(() => getClaudeApiKey());
   const [apertusKeyInput, setApertusKeyInput] = useState(() => getApertusApiKey());
-  // Ollama host URL (for Vercel deployments)
+  // Ollama host URL for non-Vite hosts, including the static demonstration.
   const [ollamaHostInput, setOllamaHostInput] = useState(() => isUsingViteProxy() ? '' : getOllamaHostUrl());
   const apertusValidationSequence = useRef(0);
 
@@ -680,7 +681,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     });
   };
 
-  // Handle Ollama host URL change (fixes Vercel "Inactive" bug)
+  // Handle an explicit Ollama host for static or non-Vite deployments.
   const handleOllamaHostChange = (host: string) => {
     setOllamaHostInput(host);
     setOllamaHost(host);
@@ -1381,7 +1382,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       className="w-full p-2.5 border border-red-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none bg-white"
                     />
                     <p className="text-xs text-red-600 mt-1.5">
-                      Apertus is an open-weight Swiss model; this option sends the key and text through this deployment's same-origin BYOK relay to the PublicAI cloud host. Use only a scoped research key and ensure the deployment does not log authorization headers. <a className="underline" href="https://platform.publicai.co/docs" target="_blank" rel="noreferrer">PublicAI API documentation</a>.
+                      Apertus is an open-weight Swiss model hosted here through PublicAI. Local development uses the Vite relay. The public static demonstration has no PublicAI relay, so this option is unavailable there. <a className="underline" href="https://platform.publicai.co/docs" target="_blank" rel="noreferrer">PublicAI API documentation</a>.
                     </p>
                   </div>
                 )}

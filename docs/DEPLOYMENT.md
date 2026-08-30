@@ -1,131 +1,41 @@
+# Deployment
 
+The public application is a static GitHub Pages build at:
 
-## Security Architecture
+<https://sachit27.github.io/apps/provenance-lab/>
 
-```
-Browser  ──>  Vercel CDN (static frontend)
-                ──>  /api/gemini-embed   (serverless, has API key)
-                ──>  /api/gemini-complete (serverless, has API key)
-```
+The former Vercel deployment is disabled. GitHub Pages serves no `/api/*` backend and contains no shared server-side provider keys.
 
-- The Gemini API key is **only** on the server side (Vercel environment variable)
-- The production JavaScript bundle contains **no API keys**
-- The `/api/*` serverless functions proxy requests to Gemini
-- The demo data loads instantly without any API calls
-
-## Prerequisites
-
-- GitHub account
-- Vercel account (free at vercel.com — sign in with GitHub)
-- Gemini API key (free at aistudio.google.com/apikey)
-
-## Step 1: Generate Demo Data
-
-Run the same production analysis pipeline used by the interface. The command fails without replacing the existing artifact if generation or embeddings fall back, or if any enrichment stage fails:
-
-```bash
-OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
-```
-
-The default reproducible configuration uses `qwen2.5:14b` for generation, `phi4:14b` for model-coded evaluation, and `qwen3-embedding:8b` for embeddings. Model names and the host can be overridden through the environment variables documented in `scripts/generate-demo.ts`.
-
-The interface can also export a successful run manually:
-
-1. Click **"Export as Demo Data"** in the sidebar
-2. Move the file into the project:
-   ```bash
-   mv ~/Downloads/demo-result.json public/demo-result.json
-   ```
-
-## Static GitHub Pages deployment
-
-The application can be built under a project subpath and copied into an existing GitHub Pages site:
+## Build for the academic website
 
 ```bash
 VITE_BASE_PATH=/apps/provenance-lab/ npm run build
 ```
 
-Publish the contents of `dist/` at `/apps/provenance-lab/`. The bundled demo works without a backend. Live Gemini serverless routes require the Vercel deployment; a GitHub Pages visitor can instead configure a supported browser-direct provider or an origin-restricted Ollama endpoint in the interface.
+Publish the contents of `dist/` at `/apps/provenance-lab/` in the academic website repository. The bundled demonstration works as static data.
 
-## Step 2: Create Private GitHub Repository
+## Capabilities of the static build
+
+- The precomputed demonstration and all client-side visualizations work without a backend.
+- Manual and deterministic extractive summaries can use the browser TF-IDF baseline without an API key.
+- Browser-direct cloud providers require a user-supplied key and depend on each provider's current CORS policy.
+- Ollama requires an explicitly configured, safely restricted endpoint when accessed from the hosted page.
+- PublicAI/Apertus uses the Vite proxy during local development. The public static build has no PublicAI relay.
+- The optional `api/` handlers are retained as reference code for a separately secured self-hosted deployment. They are not deployed by GitHub Pages.
+
+## Generate the demonstration artifact
 
 ```bash
-cd /path/to/co-creation-provenance-tool
-
-# Create the repo on GitHub (private)
-gh repo create co-creation-provenance-lab --private --source=. --push
+OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
 ```
 
-Or manually:
-1. Go to github.com/new
-2. Name: `co-creation-provenance-lab`
-3. Visibility: **Private**
-4. Do NOT initialize with README (you already have one)
-5. Then:
-   ```bash
-   git add -A
-   git commit -m "Initial commit"
-   git remote add origin git@github.com:YOUR_USERNAME/co-creation-provenance-lab.git
-   git push -u origin main
-   ```
+The default configuration uses `qwen2.5:14b` for generation, `phi4:14b` for automated review, and `qwen3-embedding:8b` for embeddings. The script refuses to replace `public/demo-result.json` if required stages fail or the run silently falls back.
 
-## Step 3: Deploy to Vercel
+## Verify before publishing
 
-1. Go to [vercel.com/new](https://vercel.com/new)
-2. Click **"Import Git Repository"**
-3. Select your private `co-creation-provenance-lab` repo
-4. Vercel auto-detects Vite — no changes needed to build settings
-5. **Add environment variable:**
-   - Key: `GEMINI_API_KEY`
-   - Value: your Gemini API key (starts with `AIza...`)
-   - Environment: Production (and optionally Preview)
-6. Click **Deploy**
-
-Deployment takes ~60 seconds. You get a URL like:
-```
-https://co-creation-provenance-lab-xxxxx.vercel.app
+```bash
+npm run verify
+VITE_BASE_PATH=/apps/provenance-lab/ npm run build
 ```
 
-## Step 4: Verify
-
-1. Open the URL — you should see the demo dashboard immediately
-2. Click around: visualizations, info icons, participant details
-3. Click "Try Your Own Data" to test live Gemini analysis
-4. Export a report to verify that works too
-
-## Step 5: Custom Domain (Optional)
-
-In Vercel dashboard > Settings > Domains, you can add a custom domain or rename the `.vercel.app` subdomain.
-
-
-
-## API Key Protection
-
-| Layer | Protection |
-|-------|-----------|
-| Client bundle | API key is NOT in the JavaScript (verified: empty string at build time) |
-| Serverless functions | API key is in Vercel env vars, only accessible server-side |
-| Gemini quotas | Configure authentication, per-user quotas, rate limits, and spend alerts; provider limits vary by account and model |
-| Demo mode | Most users never trigger API calls (pre-loaded data) |
-
-### Additional Gemini API Key Safety
-
-In Google AI Studio, you can add restrictions to your API key:
-1. Go to aistudio.google.com/apikey
-2. Click on your key
-3. Under "API restrictions", you can set:
-   - **HTTP referrer restrictions**: Only allow `https://your-app.vercel.app/*`
-   - **API restrictions**: Only allow "Generative Language API"
-
-
-
-## Troubleshooting
-
-**"API key not configured" error when running analysis:**
-Check that `GEMINI_API_KEY` is set in Vercel dashboard > Settings > Environment Variables.
-
-**Demo data not loading:**
-Verify `public/demo-result.json` exists and is not empty. It must have valid `participants`, `metrics`, and `summary` fields.
-
-**Build fails on Vercel:**
-Ensure `vercel.json` is in the project root. Check that all dependencies are in `package.json`.
+Check that the demo has a run manifest and no raw vectors, the subpath assets load, unavailable stages remain explicit, and no keys or local evaluation data are tracked.

@@ -1,154 +1,77 @@
 <div align="center">
 
-<img src="public/logo.png" alt="Provenance Lab" width="120" style="border-radius: 20px;" />
-
-<br/>
+<img src="public/logo.png" alt="Provenance Lab" width="120" />
 
 # Provenance Lab
 
-**Open-source visual analytics for auditing AI-generated summaries.**<br/>
-Inspect execution provenance, semantic associations, and automated evidence-review flags in source-to-summary workflows.
+**Visual analytics for inspecting source-to-summary representation.**
 
-<br/>
-
-[![Try it live](https://img.shields.io/badge/Try_it_live-Provenance_Lab-2563eb?style=for-the-badge&logo=github&logoColor=white)](https://sachit27.github.io/apps/provenance-lab/)
+[![Open the demonstration](https://img.shields.io/badge/Open_demonstration-GitHub_Pages-2563eb?style=for-the-badge&logo=github)](https://sachit27.github.io/apps/provenance-lab/)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-
-<br/>
-
-[The Problem](#the-problem) &nbsp;&middot;&nbsp; [How It Works](#how-it-works) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [Quick Start](#quick-start) &nbsp;&middot;&nbsp; [AI Providers](#ai-providers) &nbsp;&middot;&nbsp; [Methodology](#methodology)
-
-<br/>
-
-<img src="public/dashboard.png" alt="Provenance Lab Dashboard" width="100%" style="border-radius: 12px;" />
-
-<sub>Audit dashboard showing model-dependent alignment indicators, evidence checks, and explicit limitations.</sub>
 
 </div>
 
-<br/>
+## Purpose
 
-## The Problem
+Provenance Lab audits how a summary relates to a collection of source contributions. It records how a run was executed, computes source-to-summary semantic-alignment indicators, and presents evidence for review at participant, sentence, claim, group, and discourse levels.
 
-Large Language Models are increasingly used to synthesize complex inputs — stakeholder consultations, survey responses, research literature, community feedback. But **synthesis is inherently reductive**:
+The application does **not** establish authorship, causal influence, factual entailment, fairness, or a participant's internal emotional state. Similarity links and model-coded labels are review evidence. They are not verified derivations or human judgments.
 
-- Summaries can omit, merge, or reframe source material
-- Nuance and affective expression can change without an explicit record
-- The distance between original evidence and final summary is invisible
-- It is difficult to inspect which source passages are semantically aligned with, or absent from, each summary claim
+## Hosted demonstration
 
-**Provenance Lab makes this inspectable.** It records execution provenance and adds semantic-association and automated evidence audits between source documents and a summary. Similarity is not causal influence, and automated judgments remain review aids rather than proof.
+The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) loads a precomputed audit of 30 bundled sample contributions. That artifact was produced through the application pipeline with:
 
-<br/>
+- `qwen2.5:14b` for summary generation
+- `phi4:14b` for automated model-coded review
+- `qwen3-embedding:8b` for semantic embeddings
 
-## How It Works
+The sample did not pass the application's clustering validity gates. It is therefore displayed without a validated semantic partition, and cluster-dependent tension and attribution claims remain unavailable. This behavior is intentional.
 
-```
-  Upload CSV              AI Generates             Provenance Engine            Visual Dashboard
-  ┌──────────┐           ┌──────────────┐          ┌───────────────┐           ┌──────────────┐
-  │ Participant │  ───>   │   Summary    │   ───>   │  Embed, Score │   ───>   │ 16 Analytical│
-  │ Responses  │         │  (any LLM)   │          │  Trace, Audit │          │    Views     │
-  └──────────┘           └──────────────┘          └───────────────┘           └──────────────┘
-```
+The hosted site has no Vercel backend and no shared server-side API keys. Running a new analysis requires a compatible browser-direct provider, a safely configured Ollama endpoint, or a local installation. Browser-entered credentials are stored only in the current tab's `sessionStorage`, but they remain accessible to the page's JavaScript and browser extensions.
 
-1. **Upload** participant responses as CSV (auto-detects columns, handles messy data)
-2. **Summarize** using any AI provider — or paste an existing summary
-3. **Audit** — the engine computes semantic-alignment scores, highlights review candidates, and checks claim evidence
-4. **Explore** — 16 interactive visualizations reveal exactly what happened during synthesis
+## Workflow
 
-> **Privacy-first**: All analysis can run entirely in-browser. No data leaves your machine unless you opt into a cloud LLM provider.
+1. **Ingest sources.** Use a sample dataset, paste text, upload CSV/TSV/TXT, provide multiple documents, or split a single document.
+2. **Declare the summary origin.** Generate a summary with a configured model, create a deterministic extractive summary, or paste an existing summary and record its known provenance.
+3. **Choose methods.** Configure the generator, automated evaluator, and embedding method separately. The run manifest records requested and effective methods and available provider metadata.
+4. **Run the core audit.** The application segments the summary, embeds sources and summary sentences, computes maximum-sentence semantic alignment, and reports descriptive inequality and source-space diagnostics.
+5. **Run optional automated reviews.** When an evaluator is available, the application can assess source-unit transformations, affective expression, claim evidence, sampled tensions, rhetoric markers, and graph entities. Missing or malformed model outputs remain explicit.
+6. **Inspect and export.** Review participants and evidence, revise a summary, collect locally returned participant responses, export an HTML report, or create an unsigned PROV-aligned JSON-LD record with integrity digests.
 
-<br/>
+## Interface
 
-## Features
+The sidebar has 16 analytical views in four workspaces. Views appear only when the required data exists.
 
-Provenance Lab provides **16 analytical views** organized into four layers:
+| Workspace | Views | Interpretation |
+|---|---|---|
+| Overview & Triage | Inclusion Metrics, Alignment Quadrants, Uncertainty, Group Comparison | Descriptive alignment levels, inequality, resampling stability, and configured-group differences |
+| Participant & Topic Spaces | Discussion Map, Similarity Network, Knowledge Graph | Source-space geometry and model-extracted concepts; clustering appears only after internal validity gates pass |
+| Associations & Evidence | Contribution Matches, Association Map, Claim Evidence, Sentence–Source Similarity | Semantic retrieval candidates and model-coded evidence for inspection, without causal or citation claims |
+| Discourse & Counterfactual Audit | Source-unit Transformation, Tension Mapping, Rhetoric–Alignment Association, Sensitivity (LOO), Compare Strategies | Optional transformation and discourse reviews plus descriptive source-space and strategy analyses |
 
-### Representation & Equity
+Additional workflow panels support summary revision, participant-response import/export, facilitation suggestions, and budgeted counterfactual utility attribution. Cluster-level functions are disabled when no partition passes the documented gates.
 
-<table>
-<tr>
-<td width="50%">
+## Core measures and boundaries
 
-**Discussion Map** — 2D semantic projection (PCA) of all participant inputs. Colors show semantic groups only when a cosine-space spherical K-Means partition passes projection-fidelity, full-space separation, minimum-size, resampling-stability, neighborhood-coherence, and method-sensitivity gates; otherwise the map remains explicitly unpartitioned.
+For source vector `p_i` and summary-sentence vectors `s_k`, the representation indicator is `R_i = max_k max(0, cosine(p_i, s_k))`. It measures the strongest sentence-level semantic similarity found for each source. It does not measure whether the summary agrees with the source, whether the source caused the wording, or whether every claim in a long source was retained.
 
-**Blind Spot Analysis** — Quadrant scatterplot (Centrality vs. Representation) that identifies voices the summary ignored despite being topically relevant.
+- **Gini coefficient** describes inequality among valid alignment indicators.
+- **Participant resampling** describes stability under resampling of the observed records. It is not automatically a population confidence interval.
+- **Alignment quadrants** use a descriptive median split of source centrality and alignment.
+- **Sensitivity (LOO)** measures movement of the source-space centroid when one record is removed. It is not influence on the generated summary.
+- **Clustering** reports a partition only after sample-size, separation, minimum-size, restart, subsample, neighborhood, method-sensitivity, and projection checks pass.
+- **Affective-expression review** compares model-coded, target-aware profiles of observable text. It does not infer a person's emotions and is not a generic emotion-smoothing score.
+- **Counterfactual utility attribution** evaluates a defined stochastic summary-coverage utility. It is not causal identification from observational data.
 
-**Alignment Distribution** — Lorenz curves, Gini coefficient, and participant-resampling stability intervals describing inequality in model-dependent alignment scores. These do not prove fairness or population bias.
+The full definitions and limitations are in [docs/methodology.md](docs/methodology.md).
 
-</td>
-<td width="50%">
-<img src="public/blind_spot.png" alt="Blind Spot Analysis" width="100%" style="border-radius: 8px;" />
-<sub>Blind Spot Analysis: identifying excluded voices by comparing opinion centrality against AI representation.</sub>
-</td>
-</tr>
-</table>
+## Local installation
 
-### Provenance & Traceability
-
-<table>
-<tr>
-<td width="50%">
-<img src="public/lineage.png" alt="Contribution Lineage" width="100%" style="border-radius: 8px;" />
-<sub>Source–summary associations: reviewing sentence-level semantic matches without claiming causal influence.</sub>
-</td>
-<td width="50%">
-
-**Source–Summary Associations** — Interactive flow diagram showing participant-to-summary semantic matches. It does not claim observed influence or derivation.
-
-**Semantic Association Sankey** — Theme-to-summary similarity map with explicit unmatched residuals.
-
-**Knowledge Graph** — Entity-relationship graph extracted from participant texts using Louvain community detection, revealing the conceptual structure of the discussion.
-
-</td>
-</tr>
-</table>
-
-### Language & Rhetoric
-
-<table>
-<tr>
-<td width="50%">
-
-**Source-unit Transformation** — Inventories every sentence-like answer unit and records preserved, softened, sanitized, abstracted, target-shifted, target-uncertain, dropped, or unassessed outcomes with exact summary spans and explicit output completeness.
-
-**Affective-expression Audit** — Compares target-aware pointwise profiles of verified source and summary spans across valence magnitude, expressed intensity, urgency, broad emotion families, and stance. It does not infer internal emotion or report a generic emotion-smoothing score.
-
-**Claim Attribution** — FActScore-inspired analysis mapping each summary claim to supporting, inferrable, or unsupported evidence in the source texts.
-
-**Tension Network** — Detects conflicting viewpoints in the source data and tracks whether the AI acknowledged, suppressed, merged, or distorted those contradictions.
-
-**Rhetoric–Alignment Association** — Exploratory Spearman association between an English-oriented marker composite and semantic-alignment scores. It does not control confounders or diagnose systematic bias.
-
-</td>
-<td width="50%">
-<img src="public/loo.png" alt="Semantic Leverage LOO" width="100%" style="border-radius: 8px;" />
-<sub>Semantic-centroid sensitivity (LOO): measuring how much the source-space centroid shifts when one record is removed.</sub>
-</td>
-</tr>
-</table>
-
-### Statistical Robustness
-
-| View | What it measures |
-|:---|:---|
-| **Sensitivity (LOO)** | Leave-one-out source geometry showing which record most shifts the source-space centroid; not causal leverage over the summary |
-| **Resampling Stability** | Deterministic participant-resampling intervals for selected aggregates; not population confidence intervals without defensible IID sampling |
-| **Group Equity** | Between-group representation gaps when stakeholder categories (e.g., community, government, business) are present |
-| **Strategy Comparison** | Side-by-side comparison of different summarization strategies on the same data |
-| **PROV-O Export** | Unsigned W3C PROV-aligned JSON-LD audit record with digests, actual/requested methods, fallbacks, assessments, and limitations |
-
-<br/>
-
-## Quick Start
-
-**Prerequisites:** Node.js 18+
-
-### Local Development
+Requirements: Node.js 18 or newer.
 
 ```bash
 git clone https://github.com/sachit27/co-creation-provenance-lab.git
@@ -157,111 +80,38 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The tool works immediately with built-in demo datasets and local TF-IDF embeddings — **no API key required**.
+Open `http://localhost:5173`.
 
-The hosted read-only demo is available at [sachit27.github.io/apps/provenance-lab](https://sachit27.github.io/apps/provenance-lab/). Its bundled result is a full production-pipeline run over the 30 public sample contributions using local Ollama models. To reproduce that artifact:
+No API key is required for sample data, manual or extractive summaries, and the built-in TF-IDF baseline. Model-coded enrichment requires a working evaluator. Local Vite development proxies Ollama at `http://localhost:11434` and PublicAI/Apertus requests to avoid browser cross-origin restrictions.
 
-```bash
-OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
-```
-
-<details>
-<summary><b>Run with Docker</b></summary>
-
-```bash
-docker compose up
-```
-
-</details>
-
-<details>
-<summary><b>High-fidelity multilingual embeddings (optional)</b></summary>
-
-For an optional published multilingual dense-embedding method, run the local BGE-M3 embedding server:
+### Optional local dense embeddings
 
 ```bash
 pip install -r requirements-embedding.txt
 python embedding_server.py
 ```
 
-This provides 1024-dimensional multilingual embeddings supporting 100+ languages — no API key required.
+This starts the local BGE-M3 service. Its suitability still needs validation for the intended language and domain.
 
-</details>
+### Verification
 
-<br/>
+```bash
+npm run verify
+```
 
-## AI Providers
+This runs the deterministic regression suite, TypeScript checks, and the production build. The separate empirical research evaluation is intentionally maintained outside the public GitHub repository.
 
-Provenance Lab is **model-agnostic**. Bring your own API key or run fully offline.
+### Rebuild the bundled demonstration
 
-| Provider | Summary Generation | Embeddings | Privacy |
-|:---|:---:|:---:|:---|
-| **Ollama** (configured host) | Yes | Yes | Local only when the configured host is local or organization-controlled |
-| **BGE-M3** (local Python) | — | Yes | Local by default; depends on how the server is deployed |
-| **TF-IDF** (built-in) | — | Yes | Computed in the browser |
-| **Google Gemini** | Yes | Yes | Cloud API |
-| **OpenAI** | Yes | Yes | Cloud API |
-| **Anthropic Claude** | Yes | — | Cloud API |
-| **Groq** | Yes | — | Cloud API; availability and pricing depend on the account |
-| **Apertus** (Swiss National AI) | Yes | — | Cloud API |
+With the documented Ollama models installed:
 
-> Browser-entered keys are kept in `sessionStorage`, not local persistent storage. Cloud providers receive participant text. Apertus sends the PublicAI key and text through the deployment's same-origin BYOK relay; opt-in Gemini server-key relays require authentication and quota controls. Review server logging, provider retention, and organizational policy before uploading sensitive data.
+```bash
+OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
+```
 
-<br/>
+The command refuses to replace the existing artifact if required stages fail or silently fall back.
 
-## Methodology
-
-<details>
-<summary><b>Representation Scoring</b></summary>
-
-<br/>
-
-For participant vector $p_i$ and summary-sentence vectors $s_k$, the representation score is $R_i = \max_k \max(0, \cos(p_i,s_k))$. It is strongest sentence-level semantic alignment—not entailment, authorship, agreement, causal influence, or affective preservation. Failed vectors and unavailable extractive leave-self-out cases are excluded from aggregates. Dense and TF-IDF scores use different provisional interpretation bands because their cosine distributions are not comparable.
-
-</details>
-
-<details>
-<summary><b>Automated affective-expression audit</b></summary>
-
-<br/>
-
-Legacy ternary sentiment and the mixed LLM/English-classifier/lexicon fallback have been retired. Current runs use a source-first, exact-span, target-aware, multidimensional model-coded audit with explicit missingness and conditional participant-balanced denominators. It is exploratory and requires human-coded multilingual/domain validation before consequential use.
-
-</details>
-
-<details>
-<summary><b>Statistical Methods</b></summary>
-
-<br/>
-
-- **Participant-resampling stability intervals**: 1000 seeded resamples of observed valid records for selected aggregates
-- **Spearman rank correlation**: Seeded Monte Carlo permutation screen (1,999 permutations) for the exploratory rhetoric–alignment association
-- **Louvain community detection**: Modularity-optimized clustering with proper null-model penalty for non-edges
-- **MinHash/LSH**: Near-duplicate detection with integer-safe hashing (prime = 104729)
-- **Gini coefficient**: Descriptive inequality of valid semantic-alignment scores
-
-</details>
-
-<details>
-<summary><b>Embedding Tier System</b></summary>
-
-<br/>
-
-The tool selects from available embedding methods using a documented fallback order; “available” does not imply best for the user's language or domain:
-
-| Tier | Method | Dimensions | Intended role |
-|:---:|:---|:---:|:---|
-| 1 | BGE-M3 (local Python server) | 1024 | Published multilingual dense retriever; validate for the target domain |
-| 2 | Gemini / OpenAI API embeddings | Model-dependent | Cloud dense retrieval; capabilities and dimensions depend on the selected model |
-| 3 | TF-IDF (built-in, no setup) | Corpus-dependent | Lexical baseline — always available |
-
-</details>
-
-<br/>
-
-## Input Format
-
-Upload a CSV file with participant responses. The tool auto-detects columns:
+## Input format
 
 ```csv
 id,text,group
@@ -270,54 +120,37 @@ P2,"Budget constraints limit infrastructure expansion",government
 P3,"Mixed-use development could address both concerns",business
 ```
 
-- **id** — Participant identifier (optional, auto-generated if missing)
-- **text** — The participant's response (required)
-- **group** — Stakeholder category for descriptive group comparison (optional)
+`id` and `group` are optional. The interface previews detected columns and preprocessing decisions before analysis. Data cleaning is consequential: inspect excluded records and preserve question context when short answers depend on it.
 
-Works with or without headers. Handles messy data, encoding issues, and varied delimiters.
+## Providers and data destinations
 
-<br/>
+| Method | Generation | Embeddings | Where data goes |
+|---|:---:|:---:|---|
+| Ollama | Yes | Yes | Configured Ollama host |
+| BGE-M3 service | No | Yes | Configured local or organizational service |
+| TF-IDF | No | Yes | Browser only |
+| Google Gemini | Yes | Yes | Google API when a user key is supplied |
+| OpenAI | Yes | Yes | OpenAI API when a user key is supplied |
+| Anthropic Claude | Yes | No | Anthropic API when a user key is supplied |
+| Groq | Yes | No | Groq API when a user key is supplied |
+| Apertus via PublicAI | Yes | No | PublicAI through the local development proxy; the static hosted demonstration has no relay |
 
-## Project Structure
+Cloud providers receive the text sent for generation or automated review. Review provider retention, logging, access controls, and organizational policy before processing sensitive material. A local model is private only when its configured host and surrounding infrastructure are controlled appropriately.
 
+## Repository layout
+
+```text
+components/       Interface panels and visualizations
+services/         Analysis, provider adapters, statistics, and exports
+api/              Optional serverless relay handlers; not active on GitHub Pages
+public/           Static assets and the precomputed demonstration
+scripts/          Reproducible demo generation
+tests/            Deterministic application regression tests
+docs/             Methodology and deployment documentation
 ```
-co-creation-provenance-lab/
-  components/
-    ui/                    # Dashboard panels, config, onboarding
-    visualizations/        # 16 analytical view components
-  services/
-    analysis.ts            # Core analysis pipeline
-    completionRouter.ts    # Multi-provider LLM routing with timeout
-    affectiveFidelity.ts   # Pointwise affective-expression profiles and deterministic comparisons
-    languageFidelity.ts    # Source-census transformation aggregation
-    rhetoricalAnalysis.ts  # Exploratory marker/alignment association
-    claimAttribution.ts    # FActScore-inspired claim tracing
-    graphRAG.ts            # Knowledge graph & Louvain clustering
-    mathUtils.ts           # Statistical primitives (Gini, PCA, bootstrap)
-    textUtils.ts           # Porter stemmer, RAKE, concept overlap
-  api/                     # Vercel serverless functions (proxy)
-  public/                  # Static assets & demo data
-```
 
-<br/>
+## License
 
-## License & Contributing
+[GNU Affero General Public License v3.0](LICENSE). Contributions are welcome through issues and pull requests.
 
-Contributions are welcome. Please open an issue before submitting large architectural changes.
-
-- **License:** [GNU AGPL v3.0](LICENSE)
-- **Author:** Sachit Mahajan — [sachitmahajan90@gmail.com](mailto:sachitmahajan90@gmail.com)
-
-For commercial or enterprise licensing inquiries, please contact the author.
-
-<div align="center">
-
-<br/>
-
-<img src="public/landing.png" alt="Provenance Lab Setup" width="60%" style="border-radius: 12px;" />
-
-<sub>Configuration panel with support for 8 AI providers and built-in demo datasets.</sub>
-
-<br/><br/>
-
-</div>
+Author: Sachit Mahajan, [sachitmahajan90@gmail.com](mailto:sachitmahajan90@gmail.com)

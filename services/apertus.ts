@@ -31,7 +31,8 @@ const APERTUS_BASE_STORAGE = 'cprov_apertus_base';
 /**
  * Returns the active Apertus API base URL.
  * A custom base is optional. The default route uses the Vite proxy in
- * development and a BYOK Vercel relay in production.
+ * development. A static production host has no relay unless its operator
+ * deliberately supplies compatible /api/apertus-* routes.
  */
 const getApiBase = (): string =>
     sessionStorage.getItem(APERTUS_BASE_STORAGE) || VITE_PROXY_PATH;
@@ -44,7 +45,7 @@ export const setApertusApiBase = (url: string): void => {
 
 const APERTUS_KEY_STORAGE = 'cprov_apertus_key';
 
-// Build-time key from env (local dev — never present in Vercel production)
+// Build-time key from env for local development only.
 const buildTimeKey = (process.env as any).PUBLICAI_API_KEY || '';
 
 // ── API key management ────────────────────────────────────────────────────────
@@ -158,7 +159,7 @@ export const generateApertusCompletionResult = async (
     } catch (networkErr) {
         if ((networkErr as Error)?.name === 'AbortError' || (networkErr as Error)?.name === 'TimeoutError') throw networkErr;
         throw new Error(
-            `Apertus/PublicAI network error. Check the deployment relay or custom API base. Details: ${networkErr}`
+            `Apertus/PublicAI network error. The static hosted demonstration has no relay; use local development or a secured compatible API base. Details: ${networkErr}`
         );
     }
 

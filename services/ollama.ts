@@ -7,7 +7,7 @@
  * The Vite dev server proxies /api/ollama → http://localhost:11434.
  * This avoids CORS issues because the browser talks to the same origin.
  *
- * ── Deployed on Vercel (or any CDN) ─────────────────────────────────────────
+ * ── Static or other production host ─────────────────────────────────────────
  * The Vite proxy does NOT exist in production. Requests to /api/ollama would
  * 404. Instead, the user must provide their Ollama host URL directly
  * (e.g., http://localhost:11434 with CORS enabled, or a tunneled URL via
@@ -32,7 +32,7 @@ const OLLAMA_HOST_STORAGE = 'cprov_ollama_host';
 const getOllamaHost = (): string =>
   sessionStorage.getItem(OLLAMA_HOST_STORAGE) || VITE_PROXY_HOST;
 
-/** Set a custom Ollama host URL (e.g. http://localhost:11434 for Vercel users).
+/** Set a custom Ollama host URL (e.g. http://localhost:11434 for hosted users).
  *  Pass an empty string to reset to the Vite proxy default. */
 export const setOllamaHost = (host: string): void => {
   const trimmed = host.trim().replace(/\/$/, ''); // remove trailing slash
@@ -59,7 +59,8 @@ export const checkOllamaConnection = async (): Promise<boolean> => {
     return response.ok;
   } catch (e) {
     if (isUsingViteProxy()) {
-      // On Vercel this path always fails — the proxy doesn't exist.
+      // On a static production host this path fails because the Vite proxy
+      // exists only during local development.
       // Suppress the error; the UI will show the "Enter Ollama URL" prompt.
     } else {
       console.warn(

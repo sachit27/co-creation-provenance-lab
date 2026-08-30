@@ -6,8 +6,8 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
-  // In production (Vercel), API keys are handled server-side by /api/* functions.
-  // Only inject them client-side in development for local testing.
+  // The public GitHub Pages build contains no shared provider keys.
+  // Development-only environment keys support local testing.
   const isProduction = mode === 'production';
   const clientApiKey = isProduction ? '' : (env.GEMINI_API_KEY || '');
   const groqKey = isProduction ? '' : (env.GROQ_API_KEY || '');
