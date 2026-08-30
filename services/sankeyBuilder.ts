@@ -31,6 +31,14 @@ const selectAggregationLevel = (count: number): SankeyData['aggregationLevel'] =
 const extractThemesFromClusters = (
   result: AnalysisResult
 ): Array<{ id: string; label: string; clusterId: number; participantCount: number }> => {
+  if (result.clusteringDiagnostics?.usableForDownstream !== true) {
+    return [{
+      id: 'theme-0',
+      label: 'Unpartitioned source records',
+      clusterId: 0,
+      participantCount: result.participants.length,
+    }];
+  }
   const themes: Array<{ id: string; label: string; clusterId: number; participantCount: number }> = [];
   const kg = result.knowledgeGraph;
 
@@ -162,10 +170,13 @@ export const buildSankeyData = (
   // (same logic used for building theme→summary links below, ensuring consistency)
   const sentenceConnectionCounts: Record<number, number> = {};
   for (const p of result.participants) {
-    const matches = p.sentenceMatches.filter(m => m.similarity >= 0.3).slice(0, 3);
-    if (matches.length === 0 && p.topSentenceMatchIndex >= 0) {
-      matches.push({ sentenceIndex: p.topSentenceMatchIndex, similarity: 0.5 });
-    }
+    const matches = p.sentenceMatches.slice(0, 3);
+    // v2 fix: previously a synthetic { similarity: 0.5 } link was inserted here
+    // when a participant had no match at/above threshold. That fabricated a
+    // provenance connection that the data did not support and hid exactly the
+    // orphaned/unmatched contributions this view exists to reveal. Unmatched
+    // participants now correctly contribute no link.
+
     for (const match of matches) {
       sentenceConnectionCounts[match.sentenceIndex] = (sentenceConnectionCounts[match.sentenceIndex] || 0) + 1;
     }
@@ -188,7 +199,7 @@ export const buildSankeyData = (
       id: `summary-${si}`,
       column: 'summary',
       label: sentence.length > 80 ? sentence.slice(0, 77) + '...' : sentence,
-      value: Math.max(1, matchedCount),
+      value: 0,
       color,
     });
   }
@@ -224,10 +235,21 @@ export const buildSankeyData = (
   for (const p of result.participants) {
     const themeId = `theme-${p.clusterId}`;
     // Use top match and any strong secondary matches
-    const matches = p.sentenceMatches.filter(m => m.similarity >= 0.3).slice(0, 3);
-    if (matches.length === 0 && p.topSentenceMatchIndex >= 0) {
-      matches.push({ sentenceIndex: p.topSentenceMatchIndex, similarity: 0.5 });
-    }
+    const matches = p.sentenceMatches.slice(0, 3);
+    // v2 fix: previously a synthetic { similarity: 0.5 } link was inserted here
+    // when a participant had no match at/above threshold. That fabricated a
+    // provenance connection that the data did not support and hid exactly the
+    // orphaned/unmatched contributions this view exists to reveal. Unmatched
+    // participants now correctly contribute no link.
+
+
+    // v3 fix: flow conservation. Previously each match added a full unit, so a
+    // participant matching three sentences emitted three units of outflow from
+    // one unit of inflow — inflating apparent coverage and breaking the defining
+    // property of a Sankey diagram (sum of inflow == sum of outflow). Each
+    // participant now carries exactly one unit of flow, split evenly across the
+    // sentences they reached.
+    const flowShare = matches.length > 0 ? 1 / matches.length : 0;
 
     for (const match of matches) {
       const summaryId = `summary-${match.sentenceIndex}`;
@@ -235,7 +257,7 @@ export const buildSankeyData = (
       if (!themeSentenceFlow[themeId][summaryId]) {
         themeSentenceFlow[themeId][summaryId] = { value: 0, types: [] };
       }
-      themeSentenceFlow[themeId][summaryId].value++;
+      themeSentenceFlow[themeId][summaryId].value += flowShare;
 
       // Get transformation type from language fidelity if available
       if (result.languageFidelity) {
@@ -252,7 +274,7 @@ export const buildSankeyData = (
     for (const [summaryId, data] of Object.entries(targets)) {
       // Determine dominant transformation type
       const typeCounts: Record<TransformationType, number> = {
-        preserved: 0, softened: 0, sanitized: 0, abstracted: 0, dropped: 0,
+        preserved: 0, softened: 0, sanitized: 0, abstracted: 0, target_shifted: 0, target_uncertain: 0, dropped: 0, unassessed: 0,
       };
       for (const t of data.types) typeCounts[t]++;
       const dominantType = data.types.length > 0
@@ -268,25 +290,30 @@ export const buildSankeyData = (
     }
   }
 
-  // ── Detect orphan themes (no outgoing links to summary) ───────────────────
-
-  const themesWithOutgoing = new Set(
-    links.filter(l => l.source.startsWith('theme-') && l.target.startsWith('summary-')).map(l => l.source)
-  );
+  // Explicit residual channel: partial unmatched content must not disappear.
   for (const theme of themes) {
-    if (!themesWithOutgoing.has(theme.id)) {
-      // Mark as orphan — this theme's content was dropped from the summary
-      const node = nodes.find(n => n.id === theme.id);
-      if (node) {
-        links.push({
-          source: theme.id,
-          target: theme.id, // self-loop marker for orphan
-          value: theme.participantCount,
-          isOrphan: true,
-          transformationType: 'dropped',
-        });
-      }
-    }
+    const matchedOutflow = links
+      .filter(link => link.source === theme.id && link.target.startsWith('summary-'))
+      .reduce((sum, link) => sum + link.value, 0);
+    const residual = Math.max(0, theme.participantCount - matchedOutflow);
+    if (residual <= 1e-9) continue;
+    const lossId = `unmatched-${theme.id}`;
+    nodes.push({
+      id: lossId,
+      column: 'summary',
+      label: `No stored summary match: ${theme.label}`,
+      value: residual,
+      clusterId: theme.clusterId,
+      color: '#94a3b8',
+    });
+    links.push({ source: theme.id, target: lossId, value: residual, isLoss: true });
+  }
+
+  // Summary node areas use the same conserved fractional units as the ribbons.
+  for (const node of nodes.filter(node => node.id.startsWith('summary-'))) {
+    node.value = links
+      .filter(link => link.target === node.id && !link.isPhantom)
+      .reduce((sum, link) => sum + link.value, 0);
   }
 
   // ── Detect phantom summary sentences (no incoming from any theme) ─────────
@@ -300,7 +327,7 @@ export const buildSankeyData = (
       links.push({
         source: summaryId,
         target: summaryId, // self-loop marker for phantom
-        value: 1,
+        value: 0,
         isPhantom: true,
       });
     }

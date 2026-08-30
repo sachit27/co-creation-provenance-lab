@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { AnalysisResult } from '../../types';
-import { ANALYSIS_CONFIG } from '../../constants';
-import { generateRecommendations, computeAtRiskCount } from '../../services/plainLanguage';
+import { getRepresentationBands } from '../../constants';
+import { generateRecommendations } from '../../services/plainLanguage';
 
 interface ExecutiveSummaryProps {
   data: AnalysisResult;
@@ -12,10 +12,9 @@ interface ExecutiveSummaryProps {
 }
 
 /**
- * Executive Summary Card
- *
- * Provides a single, glanceable summary of the representation audit.
- * Designed for decision-makers who need quick answers.
+ * Descriptive audit snapshot. It deliberately avoids an overall quality/fairness
+ * grade because the component indicators have different constructs and no
+ * validated weighting scheme.
  */
 export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
   data,
@@ -26,312 +25,169 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
 }) => {
   const analysis = useMemo(() => {
     const participants = data.participants;
-    const total = participants.length;
+    const valid = participants.filter(item => !item.embeddingFailed && !item.alignmentUnavailableReason);
+    const bands = getRepresentationBands(data.embeddingTierUsed);
+    const aboveTarget = valid.filter(item => item.representationScore >= bands.target).length;
+    const reviewBand = valid.filter(item =>
+      item.representationScore >= bands.atRisk && item.representationScore < bands.target
+    ).length;
+    const belowMarker = valid.filter(item => item.representationScore < bands.atRisk).length;
+    const average = valid.length > 0
+      ? valid.reduce((sum, item) => sum + item.representationScore, 0) / valid.length
+      : null;
 
-    // Thresholds from config — using documented interpretation bands
-    const { representationTarget } = ANALYSIS_CONFIG.thresholds;
-    const { atRisk: atRiskThreshold, low: lowThreshold } = ANALYSIS_CONFIG.representationInterpretation;
-
-    // Calculate key metrics using the fixed thresholds from constants.
-    // Three mutually exclusive bands that sum to total:
-    //   Well Represented: >= 0.6 (representationTarget)
-    //   Underrepresented: 0.3–0.6 (between atRisk and representationTarget)
-    //   At Risk:          < 0.3 (atRiskThreshold)
-    const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
-    const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
-    const atRiskCount = computeAtRiskCount(participants);
-    const underrepresented = total - wellRepresented - atRiskCount;
-
-    // Blind spots: unique perspectives that were genuinely missed.
-    // Requires BOTH conditions:
-    //   1. Below-median centrality (peripheral/unique perspective)
-    //   2. Score below the "low" threshold (0.5) — genuinely underrepresented
-    // Reported as a separate concern, not part of the three-way partition.
-    const centralityScores = participants.map(p => 1 - p.semanticIsolation).sort((a, b) => a - b);
-    const mid = Math.floor(total / 2);
-    const medianCentrality = centralityScores[mid];
-
-    const blindSpots = participants.filter(p => {
-      const centrality = 1 - p.semanticIsolation;
-      return centrality < medianCentrality && p.representationScore < lowThreshold;
-    });
-
-    // Calculate overall score (0-100)
-    // Weighted: 40% avg representation, 30% coverage, 30% equity
-    const coverageScore = (wellRepresented / total);
-    const equityScore = 1 - data.metrics.giniCoefficient;
-    const overallScore = Math.round(
-      (avgScore * 0.4 + coverageScore * 0.3 + equityScore * 0.3) * 100
+    const sortedCentrality = valid
+      .map(item => 1 - item.semanticIsolation)
+      .sort((left, right) => left - right);
+    const medianCentrality = sortedCentrality.length > 0
+      ? sortedCentrality[Math.floor(sortedCentrality.length / 2)]
+      : 0;
+    const distinctLowAlignment = valid.filter(item =>
+      1 - item.semanticIsolation < medianCentrality && item.representationScore < bands.low
     );
 
-    // Determine status
-    let status: 'good' | 'moderate' | 'poor';
-    let statusLabel: string;
-    let statusColor: string;
-
-    if (overallScore >= 75) {
-      status = 'good';
-      statusLabel = 'GOOD';
-      statusColor = 'text-green-600';
-    } else if (overallScore >= 55) {
-      status = 'moderate';
-      statusLabel = 'MODERATE';
-      statusColor = 'text-amber-600';
-    } else {
-      status = 'poor';
-      statusLabel = 'NEEDS ATTENTION';
-      statusColor = 'text-red-600';
+    const reviewFlags: string[] = [];
+    if (belowMarker > 0) {
+      reviewFlags.push(`${belowMarker} valid source record${belowMarker === 1 ? '' : 's'} fall below the provisional ${bands.atRisk.toFixed(2)} review marker.`);
     }
-
-    // Identify top concerns
-    const concerns: { type: string; description: string; severity: 'high' | 'medium' }[] = [];
-
-    if (atRiskCount > 0) {
-      concerns.push({
-        type: 'at-risk',
-        description: `${atRiskCount} participant${atRiskCount > 1 ? 's' : ''} at risk of being completely missed`,
-        severity: 'high'
-      });
+    if (distinctLowAlignment.length > 0) {
+      reviewFlags.push(`${distinctLowAlignment.length} centroid-distant record${distinctLowAlignment.length === 1 ? '' : 's'} also have low semantic alignment.`);
     }
-
-    if (blindSpots.length > 0) {
-      concerns.push({
-        type: 'blind-spots',
-        description: `${blindSpots.length} distinct perspective${blindSpots.length > 1 ? 's' : ''} not captured in summary`,
-        severity: 'high'
-      });
+    if (data.metrics.giniCoefficient > 0.3) {
+      reviewFlags.push('The alignment-score distribution is comparatively uneven; inspect the distribution and source evidence.');
     }
-
-    if (data.metrics.giniCoefficient > ANALYSIS_CONFIG.giniInterpretation.moderate) {
-      concerns.push({
-        type: 'inequality',
-        description: 'High inequality in how voices are represented',
-        severity: 'medium'
-      });
-    }
-
     if (data.metrics.distinctRepresentationGap > 0.15) {
-      concerns.push({
-        type: 'gap',
-        description: 'Mainstream opinions favored over unique perspectives',
-        severity: 'medium'
-      });
+      reviewFlags.push('The centroid-distant quartile has lower mean alignment than the remaining valid records.');
     }
-
-    // Find most underrepresented topics (by cluster)
-    const clusterScores = data.clusters.map(cluster => {
-      const members = participants.filter(p => p.clusterId === cluster.id);
-      const avgRep = members.reduce((sum, p) => sum + p.representationScore, 0) / members.length;
-      return { cluster, avgRep, count: members.length };
-    }).sort((a, b) => a.avgRep - b.avgRep);
-
-    const weakestCluster = clusterScores[0];
+    if (participants.length !== valid.length) {
+      reviewFlags.push(`${participants.length - valid.length} record${participants.length - valid.length === 1 ? '' : 's'} are unavailable and excluded from aggregates.`);
+    }
 
     return {
-      total,
-      wellRepresented,
-      underrepresented,
-      atRiskCount,
-      blindSpots,
-      avgScore,
-      overallScore,
-      status,
-      statusLabel,
-      statusColor,
-      concerns,
-      weakestCluster,
-      gini: data.metrics.giniCoefficient
+      total: participants.length,
+      validCount: valid.length,
+      bands,
+      aboveTarget,
+      reviewBand,
+      belowMarker,
+      average,
+      distinctLowAlignment,
+      reviewFlags,
     };
   }, [data]);
 
-  // Progress bar color
-  const getProgressColor = (score: number) => {
-    if (score >= 75) return 'bg-green-500';
-    if (score >= 55) return 'bg-amber-500';
-    return 'bg-red-500';
-  };
+  const recommendations = useMemo(
+    () => generateRecommendations(
+      data.participants.filter(item => !item.embeddingFailed && !item.alignmentUnavailableReason),
+      data.metrics,
+    ),
+    [data],
+  );
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+    <section className="overflow-hidden rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900 to-slate-800 shadow-xl" aria-labelledby="audit-snapshot-title">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/20" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <path d="m9 12 2 2 4-4" />
+              <path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 4-7" />
             </svg>
           </div>
           <div>
-            <h2 className="text-white font-bold text-lg">Representation Audit</h2>
-            <p className="text-slate-400 text-xs">{data.config.datasetName} • {analysis.total} participants</p>
+            <h2 id="audit-snapshot-title" className="text-lg font-bold text-white">Semantic-alignment Audit Snapshot</h2>
+            <p className="text-xs text-slate-400">{data.config.datasetName} · {analysis.total} source records · {data.embeddingTierUsed ?? 'unknown'} embedding tier</p>
           </div>
         </div>
-        <div className={`text-right`}>
-          <div className={`text-3xl font-bold ${analysis.statusColor}`}>{analysis.overallScore}<span className="text-lg text-slate-500">/100</span></div>
-          <div className={`text-xs font-bold ${analysis.statusColor}`}>{analysis.statusLabel}</div>
-          <div className="text-[10px] text-slate-500">Overall Score</div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-blue-300">
+            {analysis.average === null ? '—' : analysis.average.toFixed(2)}
+          </div>
+          <div className="text-[10px] text-slate-400">Mean strongest-sentence cosine · descriptive</div>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-2 divide-x divide-y divide-slate-700 border-b border-slate-700 md:grid-cols-4 md:divide-y-0">
+        <div className="p-4 text-center">
+          <div className="text-2xl font-bold text-slate-100">{analysis.validCount}/{analysis.total}</div>
+          <div className="text-xs text-slate-400">Valid comparisons</div>
+          <div className="text-[10px] text-slate-500">aggregate denominator</div>
+        </div>
+        <div className="p-4 text-center">
+          <div className="text-2xl font-bold text-emerald-300">{analysis.aboveTarget}</div>
+          <div className="text-xs text-slate-400">At/above target band</div>
+          <div className="text-[10px] text-slate-500">score ≥ {analysis.bands.target.toFixed(2)}</div>
+        </div>
+        <div className="p-4 text-center">
+          <div className="text-2xl font-bold text-amber-300">{analysis.reviewBand}</div>
+          <div className="text-xs text-slate-400">Intermediate band</div>
+          <div className="text-[10px] text-slate-500">{analysis.bands.atRisk.toFixed(2)}–{analysis.bands.target.toFixed(2)}</div>
+        </div>
+        <div className="p-4 text-center">
+          <div className="text-2xl font-bold text-rose-300">{analysis.belowMarker}</div>
+          <div className="text-xs text-slate-400">Below review marker</div>
+          <div className="text-[10px] text-slate-500">score &lt; {analysis.bands.atRisk.toFixed(2)}</div>
         </div>
       </div>
 
-      {/* Score Bar */}
-      <div className="px-6 py-3 bg-slate-800/50">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full ${getProgressColor(analysis.overallScore)} transition-all duration-500`}
-                style={{ width: `${analysis.overallScore}%` }}
-              />
-            </div>
-          </div>
-          <div className="text-slate-400 text-xs whitespace-nowrap">
-            {analysis.overallScore < 55 && '⚠️ '}
-            {analysis.overallScore >= 75 ? 'Excellent' : analysis.overallScore >= 55 ? 'Acceptable' : 'Review needed'}
-          </div>
+      <div className="grid gap-3 border-b border-slate-700 px-6 py-4 text-sm md:grid-cols-3">
+        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Gini of valid scores</div>
+          <div className="mt-1 text-xl font-bold text-slate-100">{data.metrics.giniCoefficient.toFixed(3)}</div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Score inequality only; not a fairness or quality verdict.</p>
+        </div>
+        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Distinct-record gap</div>
+          <div className="mt-1 text-xl font-bold text-slate-100">{data.metrics.distinctRepresentationGap.toFixed(3)}</div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Remaining records minus centroid-distant quartile.</p>
+        </div>
+        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Interpretation</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-300">Semantic association is not entailment, observed influence, authorship, affective preservation, or population representation.</p>
         </div>
       </div>
 
-      {/* Key Stats — three mutually exclusive bands that sum to total */}
-      <div className="grid grid-cols-3 divide-x divide-slate-700 border-b border-slate-700">
-        <div className="p-4 text-center">
-          <div className="text-2xl font-bold text-green-400">{analysis.wellRepresented}</div>
-          <div className="text-xs text-slate-400">Well Represented</div>
-          <div className="text-[10px] text-slate-500">score &ge; 0.6</div>
-        </div>
-        <div className="p-4 text-center">
-          <div className={`text-2xl font-bold ${analysis.underrepresented > 0 ? 'text-amber-400' : 'text-green-400'}`}>
-            {analysis.underrepresented}
-          </div>
-          <div className="text-xs text-slate-400">Underrepresented</div>
-          <div className="text-[10px] text-slate-500">score 0.3 – 0.6</div>
-        </div>
-        <div className="p-4 text-center">
-          <div className={`text-2xl font-bold ${analysis.atRiskCount > 0 ? 'text-red-400' : 'text-green-400'}`}>
-            {analysis.atRiskCount}
-          </div>
-          <div className="text-xs text-slate-400">At Risk</div>
-          <div className="text-[10px] text-slate-500">score &lt; 0.3</div>
-        </div>
-      </div>
-
-      {/* Concerns */}
-      {analysis.concerns.length > 0 && (
-        <div className="px-6 py-4 border-b border-slate-700">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Key Concerns</div>
-          <div className="space-y-2">
-            {analysis.concerns.slice(0, 3).map((concern, i) => (
-              <div
-                key={i}
-                className={`flex items-start gap-2 text-sm ${concern.severity === 'high' ? 'text-red-300' : 'text-amber-300'
-                  }`}
-              >
-                <span className="mt-0.5">{concern.severity === 'high' ? '⚠️' : '⚡'}</span>
-                <span>{concern.description}</span>
-              </div>
+      <div className="border-b border-slate-700 px-6 py-4">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Review flags</div>
+        {analysis.reviewFlags.length > 0 ? (
+          <ul className="space-y-2">
+            {analysis.reviewFlags.map(flag => (
+              <li key={flag} className="flex items-start gap-2 text-sm text-amber-200">
+                <span className="mt-0.5 text-amber-400" aria-hidden="true">•</span><span>{flag}</span>
+              </li>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Actionable Recommendations */}
-      {(() => {
-        const recs = generateRecommendations(data.participants, data.metrics);
-        return recs.length > 0 ? (
-          <div className="px-6 py-4 border-b border-slate-700 bg-emerald-900/20">
-            <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-3">
-              ✅ Recommended Actions
-            </div>
-            <div className="space-y-2">
-              {recs.slice(0, 4).map((rec, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm text-emerald-200">
-                  <span className="mt-0.5 text-emerald-500 flex-shrink-0">→</span>
-                  <span>{rec}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null;
-      })()}
-
-      {/* Plain Language Summary */}
-      <div className="px-6 py-4 bg-slate-800/30">
-        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Summary</div>
-        <p className="text-slate-300 text-sm leading-relaxed">
-          {analysis.overallScore >= 75 ? (
-            <>
-              The summary <span className="text-green-400 font-medium">adequately represents</span> the majority of participant voices.
-              {analysis.wellRepresented} of {analysis.total} contributions are well-captured.
-              {analysis.concerns.length === 0 && ' No significant concerns detected.'}
-            </>
-          ) : analysis.overallScore >= 55 ? (
-            <>
-              The summary captures most perspectives but <span className="text-amber-400 font-medium">{analysis.underrepresented + analysis.atRiskCount} of {analysis.total} voices need attention</span>.
-              {analysis.atRiskCount > 0 && ` ${analysis.atRiskCount} participant${analysis.atRiskCount > 1 ? 's are' : ' is'} at risk of being completely missed (score < 0.3).`}
-              {analysis.blindSpots.length > 0 && ` ${analysis.blindSpots.length} unique perspective${analysis.blindSpots.length > 1 ? 's were' : ' was'} not captured.`}
-            </>
-          ) : (
-            <>
-              <span className="text-red-400 font-medium">Significant representation gaps detected.</span>
-              {' '}{analysis.underrepresented + analysis.atRiskCount} of {analysis.total} voices are underrepresented or at risk.
-              {analysis.atRiskCount > 0 && ` ${analysis.atRiskCount} participant${analysis.atRiskCount > 1 ? 's are' : ' is'} at risk of being completely missed.`}
-              {' '}Review recommended before using this summary for decision-making.
-            </>
-          )}
-        </p>
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-300">No records cross the current review rules. This does not establish completeness or validity; inspect exact evidence and enrichment coverage.</p>
+        )}
       </div>
 
-      {/* Actions */}
-      <div className="px-6 py-4 flex gap-3 flex-wrap">
-        <button
-          onClick={() => onViewDetails?.('blindspot')}
-          className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          View Details
+      <div className="border-b border-slate-700 bg-emerald-900/10 px-6 py-4">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-300">Review prompts</div>
+        <ul className="space-y-2">
+          {recommendations.slice(0, 4).map(prompt => (
+            <li key={prompt} className="flex items-start gap-2 text-sm text-emerald-100">
+              <span className="mt-0.5 text-emerald-400" aria-hidden="true">→</span><span>{prompt}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <footer className="flex flex-wrap gap-3 px-6 py-4">
+        <button onClick={() => onViewDetails?.('blindspot')} className="flex-1 rounded-lg bg-slate-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-600">
+          Inspect evidence
         </button>
         {onRevise && (
-          <button
-            onClick={onRevise}
-            disabled={isRevising}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-wait text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            {isRevising ? (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" />
-                </svg>
-                Revising…
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-                Revise Summary
-              </>
-            )}
+          <button onClick={onRevise} disabled={isRevising} className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:bg-slate-600">
+            {isRevising ? 'Preparing revision…' : 'Review or revise summary'}
           </button>
         )}
         {onExportReport && (
-          <button
-            onClick={onExportReport}
-            className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Export Report
+          <button onClick={onExportReport} className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500">
+            Export audit record
           </button>
         )}
-      </div>
-    </div>
+      </footer>
+    </section>
   );
 };
 

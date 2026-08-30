@@ -20,7 +20,7 @@ export const RhetoricalInfluenceViz: React.FC<Props> = ({ data, onSelectParticip
   const plotH = H - pad.top - pad.bottom;
 
   const dimLabel: Record<string, string> = {
-    composite: 'Rhetorical Power (composite)',
+    composite: 'Automated rhetoric composite',
     assertiveness: 'Assertiveness',
     evidentiality: 'Evidentiality',
     emotionalIntensity: 'Emotional Intensity',
@@ -57,29 +57,30 @@ export const RhetoricalInfluenceViz: React.FC<Props> = ({ data, onSelectParticip
 
   // Quadrant labels
   const quadrants = [
-    { x: 0.25, y: 0.75, label: 'Low Power\nWell Represented', color: '#059669' },
-    { x: 0.75, y: 0.75, label: 'High Power\nWell Represented', color: '#2563eb' },
-    { x: 0.25, y: 0.25, label: 'Low Power\nUnderrepresented', color: '#dc2626' },
-    { x: 0.75, y: 0.25, label: 'High Power\nUnderrepresented', color: '#d97706' },
+    { x: 0.25, y: 0.75, label: 'Lower rhetoric score\nHigher alignment', color: '#059669' },
+    { x: 0.75, y: 0.75, label: 'Higher rhetoric score\nHigher alignment', color: '#2563eb' },
+    { x: 0.25, y: 0.25, label: 'Lower rhetoric score\nLower alignment', color: '#64748b' },
+    { x: 0.75, y: 0.25, label: 'Higher rhetoric score\nLower alignment', color: '#d97706' },
   ];
 
   return (
     <div className="space-y-4">
-      {/* Bias indicator */}
-      <div className={`flex items-center gap-3 p-3 rounded-lg border ${data.hasBias ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${data.hasBias ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+      {/* Association indicator */}
+      <div className={`flex items-center gap-3 p-3 rounded-lg border ${data.hasBias ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${data.hasBias ? 'bg-amber-500' : 'bg-slate-400'}`} />
         <div className="flex-1">
-          <div className={`text-sm font-semibold ${data.hasBias ? 'text-amber-800' : 'text-emerald-800'}`}>
-            <span className="inline-flex items-center gap-1">Rhetorical Influence <InfoIcon metricKey="rhetoric" /></span>
+          <div className={`text-sm font-semibold ${data.hasBias ? 'text-amber-800' : 'text-slate-700'}`}>
+            <span className="inline-flex items-center gap-1">Rhetoric–Alignment Association <InfoIcon metricKey="rhetoric" /></span>
             {' — '}{data.hasBias
-              ? `Rhetorical bias detected (Spearman ρ=${data.correlation.toFixed(2)}, p=${data.pValue.toFixed(3)})`
-              : `No significant rhetorical bias (Spearman ρ=${data.correlation.toFixed(2)}, p=${data.pValue.toFixed(3)})`}
+              ? `Review flag met (Spearman ρ=${data.correlation.toFixed(2)}, p=${data.pValue.toFixed(3)})`
+              : `Review rule not met (Spearman ρ=${data.correlation.toFixed(2)}, p=${data.pValue.toFixed(3)})`}
           </div>
           <div className="text-xs text-slate-600 mt-0.5">
             {data.hasBias
-              ? 'Assertive, formal language correlates with higher representation scores — communication style may influence whose voice is preserved.'
-              : 'Representation scores are not significantly correlated with rhetorical style — the summarizer treats different communication styles equitably.'}
+              ? 'The automated rhetoric score and semantic-alignment score are associated in this run. Topic, language, group, model, and other confounders are not controlled.'
+              : 'This rule did not detect an association. It does not establish equitable treatment or absence of rhetorical effects.'}
           </div>
+          <div className="text-[10px] text-slate-500 mt-1">Profiles use an English-oriented deterministic marker lexicon and an unvalidated composite; interpret multilingual or domain-specific text with particular caution.</div>
         </div>
       </div>
 
@@ -193,7 +194,7 @@ export const RhetoricalInfluenceViz: React.FC<Props> = ({ data, onSelectParticip
           </text>
           <text x={14} y={H / 2} textAnchor="middle" fill="#475569" fontSize={11} fontWeight="600"
             transform={`rotate(-90, 14, ${H / 2})`}>
-            Representation Score
+            Semantic-alignment Score
           </text>
 
           <defs>
@@ -221,8 +222,8 @@ export const RhetoricalInfluenceViz: React.FC<Props> = ({ data, onSelectParticip
       {/* Profile breakdown table — top/bottom 5 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { title: 'Highest Rhetorical Power', items: [...data.profiles].sort((a, b) => b.profile.compositeScore - a.profile.compositeScore).slice(0, 5) },
-          { title: 'Lowest Rhetorical Power', items: [...data.profiles].sort((a, b) => a.profile.compositeScore - b.profile.compositeScore).slice(0, 5) },
+          { title: 'Highest rhetoric composite', items: [...data.profiles].sort((a, b) => b.profile.compositeScore - a.profile.compositeScore).slice(0, 5) },
+          { title: 'Lowest rhetoric composite', items: [...data.profiles].sort((a, b) => a.profile.compositeScore - b.profile.compositeScore).slice(0, 5) },
         ].map(group => (
           <div key={group.title} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">{group.title}</div>

@@ -12,13 +12,26 @@ const HANDLING_CONFIG: Record<TensionHandling, { label: string; color: string; b
   suppressed: { label: 'Suppressed', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'One side dropped entirely' },
   merged: { label: 'Merged', color: '#d97706', bg: '#fef3c7', icon: '\u21C4', description: 'False consensus created by averaging' },
   distorted: { label: 'Distorted', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'Disagreement mischaracterized' },
+  unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Handling evaluation was unavailable or invalid' },
 };
 
-const HANDLINGS: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'distorted'];
+const HANDLINGS: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'distorted', 'unassessed'];
 
 export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   const [selectedPair, setSelectedPair] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'pairs' | 'clusters'>('pairs');
+
+  if (data.basis !== 'stable-semantic-groups') {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="text-sm font-semibold text-amber-900">Cluster-conditioned tension mapping unavailable</div>
+        <p className="mt-1 text-xs leading-relaxed text-amber-800">
+          {data.unavailableReason || 'This legacy result does not contain a validated semantic partition.'}
+          {' '}No absence-of-tension conclusion should be drawn.
+        </p>
+      </div>
+    );
+  }
 
   const total = data.pairs.length || 1;
 
@@ -27,15 +40,15 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-semibold text-slate-700">Tension Fidelity <InfoIcon metricKey="tensions" /></div>
-        <div className="text-sm font-bold" style={{ color: data.tensionFidelityScore >= 0.5 ? '#059669' : data.tensionFidelityScore >= 0.25 ? '#d97706' : '#dc2626' }}>
-          {(data.tensionFidelityScore * 100).toFixed(0)}% acknowledged
+        <div className="text-sm font-bold text-slate-700">
+          {data.tensionFidelityScore === null ? 'Handling assessment unavailable' : `${(data.tensionFidelityScore * 100).toFixed(0)}% acknowledged among assessed`}
         </div>
       </div>
       <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
             : h === 'suppressed' ? data.suppressedCount
-            : h === 'merged' ? data.mergedCount : data.distortedCount;
+            : h === 'merged' ? data.mergedCount : h === 'distorted' ? data.distortedCount : data.unassessedCount;
           if (count === 0) return null;
           const pct = (count / total) * 100;
           return (
@@ -53,7 +66,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
             : h === 'suppressed' ? data.suppressedCount
-            : h === 'merged' ? data.mergedCount : data.distortedCount;
+            : h === 'merged' ? data.mergedCount : h === 'distorted' ? data.distortedCount : data.unassessedCount;
           if (count === 0) return null;
           return (
             <div key={h} className="flex items-center gap-1.5 text-[11px] text-slate-600">
@@ -173,7 +186,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
       })}
       {data.pairs.length === 0 && (
         <div className="text-sm text-slate-400 text-center py-8">
-          No significant tensions or contradictions detected between participant positions.
+          No tension candidates were returned from the sampled, model-coded assessment. This is not evidence that no disagreement exists.
         </div>
       )}
     </div>

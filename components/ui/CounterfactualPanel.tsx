@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { ParticipantAnalysis, CounterfactualSuggestion } from '../../types';
-import { formatMetric } from '../../hooks/useResponsiveChart';
 
 interface CounterfactualPanelProps {
   participant: ParticipantAnalysis;
@@ -16,16 +15,16 @@ const generateCounterfactuals = (
 ): CounterfactualSuggestion[] => {
   const suggestions: CounterfactualSuggestion[] = [];
 
-  // Find well-represented participants for comparison
-  const wellRepresented = allParticipants.filter(p => p.representationScore > 0.7);
+  const summaryText = summarySentences.join(' ').toLocaleLowerCase();
 
   // 1. Keyword Emphasis — add dropped concepts to summary
   if (participant.keywords && participant.keywords.length > 0) {
-    const droppedConcepts = participant.keywords.slice(0, 3).join('", "');
-    suggestions.push({
+    const candidates = participant.keywords
+      .filter(keyword => !summaryText.includes(keyword.toLocaleLowerCase()))
+      .slice(0, 3);
+    if (candidates.length > 0) suggestions.push({
       type: 'keyword_emphasis',
-      suggestion: `Revise the summary to include concept(s) from this participant: "${droppedConcepts}". These were present in their input but absent from the current summary.`,
-      predictedImpact: 0.08 + Math.random() * 0.07
+      suggestion: `Review whether these source concepts are substantively absent or paraphrased: "${candidates.join('", "')}". Do not add them without checking the full source and summary context.`,
     });
   }
 
@@ -37,48 +36,26 @@ const generateCounterfactuals = (
       suggestions.push({
         type: 'phrasing_alignment',
         suggestion: `Near "...${matchedSentence.substring(0, 55)}...", consider inserting language that reflects: "${fragment}..."`,
-        predictedImpact: 0.12 + Math.random() * 0.08
       });
     }
   }
 
-  // 3. Tone Adjustment — balance the summary's overall tone
-  if (wellRepresented.length > 0) {
-    const dominantSentiment = wellRepresented.reduce((acc, p) => {
-      acc[p.sentiment] = (acc[p.sentiment] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    const mostCommonSentiment = Object.entries(dominantSentiment)
-      .sort((a, b) => b[1] - a[1])[0]?.[0];
-
-    if (mostCommonSentiment && participant.sentiment !== mostCommonSentiment) {
-      suggestions.push({
-        type: 'tone_adjustment',
-        suggestion: `This participant's ${participant.sentiment} perspective contrasts with the summary's overall ${mostCommonSentiment} tone. Add a balancing statement to acknowledge their framing.`,
-        predictedImpact: 0.05 + Math.random() * 0.05
-      });
-    }
-  }
-
-  // 4. Specificity — short input with distinct perspective
+  // 3. Specificity — short input with distinct perspective
   if (participant.originalText.length < 50) {
     suggestions.push({
       type: 'phrasing_alignment',
       suggestion: `This participant's concise input (${participant.originalText.length} chars) may carry a distinct perspective. Consider elaborating its core idea in the summary.`,
-      predictedImpact: 0.1 + Math.random() * 0.1
     });
   }
 
-  // 5. Cluster Alignment — align summary language with this participant's cluster
+  // 4. Cluster context — descriptive comparison only
   const clusterMembers = allParticipants.filter(p => p.clusterId === participant.clusterId);
   const clusterAvgRep = clusterMembers.reduce((sum, p) => sum + p.representationScore, 0) / clusterMembers.length;
 
   if (participant.representationScore < clusterAvgRep - 0.15) {
     suggestions.push({
       type: 'phrasing_alignment',
-      suggestion: `Similar voices in this cluster are ${formatMetric((clusterAvgRep - participant.representationScore) * 100, 0)}% better represented. Align the summary language closer to this participant's framing to close the gap.`,
-      predictedImpact: 0.08 + Math.random() * 0.07
+      suggestion: `This source's retrieval indicator is ${(clusterAvgRep - participant.representationScore).toFixed(2)} below its cluster mean. Inspect whether the summary captured the cluster theme but omitted this source's specific qualification.`,
     });
   }
 
@@ -165,9 +142,6 @@ export const CounterfactualPanel: React.FC<CounterfactualPanelProps> = ({
                     <span className="text-[10px] font-bold text-indigo-700 uppercase">
                       {typeLabels[s.type]}
                     </span>
-                    <span className="text-[10px] text-green-600 font-medium whitespace-nowrap">
-                      +{formatMetric(s.predictedImpact * 100, 0)}% potential
-                    </span>
                   </div>
                   <p className="text-xs text-slate-700 leading-relaxed">
                     {s.suggestion}
@@ -178,8 +152,8 @@ export const CounterfactualPanel: React.FC<CounterfactualPanelProps> = ({
           ))}
 
           <div className="mt-2 pt-2 border-t border-indigo-100 text-[9px] text-indigo-500">
-            <strong>Note:</strong> These are heuristic hints for the facilitator/editor.
-            Use "Revise Summary" in the audit panel to apply AI-assisted revision.
+            <strong>Note:</strong> These are deterministic review prompts, not counterfactual predictions or estimated effect sizes.
+            Any edit must be rescored and reviewed against exact source evidence.
           </div>
         </div>
       )}

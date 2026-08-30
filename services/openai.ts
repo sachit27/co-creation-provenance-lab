@@ -1,12 +1,15 @@
 /**
  * OpenAI Service
  *
- * Supports GPT-4o, GPT-4o-mini, and text-embedding-3-small/large.
+ * Uses a live account model catalog with a conservative current fallback and
+ * supports the text-embedding-3 family.
  * Uses the OpenAI-compatible REST API directly from the browser.
  * API key is stored only in sessionStorage (cleared when the tab closes).
  *
  * Get a key at: https://platform.openai.com/api-keys
  */
+
+import type { CompletionResult } from '../types';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1';
 const OPENAI_KEY_STORAGE = 'cprov_openai_key';
@@ -32,21 +35,32 @@ export const isOpenAIKeyFromEnv = (): boolean =>
 
 export const checkOpenAIConnection = (): boolean => !!getOpenAIApiKey();
 
+export const verifyOpenAIConnection = async (): Promise<boolean> => {
+    const key = getOpenAIApiKey();
+    if (!key) return false;
+    try {
+        const response = await fetch(`${OPENAI_API_URL}/models`, {
+            headers: { Authorization: `Bearer ${key}` },
+        });
+        return response.ok;
+    } catch {
+        return false;
+    }
+};
+
 // ── Available models ──────────────────────────────────────────────────────────
 
 /**
  * Static fallback list — used when the API is unreachable or key not set yet.
- * Kept current as of March 2026. The live fetch below supersedes this.
+ * Current first-party model-family fallback as of August 2026. The live
+ * account catalog below remains authoritative for availability.
  */
 export const OPENAI_CHAT_MODELS = [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'o3-mini',
-    'o1',
-    'o1-mini',
-    'gpt-4-turbo',
-    'gpt-4',
-    'gpt-3.5-turbo',
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.6-sol',
+    'gpt-4.1-mini',
+    'gpt-4.1',
 ];
 
 export const OPENAI_EMBEDDING_MODELS = [
@@ -54,6 +68,11 @@ export const OPENAI_EMBEDDING_MODELS = [
     'text-embedding-3-large',
     'text-embedding-ada-002',
 ];
+
+/** Conservative compatibility screen for this adapter's text-only Chat Completions call. */
+export const isOpenAIChatModelId = (id: string): boolean =>
+    (id.startsWith('gpt-') || /^o[134](?:-|$)/.test(id)) &&
+    !/(embed|audio|realtime|transcrib|tts|whisper|image|dall-e|moderation|search|deep-research|computer-use|codex|sora|video|instruct)/i.test(id);
 
 /**
  * Fetches the live list of chat-capable models from the OpenAI API.
@@ -74,21 +93,12 @@ export const fetchOpenAIChatModels = async (): Promise<string[]> => {
         const allModels: string[] = (data.data || []).map((m: any) => m.id as string);
 
         // Keep only chat/reasoning models — exclude embeddings, audio, image, TTS, moderation
-        const chatModels = allModels.filter(id =>
-            (id.startsWith('gpt-') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4')) &&
-            !id.includes('embed') &&
-            !id.includes('audio') &&
-            !id.includes('tts') &&
-            !id.includes('whisper') &&
-            !id.includes('dall-e') &&
-            !id.includes('moderation') &&
-            !id.includes('instruct') // gpt-3.5-turbo-instruct is completion-only, not chat
-        );
+        const chatModels = allModels.filter(isOpenAIChatModelId);
 
         if (chatModels.length === 0) return OPENAI_CHAT_MODELS;
 
         // Sort: preferred flagship models first, then by date desc
-        const priority = ['gpt-4o', 'o3', 'o1', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5'];
+        const priority = ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-4.1-mini', 'gpt-4.1'];
         return chatModels.sort((a, b) => {
             const pa = priority.findIndex(p => a.startsWith(p));
             const pb = priority.findIndex(p => b.startsWith(p));
@@ -102,11 +112,13 @@ export const fetchOpenAIChatModels = async (): Promise<string[]> => {
 
 // ── Chat completion ───────────────────────────────────────────────────────────
 
-export const generateOpenAICompletion = async (
+export const generateOpenAICompletionResult = async (
     prompt: string,
     systemInstruction: string,
-    model: string
-): Promise<string> => {
+    model: string,
+    temperature: number = 0.5,
+    signal?: AbortSignal,
+): Promise<CompletionResult> => {
     const key = getOpenAIApiKey();
     if (!key) throw new Error('OpenAI API key not set. Enter your key in the configuration panel.');
 
@@ -122,9 +134,11 @@ export const generateOpenAICompletion = async (
                 { role: 'system', content: systemInstruction },
                 { role: 'user', content: prompt },
             ],
-            temperature: 0.5,
-            max_tokens: 4096,
+            ...(model.startsWith('gpt-5')
+                ? { reasoning_effort: 'low', max_completion_tokens: 4096 }
+                : { temperature, max_tokens: 4096 }),
         }),
+        signal: signal ?? AbortSignal.timeout(120_000),
     });
 
     if (!response.ok) {
@@ -136,8 +150,63 @@ export const generateOpenAICompletion = async (
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
+    const choice = data.choices?.[0];
+    if (choice?.message?.refusal) {
+        const error = new Error(`[REFUSAL] OpenAI declined the completion: ${choice.message.refusal}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        error.completionMetadata = {
+            provider: 'openai', requestedModel: model, returnedModel: data.model,
+            responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,
+            createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
+            finishReason: choice?.finish_reason, refusal: String(choice.message.refusal),
+            effectiveParameters: model.startsWith('gpt-5')
+                ? { temperature: null, maxOutputTokens: 4096, reasoningEffort: 'low' }
+                : { temperature, maxOutputTokens: 4096 },
+        };
+        throw error;
+    }
+    if (choice?.finish_reason === 'content_filter') {
+        const error = new Error('[REFUSAL] OpenAI blocked the completion through its content filter.') as Error & { completionMetadata?: CompletionResult['metadata'] };
+        error.completionMetadata = {
+            provider: 'openai', requestedModel: model, returnedModel: data.model,
+            responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,
+            createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
+            finishReason: 'content_filter', refusal: 'content_filter',
+            effectiveParameters: model.startsWith('gpt-5')
+                ? { temperature: null, maxOutputTokens: 4096, reasoningEffort: 'low' }
+                : { temperature, maxOutputTokens: 4096 },
+        };
+        throw error;
+    }
+    const content = choice?.message?.content;
+    if (typeof content !== 'string' || content.length === 0) {
+        throw new Error(`OpenAI returned no text (finish reason: ${choice?.finish_reason ?? 'unknown'}).`);
+    }
+    const reasoningModel = model.startsWith('gpt-5');
+    return {
+        text: content,
+        metadata: {
+            provider: 'openai',
+            requestedModel: model,
+            returnedModel: typeof data.model === 'string' ? data.model : undefined,
+            responseId: typeof data.id === 'string' ? data.id : undefined,
+            requestId: response.headers.get('x-request-id') || undefined,
+            createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
+            finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
+            usage: data.usage ? {
+                inputTokens: data.usage.prompt_tokens,
+                outputTokens: data.usage.completion_tokens,
+                totalTokens: data.usage.total_tokens,
+            } : undefined,
+            effectiveParameters: reasoningModel
+                ? { temperature: null, maxOutputTokens: 4096, reasoningEffort: 'low' }
+                : { temperature, maxOutputTokens: 4096 },
+        },
+    };
 };
+
+/** Backward-compatible text-only completion API. */
+export const generateOpenAICompletion = async (...args: Parameters<typeof generateOpenAICompletionResult>): Promise<string> =>
+    (await generateOpenAICompletionResult(...args)).text;
 
 // ── Embeddings ────────────────────────────────────────────────────────────────
 
@@ -155,6 +224,7 @@ export const generateOpenAIEmbedding = async (
             Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({ model, input: text }),
+        signal: AbortSignal.timeout(60_000),
     });
 
     if (!response.ok) {

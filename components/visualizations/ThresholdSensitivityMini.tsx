@@ -98,19 +98,19 @@ export const ThresholdImpactBadges: React.FC<ThresholdImpactProps> = ({
   thresholds,
   representationScores
 }) => {
-  const atRiskCount = representationScores.filter(s => s < thresholds.representationTarget).length;
-  const atRiskPercent = ((atRiskCount / representationScores.length) * 100).toFixed(0);
+  const belowCount = representationScores.filter(s => s < thresholds.representationTarget).length;
+  const belowPercent = ((belowCount / Math.max(1, representationScores.length)) * 100).toFixed(0);
 
-  const wellRepCount = representationScores.filter(s => s >= thresholds.representationTarget).length;
-  const wellRepPercent = ((wellRepCount / representationScores.length) * 100).toFixed(0);
+  const aboveCount = representationScores.filter(s => s >= thresholds.representationTarget).length;
+  const abovePercent = ((aboveCount / Math.max(1, representationScores.length)) * 100).toFixed(0);
 
   return (
     <div className="flex gap-2 text-[10px]">
       <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
-        {atRiskCount} at-risk ({atRiskPercent}%)
+        {belowCount} below marker ({belowPercent}%)
       </span>
       <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
-        {wellRepCount} well-represented ({wellRepPercent}%)
+        {aboveCount} above marker ({abovePercent}%)
       </span>
     </div>
   );

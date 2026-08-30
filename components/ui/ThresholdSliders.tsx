@@ -1,5 +1,6 @@
 import React from 'react';
 import { ThresholdConfig } from '../../types';
+import { ANALYSIS_CONFIG } from '../../constants';
 
 interface ThresholdSlidersProps {
   thresholds: ThresholdConfig;
@@ -20,8 +21,8 @@ interface SliderConfig {
 const sliderConfigs: SliderConfig[] = [
   {
     key: 'representationTarget',
-    label: 'Representation Target',
-    description: 'Score above which a participant is considered well-represented',
+    label: 'Alignment Reference',
+    description: 'Provisional display marker for higher source-to-summary similarity',
     min: 0.3,
     max: 0.9,
     step: 0.05,
@@ -30,7 +31,7 @@ const sliderConfigs: SliderConfig[] = [
   {
     key: 'matchingThreshold',
     label: 'Matching Threshold',
-    description: 'Minimum similarity for sentence-to-input matching',
+    description: 'Minimum similarity for displaying a sentence-to-input candidate',
     min: 0.2,
     max: 0.7,
     step: 0.05,
@@ -38,8 +39,8 @@ const sliderConfigs: SliderConfig[] = [
   },
   {
     key: 'isolationPercentile',
-    label: 'Isolation Percentile',
-    description: 'Top X% of isolated participants are considered "distinct"',
+    label: 'Isolation Review Percentile',
+    description: 'Top X% by centroid distance are surfaced for review',
     min: 0.1,
     max: 0.5,
     step: 0.05,
@@ -47,8 +48,8 @@ const sliderConfigs: SliderConfig[] = [
   },
   {
     key: 'representationPercentile',
-    label: 'At-Risk Percentile',
-    description: 'Bottom X% by representation are flagged as at-risk',
+    label: 'Low-alignment Percentile',
+    description: 'Legacy sensitivity marker for the bottom X% of scores',
     min: 0.1,
     max: 0.5,
     step: 0.05,
@@ -56,8 +57,8 @@ const sliderConfigs: SliderConfig[] = [
   },
   {
     key: 'anomalyZThreshold',
-    label: 'Anomaly Z-Threshold',
-    description: 'Standard deviations from mean to flag as anomaly',
+    label: 'Sensitivity Z-Marker',
+    description: 'Standardized centroid-shift value surfaced for review',
     min: 1.0,
     max: 3.0,
     step: 0.5,
@@ -79,13 +80,7 @@ export const ThresholdSliders: React.FC<ThresholdSlidersProps> = ({
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-slate-700">Analysis Thresholds</div>
         <button
-          onClick={() => onChange({
-            representationTarget: 0.6,
-            matchingThreshold: 0.45,
-            isolationPercentile: 0.25,
-            representationPercentile: 0.25,
-            anomalyZThreshold: 2.0
-          })}
+          onClick={() => onChange({ ...ANALYSIS_CONFIG.thresholds })}
           className="text-xs text-blue-600 hover:text-blue-800 font-medium"
           disabled={disabled}
         >
@@ -137,13 +132,16 @@ export const ThresholdSliders: React.FC<ThresholdSlidersProps> = ({
   );
 };
 
-// Default thresholds
-export const DEFAULT_THRESHOLDS: ThresholdConfig = {
-  representationTarget: 0.6,
-  matchingThreshold: 0.45,
-  isolationPercentile: 0.25,
-  representationPercentile: 0.25,
-  anomalyZThreshold: 2.0
-};
+/**
+ * Default thresholds.
+ *
+ * v2 fix: these were previously duplicated literals that had drifted from the
+ * documented values in constants.ts (matchingThreshold 0.45 vs 0.5,
+ * representationPercentile 0.25 vs 0.75), so the same concept had two different
+ * values depending on which screen the user was looking at. ANALYSIS_CONFIG is
+ * now the single source of truth, with the statistical justification for each
+ * value documented alongside it.
+ */
+export const DEFAULT_THRESHOLDS: ThresholdConfig = { ...ANALYSIS_CONFIG.thresholds };
 
 export default ThresholdSliders;

@@ -13,6 +13,13 @@ import ForceGraph2D from 'react-force-graph-2d';
 import { KnowledgeGraph, KGCommunity, ClusterData } from '../../types';
 import { InfoIcon } from '../ui/MetricGlossary';
 
+const escapeTooltipText = (value: unknown): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 interface KnowledgeGraphVizProps {
   knowledgeGraph: KnowledgeGraph;
   clusters: ClusterData[];
@@ -51,7 +58,7 @@ const COMMUNITY_COLORS = [
 
 // Summary presence palette
 const PROVENANCE_COLORS: Record<string, string> = {
-  present: '#10b981',   // green — concept captured in summary
+  present: '#10b981',   // green — extractor classified concept as present
   partial: '#f59e0b',   // amber — partially mentioned
   absent: '#ef4444',    // red — concept missing from summary
   unknown: '#94a3b8',   // gray — no summary cross-reference data
@@ -253,9 +260,9 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
   const nodeTooltip = useCallback((node: any) => {
     const gn = node as GraphNode;
     const commLabel = communities.find(c => c.id === gn.communityId)?.label || 'Unassigned';
-    const presenceLabel = gn.summaryPresence === 'present' ? '&#10003; In summary'
-      : gn.summaryPresence === 'partial' ? '&#9679; Partially in summary'
-      : gn.summaryPresence === 'absent' ? '&#10007; Absent from summary'
+    const presenceLabel = gn.summaryPresence === 'present' ? '&#10003; Lexically present'
+      : gn.summaryPresence === 'partial' ? '&#9679; Lexically partial'
+      : gn.summaryPresence === 'absent' ? '&#10007; No lexical match'
       : '';
     const presenceColor = gn.summaryPresence === 'present' ? '#10b981'
       : gn.summaryPresence === 'partial' ? '#f59e0b'
@@ -263,11 +270,11 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
     const bridgeLabel = gn.isBridge ? '<div style="color:#f59e0b;font-size:10px;margin-top:2px;">&#9733; Bridge entity (connects communities)</div>' : '';
 
     return `<div style="background:#1e293b;color:white;padding:8px 12px;border-radius:6px;font-size:12px;max-width:280px;line-height:1.4;">
-      <div style="font-weight:600;font-size:13px;margin-bottom:3px;">${gn.name}</div>
-      <div style="color:#94a3b8;font-size:11px;">${gn.type}</div>
-      <div style="margin:4px 0;">${gn.description}</div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:3px;">${escapeTooltipText(gn.name)}</div>
+      <div style="color:#94a3b8;font-size:11px;">${escapeTooltipText(gn.type)}</div>
+      <div style="margin:4px 0;">${escapeTooltipText(gn.description)}</div>
       <div style="color:#94a3b8;font-size:11px;">Mentioned ${gn.frequency}x by ${gn.sourceParticipants.length} participant${gn.sourceParticipants.length !== 1 ? 's' : ''}</div>
-      <div style="color:#94a3b8;font-size:11px;">Community: ${commLabel}</div>
+      <div style="color:#94a3b8;font-size:11px;">Community: ${escapeTooltipText(commLabel)}</div>
       ${presenceLabel ? `<div style="color:${presenceColor};font-size:11px;margin-top:3px;font-weight:500;">${presenceLabel}</div>` : ''}
       ${bridgeLabel}
     </div>`;
@@ -284,19 +291,13 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
   const interpretation = useMemo(() => {
     const insights: string[] = [];
 
-    if (metrics.modularity > 0.4) {
-      insights.push(`Strong community structure (Q=${metrics.modularity.toFixed(3)}). Participant perspectives form ${metrics.communityCount} distinct thematic groups with clear boundaries.`);
-    } else if (metrics.modularity > 0.2) {
-      insights.push(`Moderate community structure (Q=${metrics.modularity.toFixed(3)}). Themes are somewhat distinct but share cross-cutting connections.`);
-    } else {
-      insights.push(`Weak community structure (Q=${metrics.modularity.toFixed(3)}). Perspectives are highly interconnected with overlapping themes.`);
-    }
+    insights.push(`Graph modularity Q=${metrics.modularity.toFixed(3)} across ${metrics.communityCount} automatically detected communities. This describes the extracted graph and is not a significance test or proof of natural themes.`);
 
     const covPct = (metrics.participantCoverage * 100).toFixed(0);
     if (metrics.participantCoverage < 0.8) {
-      insights.push(`${covPct}% participant coverage. ${(100 - Number(covPct))}% of voices use abstract language not captured by entity extraction.`);
+      insights.push(`${covPct}% extraction coverage: ${(100 - Number(covPct))}% of source records have no extracted entity. This may reflect extractor failure, input form, language, or content.`);
     } else {
-      insights.push(`${covPct}% participant coverage — nearly all voices are represented in the concept graph.`);
+      insights.push(`${covPct}% of source records have at least one extracted entity; this does not establish complete conceptual coverage.`);
     }
 
     // Provenance insights
@@ -305,18 +306,18 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
       if (total > 0) {
         const capturedPct = ((provenanceStats.present + provenanceStats.partial) / total * 100).toFixed(0);
         const absentPct = (provenanceStats.absent / total * 100).toFixed(0);
-        insights.push(`Summary captures ${capturedPct}% of extracted concepts. ${provenanceStats.absent} concepts (${absentPct}%) are absent from the summary — switch to "Summary Presence" view to identify them.`);
+        insights.push(`The lexical screen classified ${capturedPct}% of extracted concepts as present or partial and found no match for ${provenanceStats.absent} (${absentPct}%). Inspect source and summary evidence before treating these as omissions.`);
 
         if (provenanceStats.droppedBridges > 0) {
           const droppedBridgeNames = entities
             .filter(e => e.isBridge && e.summaryPresence === 'absent')
             .map(e => `"${e.name}"`).slice(0, 3).join(', ');
-          insights.push(`${provenanceStats.droppedBridges} cross-cutting bridge concept${provenanceStats.droppedBridges > 1 ? 's are' : ' is'} missing from the summary: ${droppedBridgeNames}. Bridge concepts connect separate discussion themes and are often the first to be dropped during summarization.`);
+          insights.push(`${provenanceStats.droppedBridges} graph-bridge concept${provenanceStats.droppedBridges > 1 ? 's had' : ' had'} no lexical summary match: ${droppedBridgeNames}. Bridge status is topological, not a priority or causal label.`);
         }
       }
 
       if (provenanceStats.bridges > 0) {
-        insights.push(`${provenanceStats.bridges} bridge entities span multiple communities — these cross-cutting themes represent nuanced connections between otherwise separate conversations.`);
+        insights.push(`${provenanceStats.bridges} entities have cross-community graph connections. Inspect their evidence before interpreting the connections substantively.`);
       }
     }
 
@@ -326,13 +327,13 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
       const minSize = Math.min(...sizes);
       if (maxSize > minSize * 3) {
         const largest = communities.find(c => c.entityNames.length === maxSize);
-        insights.push(`Theme imbalance: "${largest?.label}" dominates with ${maxSize} entities vs ${minSize} in the smallest.`);
+        insights.push(`Extracted community-size difference: "${largest?.label}" has ${maxSize} entities versus ${minSize} in the smallest. Entity count is not social importance.`);
       }
     }
 
     const topEntities = [...entities].sort((a, b) => b.frequency - a.frequency).slice(0, 3);
     if (topEntities.length > 0) {
-      insights.push(`Core entities: ${topEntities.map(e => `"${e.name}" (${e.frequency}x)`).join(', ')}.`);
+      insights.push(`Most frequently extracted entities: ${topEntities.map(e => `"${e.name}" (${e.frequency}x)`).join(', ')}.`);
     }
 
     return insights;
@@ -419,15 +420,15 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
         <MetricBadge label="Entities" value={metrics.entityCount} />
         <MetricBadge label="Relationships" value={metrics.relationshipCount} />
         <MetricBadge label="Communities" value={metrics.communityCount} />
-        <MetricBadge label="Modularity" value={metrics.modularity.toFixed(3)} detail="Newman Q — community structure strength. >0.3 = significant." />
+        <MetricBadge label="Modularity" value={metrics.modularity.toFixed(3)} detail="Newman Q — descriptive community-structure strength; no significance test is implied." />
         <MetricBadge label="Coverage" value={`${(metrics.participantCoverage * 100).toFixed(0)}%`} detail="Participants with at least one entity." />
         {provenanceStats && (
           <>
-            <MetricBadge label="In Summary" value={provenanceStats.present} detail="Concepts that appear in the AI-generated summary." />
+            <MetricBadge label="Lexically present" value={provenanceStats.present} detail="Model-extracted concepts with a full-name/word heuristic match in the summary." />
             <MetricBadge
-              label="Absent"
+              label="No lexical match"
               value={provenanceStats.absent}
-              detail="Concepts from participant inputs missing from the summary."
+              detail="Model-extracted concepts without a lexical heuristic match; inspect evidence before inferring omission."
               highlight={provenanceStats.absent > 0}
             />
             {provenanceStats.bridges > 0 && (
@@ -488,15 +489,15 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
           <>
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PROVENANCE_COLORS.present }} />
-              In summary
+              Lexically present
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PROVENANCE_COLORS.partial }} />
-              Partially mentioned
+              Lexically partial
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PROVENANCE_COLORS.absent }} />
-              Absent from summary
+              No lexical match
             </span>
           </>
         )}
@@ -511,12 +512,8 @@ export const KnowledgeGraphViz: React.FC<KnowledgeGraphVizProps> = ({
         <span className="font-medium text-slate-700">What this shows: </span>
         The knowledge graph maps <em>concepts and their relationships</em> as mentioned by participants.
         {hasProvenanceData
-          ? <> Use the <strong>Summary Presence</strong> view to see which concepts were captured (green),
-            partially mentioned (amber), or dropped (red) from the summary. Bridge entities (dashed amber ring)
-            connect separate thematic communities — these cross-cutting ideas are often the first to be lost during summarization.</>
-          : <> Unlike the cluster map (which groups <em>people</em>), this graph reveals the
-            <em>conceptual structure</em> of the discussion — which ideas connect, which are central vs. peripheral,
-            and where cross-cutting ideas bridge separate conversations.</>
+          ? <> The <strong>Summary Presence</strong> view shows a lexical full/partial/no-match screen over model-extracted concepts. Verify it against exact evidence. Bridge rings encode graph topology only.</>
+          : <> Unlike the cluster map (which groups source records), this exploratory graph shows model-extracted entities, relations, and automated communities. It may omit or merge concepts.</>
         }
       </div>
 

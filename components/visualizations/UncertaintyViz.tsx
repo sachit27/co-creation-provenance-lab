@@ -1,8 +1,7 @@
 import React from 'react';
 import { UncertaintyMetrics } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
-import { formatCI, isHighUncertainty } from '../../services/uncertainty';
-import { ANALYSIS_CONFIG } from '../../constants';
+import { isHighUncertainty } from '../../services/uncertainty';
 import { InfoIcon } from '../ui/MetricGlossary';
 
 interface UncertaintyVizProps {
@@ -15,7 +14,7 @@ interface ConfidenceIntervalBarProps {
   domain?: [number, number];
   colorScheme: 'blue' | 'purple' | 'amber';
   target?: number;
-  inverted?: boolean;
+  showInterval?: boolean;
 }
 
 const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
@@ -24,7 +23,7 @@ const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
   domain = [0, 1],
   colorScheme,
   target,
-  inverted = false
+  showInterval = true,
 }) => {
   const [min, max] = domain;
   const range = max - min;
@@ -46,17 +45,12 @@ const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
 
   const colorSet = colors[colorScheme];
 
-  // Determine if value is good or concerning
-  const isGood = inverted
-    ? ci.point <= (target || 0.5)
-    : ci.point >= (target || 0.5);
-
   return (
     <div className="mb-4">
       <div className="flex justify-between items-center mb-1.5">
         <span className="text-sm font-medium text-slate-700">{label}</span>
         <div className="flex items-center gap-2">
-          <span className={`font-mono font-bold ${isGood ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`font-mono font-bold ${colorSet.text}`}>
             {formatMetric(ci.point, 3)}
           </span>
           {highUncertainty && (
@@ -82,13 +76,10 @@ const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
         )}
 
         {/* Confidence interval range */}
-        <div
-          className={`absolute top-1 bottom-1 ${colorSet.bar} rounded-full opacity-40`}
-          style={{
-            left: `${leftPercent}%`,
-            width: `${widthPercent}%`
-          }}
-        />
+        {showInterval && <div
+            className={`absolute top-1 bottom-1 ${colorSet.bar} rounded-full opacity-40`}
+            style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+          />}
 
         {/* Point estimate marker */}
         <div
@@ -97,20 +88,20 @@ const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
         />
 
         {/* Confidence interval whiskers */}
-        <div
+        {showInterval && <div
           className="absolute top-2 bottom-2 w-0.5 bg-slate-400"
           style={{ left: `${leftPercent}%` }}
-        />
-        <div
+        />}
+        {showInterval && <div
           className="absolute top-2 bottom-2 w-0.5 bg-slate-400"
           style={{ left: `${rightPercent}%` }}
-        />
+        />}
       </div>
 
       {/* CI text */}
       <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-        <span>95% CI: [{formatMetric(ci.lower, 3)}, {formatMetric(ci.upper, 3)}]</span>
-        <span>Width: {formatMetric(ci.upper - ci.lower, 3)}</span>
+        <span>{showInterval ? `95% resampling interval: [${formatMetric(ci.lower, 3)}, ${formatMetric(ci.upper, 3)}]` : 'Resampling interval unavailable (fewer than 3 records)'}</span>
+        {showInterval && <span>Width: {formatMetric(ci.upper - ci.lower, 3)}</span>}
       </div>
     </div>
   );
@@ -119,11 +110,7 @@ const ConfidenceIntervalBar: React.FC<ConfidenceIntervalBarProps> = ({
 export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
   const { containerRef, isCompact, isMobile } = useResponsiveChart({ minHeight: 300 });
 
-  // Use config thresholds for interpretation
-  const { representationTarget } = ANALYSIS_CONFIG.thresholds;
-  const { low: giniLow, moderate: giniModerate } = ANALYSIS_CONFIG.giniInterpretation;
-
-  const hasEnoughSamples = data.bootstrapSamples >= 50;
+  const hasResamplingInterval = data.bootstrapSamples > 0;
 
   return (
     <div ref={containerRef} className="w-full flex flex-col gap-4 p-3" style={{ minHeight: '350px' }}>
@@ -131,16 +118,18 @@ export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
       <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
           <h3 className="text-sm font-bold text-slate-700 flex items-center">
-            Uncertainty Quantification <InfoIcon metricKey="bootstrap" />
+            Participant-resampling stability <InfoIcon metricKey="bootstrap" />
           </h3>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            Bootstrap confidence intervals ({data.bootstrapSamples} samples, 95% CI)
+            {hasResamplingInterval
+              ? `${data.bootstrapSamples} bootstrap replicates · 95% percentile interval`
+              : 'Point estimates only'}
           </p>
         </div>
 
-        {!hasEnoughSamples && (
+        {!hasResamplingInterval && (
           <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-[10px] text-amber-700">
-            ⚠️ Low sample count - estimates may be unreliable
+            Fewer than 3 records — no resampling interval
           </div>
         )}
       </div>
@@ -148,62 +137,37 @@ export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
       {/* Metrics with CI bars */}
       <div className="space-y-6 flex-1">
         <ConfidenceIntervalBar
-          label={<>Average Representation <InfoIcon metricKey="representation" /></>}
+          label={<>Mean semantic-alignment estimate <InfoIcon metricKey="representation" /></>}
           ci={data.avgRepresentationCI}
           colorScheme="blue"
-          target={representationTarget}
+          showInterval={hasResamplingInterval}
         />
 
         <ConfidenceIntervalBar
-          label={<>Gini Coefficient (Inequality) <InfoIcon metricKey="gini" /></>}
+          label={<>Gini of alignment estimates <InfoIcon metricKey="gini" /></>}
           ci={data.giniCI}
           colorScheme="purple"
-          target={giniLow}
-          inverted={true}
+          showInterval={hasResamplingInterval}
         />
 
         <ConfidenceIntervalBar
-          label={<>Equity Gap (Majority vs Distinct) <InfoIcon metricKey="gap" /></>}
+          label={<>Distinct-to-central alignment gap <InfoIcon metricKey="gap" /></>}
           ci={data.gapCI}
           domain={[-0.5, 0.5]}
           colorScheme="amber"
           target={0}
+          showInterval={hasResamplingInterval}
         />
       </div>
 
       {/* Interpretation Guide */}
       <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-        <div className="text-[10px] font-bold text-slate-600 uppercase mb-2">Interpretation</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[10px]">
-          <div>
-            <span className="font-medium text-blue-700">Avg Representation</span>
-            <p className="text-slate-500 mt-0.5">
-              {data.avgRepresentationCI.point >= representationTarget
-                ? '✓ Good coverage overall'
-                : '⚠️ Below target - some voices may be missed'}
-            </p>
-          </div>
-          <div>
-            <span className="font-medium text-purple-700">Gini Coefficient</span>
-            <p className="text-slate-500 mt-0.5">
-              {data.giniCI.point <= giniLow
-                ? '✓ Low inequality'
-                : data.giniCI.point <= giniModerate
-                  ? '⚡ Moderate inequality'
-                  : '⚠️ High inequality detected'}
-            </p>
-          </div>
-          <div>
-            <span className="font-medium text-amber-700">Equity Gap</span>
-            <p className="text-slate-500 mt-0.5">
-              {Math.abs(data.gapCI.point) <= 0.1
-                ? '✓ Fair coverage across groups'
-                : data.gapCI.point > 0
-                  ? '⚠️ Distinct voices underrepresented'
-                  : '⚡ Unusual: distinct voices overrepresented'}
-            </p>
-          </div>
-        </div>
+        <div className="text-[10px] font-bold text-slate-600 uppercase mb-2">What this does—and does not—show</div>
+        <p className="text-[10px] text-slate-600 leading-relaxed">
+          These intervals reweight the observed records to show descriptive sensitivity to participant composition.
+          They are not population confidence intervals unless recruitment can be treated as an IID sample, and they do
+          not include model, prompt, embedding, or measurement uncertainty. Narrow intervals therefore do not establish fairness.
+        </p>
       </div>
 
       {/* Legend */}
@@ -214,7 +178,7 @@ export const UncertaintyViz: React.FC<UncertaintyVizProps> = ({ data }) => {
         </span>
         <span className="flex items-center gap-1">
           <span className="w-3 h-3 bg-blue-500/40 rounded"></span>
-          95% Confidence Interval
+          95% participant-resampling interval
         </span>
         <span className="flex items-center gap-1">
           <span className="w-1 h-3 bg-green-500"></span>

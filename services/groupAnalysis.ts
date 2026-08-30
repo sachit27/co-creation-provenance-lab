@@ -6,6 +6,7 @@ import {
   InterGroupAnalysis
 } from '../types';
 import { calculateGini } from './mathUtils';
+import { getRepresentationBands } from '../constants';
 
 /**
  * Group Analysis Service
@@ -94,6 +95,9 @@ export const analyzeGroups = (
   inputs: ParticipantInput[],
   participants: ParticipantAnalysis[]
 ): InterGroupAnalysis | null => {
+  const validParticipants = participants.filter(participant =>
+    !participant.embeddingFailed && !participant.alignmentUnavailableReason
+  );
   // Get unique groups that have at least one participant
   const groups = getUniqueGroups(inputs);
 
@@ -103,7 +107,7 @@ export const analyzeGroups = (
   }
 
   // Compute metrics for each group
-  const groupMetrics = groups.map(g => computeGroupMetrics(g, participants));
+  const groupMetrics = groups.map(g => computeGroupMetrics(g, validParticipants));
 
   // Filter out empty groups
   const nonEmptyMetrics = groupMetrics.filter(g => g.participantCount > 0);
@@ -117,11 +121,17 @@ export const analyzeGroups = (
 
   // Compute representation gap matrix
   const representationGapMatrix = computeRepresentationGapMatrix(nonEmptyMetrics);
+  const reviewBands = getRepresentationBands(validParticipants[0]?.embeddingTier);
 
   return {
     groupMetrics: nonEmptyMetrics,
     interGroupGini,
-    representationGapMatrix
+    representationGapMatrix,
+    reviewBands: {
+      atRisk: reviewBands.atRisk,
+      low: reviewBands.low,
+      target: reviewBands.target,
+    },
   };
 };
 
@@ -182,7 +192,7 @@ export const generateGroupRecommendations = (
   // Check inter-group Gini
   if (analysis.interGroupGini > 0.2) {
     recommendations.push(
-      `High inter-group inequality detected (Gini: ${analysis.interGroupGini.toFixed(2)}). Consider weighting strategies to balance group representation.`
+      `Group mean-alignment scores are uneven (inter-group Gini: ${analysis.interGroupGini.toFixed(2)}). Inspect valid counts, group composition, and source evidence before considering changes.`
     );
   }
 
@@ -193,16 +203,16 @@ export const generateGroupRecommendations = (
     const gap = highest.avgRepresentation - lowest.avgRepresentation;
     if (gap > 0.2) {
       recommendations.push(
-        `${getGroupLabel(lowest.groupId)} has significantly lower representation (${(lowest.avgRepresentation * 100).toFixed(0)}%) than ${getGroupLabel(highest.groupId)} (${(highest.avgRepresentation * 100).toFixed(0)}%). Review summary for potential bias.`
+        `${getGroupLabel(lowest.groupId)} has a lower mean semantic-alignment score (${(lowest.avgRepresentation * 100).toFixed(0)}%) than ${getGroupLabel(highest.groupId)} (${(highest.avgRepresentation * 100).toFixed(0)}%). This descriptive gap is not a significance test; inspect composition and evidence.`
       );
     }
   }
 
   // Check for underrepresented groups
   analysis.groupMetrics.forEach(g => {
-    if (g.avgRepresentation < 0.4 && g.participantCount > 1) {
+    if (g.avgRepresentation < (analysis.reviewBands?.low ?? 0.5) && g.participantCount > 1) {
       recommendations.push(
-        `${getGroupLabel(g.groupId)} appears underrepresented (avg: ${(g.avgRepresentation * 100).toFixed(0)}%). Consider diversity-focused summarization.`
+        `${getGroupLabel(g.groupId)} falls below the current embedding-tier review marker (mean alignment: ${g.avgRepresentation.toFixed(2)}). Inspect the group's source evidence and valid count.`
       );
     }
   });

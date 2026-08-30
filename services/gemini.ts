@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import type { CompletionResult } from '../types';
 
 /**
  * Gemini Service
@@ -12,6 +13,9 @@ import { GoogleGenAI } from "@google/genai";
 
 // Client-side key from build-time env (local dev only via vite.config.ts)
 const buildTimeKey = process.env.API_KEY || '';
+
+export const DEFAULT_GEMINI_GENERATION_MODEL = 'gemini-3.7-flash';
+export const DEFAULT_GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001';
 
 // Runtime key entered by the user in the UI — stored in sessionStorage so it
 // is never persisted beyond the current browser tab.
@@ -137,16 +141,29 @@ export const checkAIConnection = async (): Promise<boolean> => {
   return await checkProxy();
 };
 
-export const generateEmbedding = async (text: string, model: string = 'text-embedding-004'): Promise<number[]> => {
+const prepareEmbeddingInput = (text: string, model: string): string =>
+  model === 'gemini-embedding-2' ? `task: sentence similarity | query: ${text}` : text;
+
+const normalizeEmbedding = (values: number[]): number[] => {
+  const norm = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
+  return norm > 0 ? values.map(value => value / norm) : values;
+};
+
+export const generateEmbedding = async (text: string, model: string = DEFAULT_GEMINI_EMBEDDING_MODEL): Promise<number[]> => {
   try {
+    const preparedText = prepareEmbeddingInput(text, model);
+    const embedConfig = model === 'gemini-embedding-001'
+      ? { taskType: 'SEMANTIC_SIMILARITY', outputDimensionality: 768 }
+      : { outputDimensionality: 768 };
     // 1. Try direct SDK first (local dev / runtime key)
     const ai = getAI();
     if (ai && hasRuntimeKey()) {
       const response = await ai.models.embedContent({
         model,
-        contents: { role: 'user', parts: [{ text }] },
+        contents: { role: 'user', parts: [{ text: preparedText }] },
+        config: embedConfig,
       });
-      return response.embeddings?.[0]?.values || [];
+      return normalizeEmbedding(response.embeddings?.[0]?.values || []);
     }
 
     // 2. Fall back to proxy
@@ -155,10 +172,11 @@ export const generateEmbedding = async (text: string, model: string = 'text-embe
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, model }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (res.ok) {
         const data = await res.json();
-        return data.values || [];
+        return normalizeEmbedding(data.values || []);
       }
       console.warn('Gemini proxy embed failed');
     }
@@ -167,19 +185,20 @@ export const generateEmbedding = async (text: string, model: string = 'text-embe
     if (ai && !hasRuntimeKey()) {
       const response = await ai.models.embedContent({
         model,
-        contents: { role: 'user', parts: [{ text }] },
+        contents: { role: 'user', parts: [{ text: preparedText }] },
+        config: embedConfig,
       });
-      return response.embeddings?.[0]?.values || [];
+      return normalizeEmbedding(response.embeddings?.[0]?.values || []);
     }
 
     // Fallback: return a zero vector. Dimension must match the requested model.
-    // text-embedding-004 = 768, other models may differ. The caller should
-    // handle zero vectors as failed embeddings (via the embeddingFailed flag).
-    const fallbackDim = model.includes('text-embedding-3') ? 1536 : 768;
+    // The configured Gemini output dimensionality is 768. The caller treats a
+    // zero vector as failure and atomically recomputes the complete vector space.
+    const fallbackDim = 768;
     return new Array(fallbackDim).fill(0);
   } catch (error) {
     console.warn(`Gemini Embedding Error for text: "${text.substring(0, 20)}..."`, error);
-    const fallbackDim = model.includes('text-embedding-3') ? 1536 : 768;
+    const fallbackDim = 768;
     return new Array(fallbackDim).fill(0);
   }
 };
@@ -193,11 +212,17 @@ const isQuotaError = (status?: number, body?: string): boolean => {
     text.includes('ratelimit') || text.includes('too many requests');
 };
 
-export const generateCompletion = async (
+export const generateCompletionResult = async (
   prompt: string,
   systemInstruction?: string,
-  model: string = 'gemini-2.0-flash'
-): Promise<string> => {
+  model: string = DEFAULT_GEMINI_GENERATION_MODEL,
+  temperature: number = 0.5,
+  signal?: AbortSignal,
+): Promise<CompletionResult> => {
+  const supportsTemperature = !/^gemini-3\.7(?:-|$)/.test(model);
+  const generationConfig = supportsTemperature
+    ? { systemInstruction, temperature, abortSignal: signal }
+    : { systemInstruction, abortSignal: signal };
   try {
     // 1. Try direct SDK first (prioritize user's own key)
     const ai = getAI();
@@ -205,9 +230,39 @@ export const generateCompletion = async (
       const response = await ai.models.generateContent({
         model,
         contents: { role: 'user', parts: [{ text: prompt }] },
-        config: { systemInstruction, temperature: 0.5 },
+        config: generationConfig,
       });
-      return response.text || '';
+      const text = response.text || '';
+      if (!text) {
+        const raw = response as any;
+        const finishReason = raw.candidates?.[0]?.finishReason ?? 'no_text';
+        const error = new Error(`Gemini returned no text (finish reason: ${finishReason}).`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        error.completionMetadata = {
+          provider: 'gemini', requestedModel: model, returnedModel: raw.modelVersion,
+          responseId: raw.responseId, createdAt: new Date().toISOString(),
+          finishReason, refusal: String(finishReason),
+          effectiveParameters: { temperature: supportsTemperature ? temperature : null },
+        };
+        throw error;
+      }
+      const raw = response as any;
+      const candidate = raw.candidates?.[0];
+      return {
+        text,
+        metadata: {
+          provider: 'gemini', requestedModel: model,
+          returnedModel: raw.modelVersion,
+          responseId: raw.responseId,
+          createdAt: new Date().toISOString(),
+          finishReason: candidate?.finishReason,
+          usage: raw.usageMetadata ? {
+            inputTokens: raw.usageMetadata.promptTokenCount,
+            outputTokens: raw.usageMetadata.candidatesTokenCount,
+            totalTokens: raw.usageMetadata.totalTokenCount,
+          } : undefined,
+          effectiveParameters: { temperature: supportsTemperature ? temperature : null },
+        },
+      };
     }
 
     // 2. Fall back to proxy
@@ -215,13 +270,44 @@ export const generateCompletion = async (
       const res = await fetch('/api/gemini-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, systemInstruction, model }),
+        body: JSON.stringify({ prompt, systemInstruction, model, ...(supportsTemperature ? { temperature } : {}) }),
+        signal: signal ?? AbortSignal.timeout(120_000),
       });
       if (res.ok) {
         const data = await res.json();
-        return data.text || '';
+        if (!data.text) throw new Error(`Gemini proxy returned no text${data.finishReason ? ` (finish reason: ${data.finishReason})` : ''}.`);
+        return {
+          text: data.text,
+          metadata: {
+            provider: 'gemini', requestedModel: model,
+            returnedModel: data.modelVersion,
+            responseId: data.responseId,
+            requestId: res.headers.get('x-request-id') || undefined,
+            createdAt: new Date().toISOString(),
+            finishReason: data.finishReason,
+            usage: data.usageMetadata ? {
+              inputTokens: data.usageMetadata.promptTokenCount,
+              outputTokens: data.usageMetadata.candidatesTokenCount,
+              totalTokens: data.usageMetadata.totalTokenCount,
+            } : undefined,
+            effectiveParameters: { temperature: supportsTemperature ? temperature : null, maxOutputTokens: 8192 },
+          },
+        };
       }
       const errBody = await res.text().catch(() => '');
+      if (res.status === 422) {
+        let failure: any = {};
+        try { failure = JSON.parse(errBody); } catch { /* retain opaque body */ }
+        const finishReason = failure.finishReason ?? 'no_text';
+        const error = new Error(`Gemini proxy returned no text (finish reason: ${finishReason}).`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        error.completionMetadata = {
+          provider: 'gemini', requestedModel: model,
+          requestId: res.headers.get('x-request-id') || undefined,
+          createdAt: new Date().toISOString(), finishReason, refusal: String(finishReason),
+          effectiveParameters: { temperature: supportsTemperature ? temperature : null, maxOutputTokens: 8192 },
+        };
+        throw error;
+      }
       if (isQuotaError(res.status, errBody)) {
         throw new Error('[QUOTA] Gemini API quota exhausted. Try again later, switch to Groq (free), or use a different API key.');
       }
@@ -233,9 +319,39 @@ export const generateCompletion = async (
       const response = await ai.models.generateContent({
         model,
         contents: { role: 'user', parts: [{ text: prompt }] },
-        config: { systemInstruction, temperature: 0.5 },
+        config: generationConfig,
       });
-      return response.text || '';
+      const text = response.text || '';
+      if (!text) {
+        const raw = response as any;
+        const finishReason = raw.candidates?.[0]?.finishReason ?? 'no_text';
+        const error = new Error(`Gemini returned no text (finish reason: ${finishReason}).`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        error.completionMetadata = {
+          provider: 'gemini', requestedModel: model, returnedModel: raw.modelVersion,
+          responseId: raw.responseId, createdAt: new Date().toISOString(),
+          finishReason, refusal: String(finishReason),
+          effectiveParameters: { temperature: supportsTemperature ? temperature : null },
+        };
+        throw error;
+      }
+      const raw = response as any;
+      const candidate = raw.candidates?.[0];
+      return {
+        text,
+        metadata: {
+          provider: 'gemini', requestedModel: model,
+          returnedModel: raw.modelVersion,
+          responseId: raw.responseId,
+          createdAt: new Date().toISOString(),
+          finishReason: candidate?.finishReason,
+          usage: raw.usageMetadata ? {
+            inputTokens: raw.usageMetadata.promptTokenCount,
+            outputTokens: raw.usageMetadata.candidatesTokenCount,
+            totalTokens: raw.usageMetadata.totalTokenCount,
+          } : undefined,
+          effectiveParameters: { temperature: supportsTemperature ? temperature : null },
+        },
+      };
     }
 
     throw new Error('No Gemini backend available');
@@ -250,3 +366,6 @@ export const generateCompletion = async (
     throw error;
   }
 };
+
+export const generateCompletion = async (...args: Parameters<typeof generateCompletionResult>): Promise<string> =>
+  (await generateCompletionResult(...args)).text;

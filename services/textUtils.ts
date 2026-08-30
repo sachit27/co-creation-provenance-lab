@@ -116,6 +116,28 @@ const GENERIC_WORDS = new Set([
   'again', 'true', 'false', 'sure', 'think', 'believe', 'clearly',
   'rather', 'simply', 'basically', 'given', 'being', 'having',
   'everyone', 'anyone', 'someone', 'nobody', 'everybody',
+
+  // ── Meta-procedural / stance verbs ────────────────────────────────────────
+  // These describe how a contribution was HANDLED, not what it was ABOUT.
+  // RAKE isolates them as candidate phrases whenever they sit between stop
+  // words ("...is being ignored by researchers"), and they then surface as
+  // recommended topics — e.g. "Topics that may need more attention: ignored".
+  // That is doubly wrong: it is not a topic, and it converts a participant's
+  // grievance about being unheard into a subject heading.
+  'ignored', 'ignore', 'neglected', 'neglect', 'overlooked', 'overlook',
+  'rejected', 'reject', 'dismissed', 'dismiss', 'disregarded', 'disregard',
+  'forgotten', 'forget', 'excluded', 'exclude', 'omitted', 'omit',
+  'missed', 'miss', 'lost', 'lose', 'silenced', 'silence',
+  'complained', 'complain', 'mentioned', 'mention', 'stated', 'state',
+  'noted', 'note', 'said', 'says', 'suggested', 'suggest',
+  'raised', 'raise', 'expressed', 'express', 'highlighted', 'highlight',
+  'emphasised', 'emphasized', 'emphasise', 'emphasize',
+  'wanted', 'want', 'needed', 'need', 'asked', 'ask',
+  // Generic process/scale verbs that read as topics but carry no subject matter
+  'scaled', 'scale', 'prioritized', 'prioritised', 'prioritize', 'prioritise',
+  'quantified', 'quantify', 'strengthened', 'strengthen',
+  'expanded', 'expand', 'simplified', 'simplify', 'required', 'require',
+  'incentivized', 'incentivised', 'increased', 'linked',
 ]);
 
 

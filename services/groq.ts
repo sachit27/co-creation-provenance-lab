@@ -1,8 +1,8 @@
 /**
  * Groq Cloud Service
  *
- * Groq provides a free tier (no credit card required) with access to
- * open-source models at very high speed. Free limits: ~14,400 requests/day.
+ * Groq exposes hosted completion models through an OpenAI-compatible API.
+ * Available models, quotas, retention, and pricing depend on the account.
  *
  * Get a free API key at: https://console.groq.com
  *
@@ -10,6 +10,8 @@
  * NOTE: Groq does not provide an embeddings endpoint, so the tool falls back
  * to its standard embedding chain (BGE-M3 → TF-IDF) for Groq sessions.
  */
+
+import type { CompletionResult } from '../types';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 const GROQ_KEY_STORAGE = 'cprov_groq_key';
@@ -37,18 +39,28 @@ export const isGroqKeyFromEnv = (): boolean =>
 
 export const checkGroqConnection = (): boolean => !!getGroqApiKey();
 
+export const verifyGroqConnection = async (): Promise<boolean> => {
+  const key = getGroqApiKey();
+  if (!key) return false;
+  try {
+    const response = await fetch(`${GROQ_API_URL}/models`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
 // ── Free models available on Groq ────────────────────────────────────────────
 
 /**
  * Static fallback — used when the API call fails or key is missing.
  */
 export const GROQ_FREE_MODELS = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
-  'llama3-70b-8192',
-  'llama3-8b-8192',
-  'gemma2-9b-it',
-  'mixtral-8x7b-32768',
+  'qwen/qwen3.6-27b',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
 ];
 
 /**
@@ -94,11 +106,13 @@ export const fetchGroqModels = async (): Promise<string[]> => {
 
 // ── Chat completion ───────────────────────────────────────────────────────────
 
-export const generateGroqCompletion = async (
+export const generateGroqCompletionResult = async (
   prompt: string,
   systemInstruction: string,
-  model: string
-): Promise<string> => {
+  model: string,
+  temperature: number = 0.5,
+  signal?: AbortSignal,
+): Promise<CompletionResult> => {
   const key = getGroqApiKey();
   if (!key) throw new Error('Groq API key not set. Enter your key in the configuration panel.');
 
@@ -114,9 +128,10 @@ export const generateGroqCompletion = async (
         { role: 'system', content: systemInstruction },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.5,
+      temperature,
       max_tokens: 4096,
     }),
+    signal: signal ?? AbortSignal.timeout(120_000),
   });
 
   if (!response.ok) {
@@ -128,5 +143,42 @@ export const generateGroqCompletion = async (
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  const choice = data.choices?.[0];
+  if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') {
+    const refusal = choice?.message?.refusal ? String(choice.message.refusal) : 'content_filter';
+    const error = new Error(`[REFUSAL] Groq declined the completion${choice?.message?.refusal ? `: ${choice.message.refusal}` : '.'}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+    error.completionMetadata = {
+      provider: 'groq', requestedModel: model, returnedModel: data.model,
+      responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,
+      createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
+      finishReason: choice?.finish_reason, refusal,
+      effectiveParameters: { temperature, maxOutputTokens: 4096 },
+    };
+    throw error;
+  }
+  const content = choice?.message?.content;
+  if (typeof content !== 'string' || content.length === 0) {
+    throw new Error(`Groq returned no text (finish reason: ${choice?.finish_reason ?? 'unknown'}).`);
+  }
+  return {
+    text: content,
+    metadata: {
+      provider: 'groq',
+      requestedModel: model,
+      returnedModel: typeof data.model === 'string' ? data.model : undefined,
+      responseId: typeof data.id === 'string' ? data.id : undefined,
+      requestId: response.headers.get('x-request-id') || undefined,
+      createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
+      finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
+      usage: data.usage ? {
+        inputTokens: data.usage.prompt_tokens,
+        outputTokens: data.usage.completion_tokens,
+        totalTokens: data.usage.total_tokens,
+      } : undefined,
+      effectiveParameters: { temperature, maxOutputTokens: 4096 },
+    },
+  };
 };
+
+export const generateGroqCompletion = async (...args: Parameters<typeof generateGroqCompletionResult>): Promise<string> =>
+  (await generateGroqCompletionResult(...args)).text;

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ParticipantAnalysis, ClusterData } from '../../types';
-import { ANALYSIS_CONFIG } from '../../constants';
+import { getRepresentationBands } from '../../constants';
 
 interface MissedPerspectivesProps {
   participants: ParticipantAnalysis[];
@@ -50,10 +50,11 @@ const isUsefulKeyword = (keyword: string): boolean => {
 };
 
 /**
- * What Was Missed Panel
+ * Semantic Alignment Review Panel
  *
- * Explicitly shows content that was dropped or underrepresented.
- * Groups missed perspectives by theme for actionability.
+ * Shows records below a tier-specific provisional retrieval band. This is not
+ * evidence that the content was omitted; exact transformation evidence lives
+ * in the source-unit transformation audit.
  */
 export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
   participants,
@@ -64,12 +65,15 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const analysis = useMemo(() => {
-    const { matchingThreshold, representationTarget } = ANALYSIS_CONFIG.thresholds;
-    const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
+    const { atRisk, low } = getRepresentationBands(participants[0]?.embeddingTier);
+    const validParticipants = participants.filter(participant =>
+      !participant.embeddingFailed && !participant.alignmentUnavailableReason
+    );
 
-    // Find underrepresented participants
-    const underrepresented = participants.filter(p => p.representationScore < matchingThreshold);
-    const atRiskParticipants = participants.filter(p => p.representationScore < atRisk);
+    // Tier-specific retrieval review bands. These are descriptive aids, not
+    // validated omission or adequacy thresholds.
+    const underrepresented = validParticipants.filter(p => p.representationScore < low);
+    const atRiskParticipants = validParticipants.filter(p => p.representationScore < atRisk);
 
     // Group by cluster to identify themes
     const missedByCluster: Record<number, ParticipantAnalysis[]> = {};
@@ -122,7 +126,9 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
       totalMissed: underrepresented.length,
       atRiskCount: atRiskParticipants.length,
       missedGroups,
-      atRiskParticipants
+      atRiskParticipants,
+      atRisk,
+      low,
     };
   }, [participants, clusters]);
 
@@ -135,9 +141,9 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
         </div>
-        <h3 className="font-bold text-green-800 mb-1">All Voices Represented</h3>
+        <h3 className="font-bold text-green-800 mb-1">No current review flags</h3>
         <p className="text-green-600 text-sm">
-          No significant perspectives were missed in the summary.
+          No records cross this heuristic. This does not prove complete representation; inspect transformation, claim, and unassessed evidence.
         </p>
       </div>
     );
@@ -153,15 +159,15 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
               <span className="text-xl">🔍</span>
             </div>
             <div>
-              <h3 className="font-bold text-slate-800">What Was Missed</h3>
+              <h3 className="font-bold text-slate-800">Semantic Alignment Review</h3>
               <p className="text-sm text-slate-500">
-                {analysis.totalMissed} perspective{analysis.totalMissed !== 1 ? 's' : ''} not adequately captured
+                {analysis.totalMissed} source record{analysis.totalMissed !== 1 ? 's' : ''} below the provisional {analysis.low.toFixed(2)} band
               </p>
             </div>
           </div>
           {analysis.atRiskCount > 0 && (
             <div className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">
-              {analysis.atRiskCount} Critical
+              {analysis.atRiskCount} stronger review flag{analysis.atRiskCount !== 1 ? 's' : ''}
             </div>
           )}
         </div>
@@ -220,11 +226,11 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium text-slate-700 text-sm">{p.id}</span>
                       <span className={`text-xs font-mono px-2 py-0.5 rounded ${
-                        p.representationScore < 0.3
+                        p.representationScore < analysis.atRisk
                           ? 'bg-red-100 text-red-700'
                           : 'bg-amber-100 text-amber-700'
                       }`}>
-                        {(p.representationScore * 100).toFixed(0)}% match
+                        {p.representationScore.toFixed(3)} retrieval
                       </span>
                     </div>
                     <p className="text-sm text-slate-600 italic leading-relaxed">

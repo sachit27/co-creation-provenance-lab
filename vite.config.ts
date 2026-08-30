@@ -13,8 +13,11 @@ export default defineConfig(({ mode }) => {
   const groqKey = isProduction ? '' : (env.GROQ_API_KEY || '');
 
   return {
+    // GitHub Pages hosts the application below the academic site's /apps path.
+    // Root deployments retain the default `/` base.
+    base: env.VITE_BASE_PATH || '/',
     server: {
-      port: 3000,
+      port: 5173,
       host: '0.0.0.0',
       proxy: {
         // Proxy Ollama API through Vite so the browser avoids cross-origin blocks.
@@ -47,6 +50,44 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
-    }
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          // Keep the application entry small and cache slow-changing runtimes
+          // independently.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+
+            if (id.includes('@google/genai')) {
+              return 'google-ai';
+            }
+            if (
+              id.includes('react-force-graph') ||
+              id.includes('/force-graph/') ||
+              id.includes('/d3-force-3d/') ||
+              id.includes('/kapsule/')
+            ) {
+              return 'force-graph';
+            }
+            if (
+              id.includes('/recharts/') ||
+              id.includes('/victory-vendor/') ||
+              /\/node_modules\/d3-[^/]+\//.test(id)
+            ) {
+              return 'charts';
+            }
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/scheduler/')
+            ) {
+              return 'react-vendor';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
   };
 });

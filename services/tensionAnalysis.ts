@@ -85,38 +85,40 @@ Return ONLY the JSON array.`;
     const response = await generateCompletion(
       prompt,
       'You are an expert in argument analysis and deliberative discourse. Identify genuine disagreements, not mere topical differences. Return only valid JSON.',
-      config
+      config,
+      { temperature: 0, responseFormat: 'json' },
     );
     const match = response.match(/\[[\s\S]*\]/);
     if (!match) {
       console.warn('[TensionAnalysis] No JSON array found in LLM response:', response.slice(0, 200));
-      return [];
+      throw new Error('Tension detector returned no valid JSON array.');
     }
     const parsed = JSON.parse(match[0]) as any[];
+    const groupAById = new Map(groupA.map(participant => [participant.id, participant]));
+    const groupBById = new Map(groupB.map(participant => [participant.id, participant]));
     const filtered = parsed
-      .filter(t => t.participantA && t.participantB && t.description)
+      .filter(t => t.participantA && t.participantB && t.description &&
+        ((groupAById.has(t.participantA) && groupBById.has(t.participantB)) ||
+         (groupBById.has(t.participantA) && groupAById.has(t.participantB))) &&
+        t.participantA !== t.participantB)
       .slice(0, 5)
-      .map(t => ({
-        claimA: {
-          participantId: t.participantA,
-          text: t.textA || '',
-          clusterId: groupA.find(p => p.id === t.participantA)?.clusterId ?? groupB.find(p => p.id === t.participantA)?.clusterId ?? 0,
-        },
-        claimB: {
-          participantId: t.participantB,
-          text: t.textB || '',
-          clusterId: groupB.find(p => p.id === t.participantB)?.clusterId ?? groupA.find(p => p.id === t.participantB)?.clusterId ?? 0,
-        },
-        tensionDescription: t.description,
-      }));
+      .map(t => {
+        const sourceA = groupAById.get(t.participantA) ?? groupBById.get(t.participantA)!;
+        const sourceB = groupBById.get(t.participantB) ?? groupAById.get(t.participantB)!;
+        return {
+          claimA: { participantId: sourceA.id, text: sourceA.text, clusterId: sourceA.clusterId },
+          claimB: { participantId: sourceB.id, text: sourceB.text, clusterId: sourceB.clusterId },
+          tensionDescription: String(t.description).slice(0, 500),
+        };
+      });
     if (filtered.length === 0) {
       console.log('[TensionAnalysis] LLM found no genuine tensions between groups (this is normal for aligned groups)');
     }
     return filtered;
   } catch (e) {
     console.warn('[TensionAnalysis] Tension detection failed:', e);
+    throw e;
   }
-  return [];
 };
 
 // ── Summary Handling Classification ─────────────────────────────────────────────
@@ -144,7 +146,7 @@ For each tension, classify the summary's handling as:
 - "distorted": The summary mischaracterizes the balance or nature of the disagreement
 
 Return a JSON array:
-[{"handling": "acknowledged|suppressed|merged|distorted", "evidence": "quote or description from the summary showing how it was handled, or null if suppressed"}, ...]
+[{"handling": "acknowledged|suppressed|merged|distorted", "evidence": "exact contiguous quote from the summary, or null if suppressed"}, ...]
 
 Return ONLY the JSON array.`;
 
@@ -152,7 +154,8 @@ Return ONLY the JSON array.`;
     const response = await generateCompletion(
       prompt,
       'You are an expert in discourse analysis and summarization fidelity. Return only valid JSON.',
-      config
+      config,
+      { temperature: 0, responseFormat: 'json' },
     );
     const match = response.match(/\[[\s\S]*\]/);
     if (match) {
@@ -160,11 +163,13 @@ Return ONLY the JSON array.`;
       const valid: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'distorted'];
       return pairs.map((pair, i) => {
         const result = parsed[i];
-        const handling = result && valid.includes(result.handling) ? result.handling as TensionHandling : 'suppressed';
+        const handling = result && valid.includes(result.handling) ? result.handling as TensionHandling : 'unassessed';
+        const proposedEvidence = typeof result?.evidence === 'string' ? result.evidence.trim() : '';
+        const verifiedEvidence = proposedEvidence && summary.includes(proposedEvidence) ? proposedEvidence : null;
         return {
           ...pair,
           summaryHandling: handling,
-          summaryEvidence: result?.evidence || null,
+          summaryEvidence: verifiedEvidence,
         };
       });
     }
@@ -172,10 +177,10 @@ Return ONLY the JSON array.`;
     console.warn('[TensionAnalysis] Handling classification failed:', e);
   }
 
-  // Fallback: mark all as suppressed (conservative default)
+  // Evaluation failure is missing evidence, not evidence of suppression.
   return pairs.map(pair => ({
     ...pair,
-    summaryHandling: 'suppressed' as const,
+    summaryHandling: 'unassessed' as const,
     summaryEvidence: null,
   }));
 };
@@ -199,7 +204,7 @@ const aggregateClusterTensions = (
   return Object.entries(map).map(([key, val]) => {
     const [a, b] = key.split('-').map(Number);
     // Find dominant handling
-    const counts: Record<TensionHandling, number> = { acknowledged: 0, suppressed: 0, merged: 0, distorted: 0 };
+    const counts: Record<TensionHandling, number> = { acknowledged: 0, suppressed: 0, merged: 0, distorted: 0, unassessed: 0 };
     for (const h of val.handlings) counts[h]++;
     const dominant = (Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]) as TensionHandling;
     return { clusterA: a, clusterB: b, tensionCount: val.count, dominantHandling: dominant };
@@ -233,8 +238,25 @@ export const performTensionAnalysis = async (
   summary: string,
   clusters: ClusterData[],
   config: AnalysisConfig,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  clusteringUsable: boolean = false,
+  clusteringReason?: string,
 ): Promise<TensionAnalysis> => {
+  if (!clusteringUsable) {
+    onProgress?.('Tension mapping unavailable: semantic grouping did not pass validation gates.');
+    return {
+      basis: 'unavailable',
+      unavailableReason: clusteringReason || 'A validated semantic partition was not available.',
+      pairs: [],
+      tensionFidelityScore: null,
+      acknowledgedCount: 0,
+      suppressedCount: 0,
+      mergedCount: 0,
+      distortedCount: 0,
+      unassessedCount: 0,
+      clusterTensions: [],
+    };
+  }
   onProgress?.('Tension mapping: sampling cluster representatives...');
 
   const clusterReps = sampleClusterRepresentatives(participants, inputs, clusters);
@@ -319,19 +341,22 @@ export const performTensionAnalysis = async (
   const suppressedCount = classifiedPairs.filter(p => p.summaryHandling === 'suppressed').length;
   const mergedCount = classifiedPairs.filter(p => p.summaryHandling === 'merged').length;
   const distortedCount = classifiedPairs.filter(p => p.summaryHandling === 'distorted').length;
-  const total = classifiedPairs.length || 1;
+  const unassessedCount = classifiedPairs.filter(p => p.summaryHandling === 'unassessed').length;
+  const assessedTotal = classifiedPairs.length - unassessedCount;
 
   const clusterTensions = aggregateClusterTensions(classifiedPairs, clusters);
 
   onProgress?.(`Tension analysis complete: ${classifiedPairs.length} tensions found`);
 
   return {
+    basis: 'stable-semantic-groups',
     pairs: classifiedPairs,
-    tensionFidelityScore: acknowledgedCount / total,
+    tensionFidelityScore: assessedTotal > 0 ? acknowledgedCount / assessedTotal : null,
     acknowledgedCount,
     suppressedCount,
     mergedCount,
     distortedCount,
+    unassessedCount,
     clusterTensions,
   };
 };

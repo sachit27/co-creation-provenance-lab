@@ -10,155 +10,155 @@ import { ANALYSIS_CONFIG } from '../../constants';
 export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   'gini': {
     label: 'Gini Coefficient',
-    description: 'A statistical measure of inequality in how the AI summary represents different participants. Originally developed by Corrado Gini (1912) for income inequality.',
-    implication: '0.0 = Perfect equality (everyone represented equally). 1.0 = Maximum inequality (summary reflects only one person).',
-    idealRange: `< ${ANALYSIS_CONFIG.giniInterpretation.low} (low inequality)`,
+    description: 'A descriptive measure of inequality in valid participant-to-summary semantic-alignment scores. It says nothing about whether equal scores are high or low.',
+    implication: '0.0 means equal alignment scores. Larger values mean a more uneven score distribution; they do not establish unfairness, domination, or discrimination.',
+    idealRange: 'Interpret with the score distribution and valid-record count',
     formula: 'G = (2·Σ(i·xᵢ))/(n·Σxᵢ) - (n+1)/n',
-    thresholdJustification: `< ${ANALYSIS_CONFIG.giniInterpretation.low}: Low inequality. ${ANALYSIS_CONFIG.giniInterpretation.low}-${ANALYSIS_CONFIG.giniInterpretation.moderate}: Moderate. > ${ANALYSIS_CONFIG.giniInterpretation.moderate}: High. Based on standard inequality analysis conventions from economics.`
+    thresholdJustification: `The interface bands (< ${ANALYSIS_CONFIG.giniInterpretation.low}, ${ANALYSIS_CONFIG.giniInterpretation.low}–${ANALYSIS_CONFIG.giniInterpretation.moderate}, > ${ANALYSIS_CONFIG.giniInterpretation.moderate}) are descriptive display conventions, not validated decision thresholds.`
   },
   'gap': {
-    label: 'Equity Gap',
-    description: 'The difference in average representation scores between "majority" opinions (central views) and "distinct" opinions (outlier/minority views).',
-    implication: 'A positive gap means mainstream voices are better represented than unique perspectives. Negative would mean outliers dominate.',
-    idealRange: '< 0.1 (balanced)',
-    formula: 'Gap = Avg(Majority Rep) - Avg(Distinct Rep)',
-    thresholdJustification: `Uses the top ${ANALYSIS_CONFIG.thresholds.isolationPercentile * 100}% most isolated participants as the "distinct" group, based on the interquartile range (IQR) convention for identifying statistical outliers.`
+    label: 'Distinct-record Alignment Gap',
+    description: 'Difference in mean alignment between the most centroid-distant quartile and the remaining valid records.',
+    implication: 'A positive value means the centroid-distant quartile has lower alignment in this run. It does not identify a demographic minority or prove exclusion.',
+    idealRange: 'Context dependent',
+    formula: 'Gap = Avg(remaining alignment) − Avg(top isolation quartile alignment)',
+    thresholdJustification: `The ${ANALYSIS_CONFIG.thresholds.isolationPercentile * 100}% split is an explicit review heuristic, not an outlier test or validated fairness boundary.`
   },
   'diversity': {
     label: 'Input Diversity',
     description: 'Average pairwise semantic distance between all participant inputs. Measures how varied the discussion topics are.',
-    implication: 'Low diversity (< 0.3) suggests an "echo chamber" with similar views. High diversity (> 0.6) indicates a rich, multifaceted discussion.',
-    idealRange: '0.3 - 0.7 (moderate diversity)',
+    implication: 'Larger values mean records are farther apart in the selected embedding space. Scores are model- and corpus-dependent and do not diagnose an echo chamber.',
+    idealRange: 'Context and embedding-model dependent',
     formula: 'D = Avg(1 - cos_sim(vᵢ, vⱼ)) for all pairs',
-    thresholdJustification: 'Cosine distance ranges from 0 (identical) to 2 (opposite). Values 0.3-0.7 represent typical variation in participatory discussions.'
+    thresholdJustification: 'No validated universal cutoff is imposed; compare only runs produced in the same embedding space.'
   },
   'isolation': {
     label: 'Semantic Isolation',
     description: 'How far a participant\'s contribution is from the semantic center of all inputs. Measures uniqueness of perspective.',
-    implication: 'High isolation (> 0.5) means this person raised topics others did not discuss. They may be a valuable minority voice or an outlier.',
+    implication: 'High isolation means a record is far from the majority-weighted centroid. It may be a distinct perspective, a coherent minority cluster, or noise.',
     idealRange: 'Context dependent',
     formula: 'Isolation = 1 - cos_sim(embedding, global_centroid)',
-    thresholdJustification: `Top ${ANALYSIS_CONFIG.thresholds.isolationPercentile * 100}% most isolated participants are flagged as "distinct voices" following the statistical convention of quartiles (Q1/Q3) for outlier detection.`
+    thresholdJustification: `The top ${ANALYSIS_CONFIG.thresholds.isolationPercentile * 100}% are surfaced as review candidates. This percentile is a heuristic, not a statistical outlier claim.`
   },
   'leverage': {
-    label: 'Influence Leverage (Z-Score)',
-    description: 'Leave-One-Out (LOO) analysis measuring how much removing this participant would shift the semantic center of the discussion.',
-    implication: 'High leverage (Z > 2) means this person significantly influences what the group is talking about. They may be a leader or hold disproportionate sway.',
-    idealRange: '-2 < Z < 2 (normal range)',
+    label: 'Centroid Sensitivity (LOO Z-Score)',
+    description: 'Leave-one-out geometry: how much removing a record shifts the source-space centroid, standardized across observed records.',
+    implication: 'A large value is a geometric sensitivity flag. It does not measure social power, authorship, or causal influence on the summary.',
+    idealRange: 'Descriptive; inspect large shifts',
     formula: 'Z = (shift - μ) / σ, where shift = 1 - cos_sim(centroid, LOO_centroid)',
-    thresholdJustification: `Z-score > ${ANALYSIS_CONFIG.thresholds.anomalyZThreshold} corresponds to ~95th percentile (p < 0.05), the standard statistical threshold for identifying significant outliers.`
+    thresholdJustification: `The ${ANALYSIS_CONFIG.thresholds.anomalyZThreshold}σ display marker is a review convention, not a p-value or significance test.`
   },
   'representation': {
     label: 'Representation Score',
-    description: 'Maximum cosine similarity between a participant\'s input and any sentence in the AI-generated summary. Measures how well the participant\'s voice was captured.',
-    implication: 'Score < 0.5 means the participant\'s key points were likely not included. Score > 0.7 means their contribution was well-represented.',
-    idealRange: `> ${ANALYSIS_CONFIG.thresholds.representationTarget} (adequate)`,
+    description: 'Maximum non-negative cosine similarity between a source record and any summary sentence in one embedding space.',
+    implication: 'It measures strongest semantic association—not entailment, factual support, affective preservation, agreement, or causal use.',
+    idealRange: 'Use embedding-tier-specific provisional bands',
     formula: 'Rep = max(cos_sim(input_emb, sentence_emb)) for all summary sentences',
-    thresholdJustification: `Target of ${ANALYSIS_CONFIG.thresholds.representationTarget} based on semantic similarity literature (Reimers & Gurevych, 2019). Scores > 0.6 indicate "similar" content in text benchmarks.`
+    thresholdJustification: 'Dense and TF-IDF cosine distributions differ. Only the TF-IDF low boundary has limited tuning on the included synthetic omission benchmark; other bands remain provisional.'
   },
   'atRisk': {
-    label: 'At-Risk Participants',
-    description: 'Participants in the bottom quartile of representation scores whose scores are meaningfully below the group average. These voices are most likely to be lost.',
-    implication: 'At-risk participants need special attention from facilitators to ensure their voices are heard in the final outcome.',
-    idealRange: '0 (none at risk)',
-    formula: 'At Risk if score ≤ min(Q1, mean × 0.7)',
-    thresholdJustification: 'Uses percentile-based (bottom quartile) classification capped at 70% of the mean, following the IQR convention for outlier identification (Tukey, 1977). Adapts to each dataset rather than using a fixed cutoff.'
+    label: 'Below Review Marker',
+    description: 'Count of valid records whose strongest source-to-summary sentence cosine falls below the embedding-tier-specific review marker.',
+    implication: 'These records warrant evidence inspection. The marker does not prove omission, exclusion, or harm.',
+    idealRange: 'Descriptive; report the marker, embedding tier, and valid n',
+    formula: 'Flag if representation score < tier-specific atRisk marker',
+    thresholdJustification: 'The dense marker is provisional. The TF-IDF marker has limited tuning on the bundled synthetic omission benchmark and is not externally validated.'
   },
   'matching': {
     label: 'Matching Threshold',
-    description: 'Minimum similarity score for a participant-to-summary connection to be considered "significant" rather than noise.',
-    implication: 'Connections below this threshold are considered too weak to indicate meaningful representation.',
+    description: 'Minimum similarity score used to display a source–summary association candidate.',
+    implication: 'Edges below the selected cutoff are hidden; the cutoff does not make displayed edges significant, causal, or verified derivations.',
     idealRange: `> ${ANALYSIS_CONFIG.thresholds.matchingThreshold}`,
     formula: 'Match = cos_sim > threshold',
-    thresholdJustification: `${ANALYSIS_CONFIG.thresholds.matchingThreshold} is the standard threshold in Information Retrieval for "related" content. Values below typically indicate weak or no semantic relationship.`
+    thresholdJustification: `${ANALYSIS_CONFIG.thresholds.matchingThreshold} is a configurable display/retrieval heuristic. Use threshold sensitivity and embedding-tier context.`
   },
   'clusters': {
-    label: 'Topic Clusters',
-    description: 'Groups of participants with semantically similar contributions, identified by K-Means clustering on text embeddings. The optimal number of clusters is selected automatically using the elbow method on within-cluster variance.',
-    implication: 'Each cluster represents a distinct thematic perspective in the input. The cluster color is consistent across all views (semantic map, Sankey, similarity network). Cluster membership determines theme extraction for the provenance flow.',
-    idealRange: '2-5 clusters for interpretability',
-    formula: 'K-Means++ (Arthur & Vassilvitskii, 2007) on PCA-reduced embeddings (5 components). Elbow method: stop when WCSS improvement < 15%.',
-    thresholdJustification: `K-Means++ gives O(log k) approximation guarantee. PCA preprocessing addresses curse of dimensionality. Max k=${ANALYSIS_CONFIG.algorithms.maxClusters} ensures interpretability (rule of thumb: k << √(n/2)). ${ANALYSIS_CONFIG.algorithms.elbowThreshold * 100}% elbow threshold balances parsimony vs. fit (Thorndike, 1953).`
+    label: 'Semantic Groups',
+    description: 'Exploratory geometric groups from repeated spherical K-Means++ on unit-normalized source embeddings. High-dimensional runs use a deterministic signed projection only after a cosine-distance preservation check; the selected result is revalidated in full space.',
+    implication: 'Passing these internal checks permits cluster-conditioned exploratory modules, but does not establish natural topics, social groups, or causal strata. Failed runs remain visibly unpartitioned.',
+    idealRange: 'No universal ideal number; inspect every diagnostic and the source evidence',
+    formula: 'Repeated spherical K-Means++; choose the best eligible k by silhouette, then require full-space silhouette validation',
+    thresholdJustification: `Current transparent gates: n ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringSampleSize}, cluster size ≥ ${ANALYSIS_CONFIG.algorithms.minClusterSize}, projected and full-space silhouette ≥ ${ANALYSIS_CONFIG.algorithms.minSilhouette}, resampling ARI ≥ ${ANALYSIS_CONFIG.algorithms.minClusterStability}, neighborhood coherence ≥ ${ANALYSIS_CONFIG.algorithms.minNeighborhoodAgreement}, method agreement ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringMethodAgreement}, and projection-distance correlation ≥ ${ANALYSIS_CONFIG.algorithms.minProjectionDistanceCorrelation}. These are conservative internal release gates, not universal statistical cutoffs.`
   },
   'bootstrap': {
-    label: 'Bootstrap Confidence Interval',
-    description: 'Statistical uncertainty estimate derived by resampling participants with replacement. Shows the range where the true metric value likely falls.',
-    implication: 'Wide confidence intervals indicate high uncertainty in the metric. Narrow intervals mean the estimate is stable.',
-    idealRange: '95% CI',
-    formula: '95% CI from B bootstrap samples',
-    thresholdJustification: `${ANALYSIS_CONFIG.algorithms.bootstrapSamples} bootstrap samples provides stable CI estimates. Standard error of bootstrap ~ 1/√B, so 200 samples gives ~7% error in CI width.`
+    label: 'Participant-resampling Stability Interval',
+    description: 'Seeded percentile range after resampling observed valid records with replacement and recomputing the aggregate.',
+    implication: 'Wide ranges show sensitivity to reweighting observed records. Narrow ranges do not establish measurement validity or population representativeness.',
+    idealRange: 'Report point, range, valid n, and sampling assumptions',
+    formula: 'Percentile range from B resamples of observed records',
+    thresholdJustification: `${ANALYSIS_CONFIG.algorithms.bootstrapSamples} resamples reduce Monte Carlo noise. Population interpretation additionally requires a defensible IID sampling frame.`
   },
   'rhetoric': {
-    label: 'Rhetorical Influence Analysis',
-    description: 'Measures whether a participant\'s communication style (assertiveness, formality, evidence use, emotional intensity) correlates with how well they are represented in the summary.',
-    implication: 'A significant positive correlation (p < 0.05) means the AI summarizer favors certain rhetorical styles over others — a form of systematic bias independent of content quality.',
-    idealRange: 'No significant correlation (p > 0.05)',
+    label: 'Rhetoric–Alignment Association',
+    description: 'Describes rank association between automated communication-style scores and semantic-alignment scores.',
+    implication: 'An association is a prompt for review. It does not isolate rhetoric from topic, language, group, model, or other confounders and cannot establish bias causally.',
+    idealRange: 'Interpret coefficient, p-value, valid n, and confounding together',
     formula: 'Spearman rank correlation between composite rhetorical score and representation score',
-    thresholdJustification: 'Uses Spearman (non-parametric) to avoid distributional assumptions. Significance at p < 0.05 with |r| > 0.3 indicates meaningful bias. Lexicon-based scoring follows computational stylistics conventions (Biber, 1988).'
+    thresholdJustification: 'Spearman describes monotonic association; the p-value only tests a narrow null under its assumptions. No coefficient or p-value is treated as proof of systematic bias.'
   },
   'claims': {
-    label: 'Claim-Level Attribution',
-    description: 'Decomposes summary sentences into atomic claims and traces each claim back to source participant text. Inspired by FActScore (Min et al., 2023) methodology for factual precision evaluation.',
-    implication: 'A high attribution score (>70%) means most summary claims are grounded in participant input. Unsupported or contradicted claims indicate the AI introduced information not present in the source data.',
-    idealRange: '> 70% grounded (supported + inferrable)',
-    formula: 'Attribution = (supported + inferrable) / total_claims',
-    thresholdJustification: 'TF-IDF overlap ≥ 0.5 = "supported", ≥ 0.3 = "inferrable". Thresholds from keyword-overlap literature (Robertson & Zaragoza, 2009). LLM refinement disambiguates the 0.25–0.55 boundary zone.'
+    label: 'Claim Evidence Assessment',
+    description: 'Decomposes summary sentences into claims, retrieves candidate source passages, and asks an evaluator to classify supported, inferable, unsupported, or unassessed.',
+    implication: 'Unsupported is a review flag within retrieved evidence; unassessed and retrieval failures must remain visible. Model-coded support is not proof of factual truth.',
+    idealRange: 'No universal pass threshold; inspect every unsupported and unassessed claim',
+    formula: 'Supported fraction = supported / assessed claims',
+    thresholdJustification: 'Retrieval thresholds select evidence candidates and are not validity cutoffs. Exact passages and assessment coverage are the primary evidence.'
   },
   'tensions': {
     label: 'Tension & Contradiction Mapping',
-    description: 'Identifies genuine disagreements between participant groups and evaluates whether the AI summary acknowledges, suppresses, merges, or distorts each tension.',
-    implication: 'Suppressed tensions create false consensus. Merged tensions lose nuance. Distorted tensions misrepresent positions. Only acknowledged tensions preserve the deliberative quality of the input.',
-    idealRange: '> 50% acknowledged',
-    formula: 'Tension Fidelity = acknowledged_count / total_tensions',
-    thresholdJustification: 'Uses cross-cluster representative sampling (max 4 per cluster) with LLM-based tension detection. Caps at 25 tension pairs for scalability. Handling classification uses batch LLM evaluation against the summary text.'
+    description: 'Samples cross-cluster source evidence for possible disagreements and model-codes how verified summary evidence handles each candidate.',
+    implication: 'Suppressed, merged, or distorted labels are review candidates. Sampling caps and evaluator error mean the output is not a complete contradiction census.',
+    idealRange: 'Inspect exact evidence and unassessed coverage; no universal pass threshold',
+    formula: 'Tension handling rate = acknowledged / assessed tension candidates',
+    thresholdJustification: 'Cross-cluster sampling and caps are computational design choices, not completeness guarantees. Invalid quotations remain unassessed.'
   },
   'sankey': {
-    label: 'Provenance Flow (Sankey)',
-    description: 'Visualizes the three-column flow from participant inputs through semantic themes to summary sentences. Shows how information is aggregated, filtered, and transformed.',
-    implication: 'Orphan themes (no outgoing links) indicate perspectives dropped from the summary. Phantom sentences (no incoming links) indicate AI-generated content with no source basis.',
-    idealRange: 'No orphans or phantoms',
+    label: 'Semantic Association Map (Sankey)',
+    description: 'Visualizes thresholded source-to-theme membership and theme-to-summary semantic associations with explicit unmatched residuals.',
+    implication: 'Residuals mean no stored similarity edge reached the configured cutoff. They do not verify omission, hallucination, derivation, or information flow.',
+    idealRange: 'Review associations and residuals; no pass threshold',
     formula: 'Links based on cluster membership (input→theme) and sentence-match similarity ≥ 0.3 (theme→summary)',
-    thresholdJustification: 'Aggregation thresholds: ≤40 participants = individual nodes, 40–200 = cluster-level, >200 = super-cluster. These ensure the diagram remains readable at any scale.'
+    thresholdJustification: 'Aggregation and similarity cutoffs are readability/retrieval choices. Link mass is conserved for display but is not an information quantity.'
   },
   'thresholdSensitivity': {
     label: 'Threshold Sensitivity Analysis',
     description: 'Shows how the number of affected participants changes as you vary the representation and isolation thresholds. Reveals whether results are robust or brittle — highly sensitive to the exact threshold chosen.',
-    implication: 'A steep curve at the current threshold means small changes would reclassify many participants. A flat curve means the results are stable regardless of the exact cutoff.',
-    idealRange: 'Flat curve near current threshold (robust)',
+    implication: 'A steep curve near the selected marker means small changes reclassify many records. A flatter local curve only indicates classification stability over the displayed range, not construct validity.',
+    idealRange: 'Report the curve; no universal ideal shape',
     formula: 'For each threshold t in [0.1, 1.0]: count participants where score < t (representation) or isolation > t (isolation)',
-    thresholdJustification: 'Sweeps 20 evenly-spaced thresholds. The blue dashed line marks the current threshold. Steep slopes indicate sensitivity — consider reporting confidence intervals instead of point estimates.'
+    thresholdJustification: 'Sweeps 20 evenly spaced cutoffs. A steep curve means classifications depend heavily on the chosen heuristic; report the curve rather than implying one cutoff is correct.'
   },
   'semanticSpace': {
     label: 'Semantic Space (PCA)',
     description: 'A 2D projection of high-dimensional text embeddings using Principal Component Analysis (PCA). Each point represents a participant\'s contribution, positioned so that semantically similar inputs appear close together.',
-    implication: 'Clusters reveal shared themes. Isolated points (far from any cluster) indicate unique perspectives. Point SIZE reflects representation score — small points are underrepresented voices.',
-    idealRange: 'Spread across clusters with no extremely isolated points',
-    formula: 'PCA projects N-dimensional embeddings (where N=384 for BGE-M3 or 150 for TF-IDF) onto the 2 directions of maximum variance. Clusters identified via K-Means on the full-dimensional embeddings.',
-    thresholdJustification: 'PCA preserves global structure and is deterministic (unlike t-SNE/UMAP). The cluster colors match across all views. Axis labels ("Dimension 1/2") represent the principal components — they are abstract directions, not interpretable features.'
+    implication: 'Nearby points are more similar under the selected representation, subject to projection distortion. Isolation in two dimensions does not establish uniqueness or marginalization. Point size encodes the alignment score.',
+    idealRange: 'Descriptive; inspect explained variance and source text',
+    formula: 'PCA supplies display coordinates only. Clustering uses normalized embeddings, an audited high-dimensional projection when needed, and full-space validation.',
+    thresholdJustification: 'PCA is deterministic for fixed inputs but loses information. Axes are abstract directions and apparent 2-D distances may distort high-dimensional relationships.'
   },
   'similarityNetwork': {
     label: 'Participant Similarity Network',
-    description: 'A mutual k-Nearest Neighbors graph where an edge exists between two participants only if both rank each other among their top-k most similar contributions (by cosine similarity on text embeddings). This mutual requirement produces sparse, high-confidence connections.',
-    implication: 'Bridge nodes (connecting different clusters) are natural mediators. Peripheral nodes (0-1 connections) may hold unique perspectives that need amplification. High modularity means clusters are real semantic communities, not arbitrary groupings.',
-    idealRange: 'Modularity > 0.3 (meaningful communities), no disconnected components',
+    description: 'A mutual k-nearest-neighbors graph where an edge exists only when both records rank each other among their top-k cosine neighbors.',
+    implication: 'Bridge and peripheral labels describe graph position only. They do not identify facilitators, social influence, unique viewpoints, or natural communities.',
+    idealRange: 'Descriptive; no universal modularity or connectivity target',
     formula: 'Mutual k-NN: edge(i,j) iff j in kNN(i) AND i in kNN(j). k = min(5, ceil(sqrt(N))). Metrics: Brandes betweenness O(VE), Newman modularity Q, Watts-Strogatz clustering coefficient.',
-    thresholdJustification: 'Mutual k-NN (von Luxburg, 2007) is standard for manifold learning and spectral clustering. Mutual requirement filters spurious one-directional similarity. Brandes (2001) betweenness is the standard O(VE) algorithm. Newman (2004) modularity compares intra-cluster edges to a random null model.'
+    thresholdJustification: 'Mutual k-NN sparsifies the similarity graph; it does not turn retained edges into verified or high-confidence relationships. Modularity is reported descriptively for this constructed graph.'
   },
   'knowledgeGraph': {
     label: 'Knowledge Graph (GraphRAG)',
     description: 'A knowledge graph constructed from participant inputs via LLM-based entity and relationship extraction. Entities are concepts, policies, stakeholders, values, etc. mentioned in participant text. Relationships are semantic connections between entities. Communities are groups of densely connected entities detected via the full Louvain algorithm. Unlike the cluster map (which groups people), this graph maps the conceptual structure of the discussion.',
-    implication: 'Communities represent coherent thematic clusters that emerge from participant language — richer than keyword aggregation. Cross-community relationships reveal how different themes connect. Entity frequency shows which concepts dominate the discourse. Isolated entities (with no relationships) are automatically filtered to keep the graph clean.',
-    idealRange: 'Modularity Q > 0.3 (meaningful community structure), coverage > 80%',
+    implication: 'Communities and relations are model-extracted candidates. Frequency is extraction frequency, not social importance or dominance. Inspect exact source evidence and extraction coverage.',
+    idealRange: 'No universal pass threshold; report extraction coverage and failures',
     formula: 'Entity co-extraction: LLM single-pass with gleaning (Microsoft GraphRAG, 2024). Entity resolution: title-case normalization + Levenshtein fuzzy matching + acronym detection. Bidirectional relationship aggregation. Full Louvain: Phase 1 (local moving) + Phase 2 (network contraction), iterated to convergence (Blondel et al., 2008). Q = (1/2m) * Σ[A_ij - (k_i*k_j)/(2m)] * δ(c_i, c_j).',
-    thresholdJustification: 'Single-pass co-extraction is efficient for short deliberative texts. Gleaning (Microsoft GraphRAG, 2024) catches 15-30% additional entities. Fuzzy entity resolution (Levenshtein ≤ 2 + substring + acronym detection) handles near-duplicates. Full Louvain with Phase 2 contraction converges better than Phase 1 alone.'
+    thresholdJustification: 'Single-pass model extraction, fuzzy resolution, and Louvain community detection introduce unvalidated errors. Graph structure must be treated as exploratory unless checked against source evidence.'
   },
   'blindspots': {
-    label: 'Blind Spots',
-    description: 'Participants with both low centrality (unique perspective) AND low representation (not captured in summary). These are unique voices the AI completely missed.',
-    implication: 'Blind spots represent the most critical gaps: perspectives that are both different from the mainstream AND absent from the summary.',
-    idealRange: '0 (no blind spots)',
+    label: 'Low-centrality / Low-alignment Quadrant',
+    description: 'Records below the median source-network centrality and below the median source-to-summary alignment score.',
+    implication: 'This is a median-split review quadrant, not proof that a perspective is unique, absent, or critically harmed.',
+    idealRange: 'Descriptive; inspect the records and thresholds',
     formula: 'Blind spot if centrality < median AND representation < median',
-    thresholdJustification: 'Uses median-based dual-condition classification. Medians are robust to outliers (Huber, 1981). The quadrant approach identifies participants who are uniquely positioned AND underrepresented.'
+    thresholdJustification: 'Median splits guarantee relative partitions and have no external validity threshold. They are used only to organize review.'
   }
 };
 

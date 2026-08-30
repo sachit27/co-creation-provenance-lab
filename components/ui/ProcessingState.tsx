@@ -18,12 +18,12 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({ message }) => 
             <div className="w-20 h-20 border-t-2 border-r-2 border-b-2 border-blue-400 rounded-full animate-spin"></div>
             <div className="absolute top-0 left-0 w-20 h-20 border-t-2 border-blue-600 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
             <div className="absolute inset-0 flex items-center justify-center">
-                <img src="/logo.png" alt="" className="h-10 w-10 rounded-lg" />
+                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-10 w-10 rounded-lg" />
             </div>
         </div>
         
         <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">Generating Analysis</h2>
-        <p className="text-slate-400 text-sm mb-8 text-center">Processing semantic vectors and synthesizing provenance data.</p>
+        <p className="text-slate-400 text-sm mb-8 text-center">Processing semantic vectors, execution metadata, and automated evidence checks.</p>
         
         <div className="w-full bg-slate-800/50 backdrop-blur rounded-lg border border-slate-700 p-4 shadow-xl">
            <div className="flex items-center gap-3 mb-2">

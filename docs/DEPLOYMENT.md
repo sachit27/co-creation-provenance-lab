@@ -21,13 +21,31 @@ Browser  ──>  Vercel CDN (static frontend)
 
 ## Step 1: Generate Demo Data
 
-Run the app locally with BGE-M3 + Ollama. Load sample data, enable all features (LOO, Strategy Comparison), and run analysis. When the dashboard loads:
+Run the same production analysis pipeline used by the interface. The command fails without replacing the existing artifact if generation or embeddings fall back, or if any enrichment stage fails:
+
+```bash
+OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
+```
+
+The default reproducible configuration uses `qwen2.5:14b` for generation, `phi4:14b` for model-coded evaluation, and `qwen3-embedding:8b` for embeddings. Model names and the host can be overridden through the environment variables documented in `scripts/generate-demo.ts`.
+
+The interface can also export a successful run manually:
 
 1. Click **"Export as Demo Data"** in the sidebar
 2. Move the file into the project:
    ```bash
    mv ~/Downloads/demo-result.json public/demo-result.json
    ```
+
+## Static GitHub Pages deployment
+
+The application can be built under a project subpath and copied into an existing GitHub Pages site:
+
+```bash
+VITE_BASE_PATH=/apps/provenance-lab/ npm run build
+```
+
+Publish the contents of `dist/` at `/apps/provenance-lab/`. The bundled demo works without a backend. Live Gemini serverless routes require the Vercel deployment; a GitHub Pages visitor can instead configure a supported browser-direct provider or an origin-restricted Ollama endpoint in the interface.
 
 ## Step 2: Create Private GitHub Repository
 
@@ -87,7 +105,7 @@ In Vercel dashboard > Settings > Domains, you can add a custom domain or rename 
 |-------|-----------|
 | Client bundle | API key is NOT in the JavaScript (verified: empty string at build time) |
 | Serverless functions | API key is in Vercel env vars, only accessible server-side |
-| Gemini quotas | Free tier: 1,500 requests/day (sufficient for demo, limits abuse) |
+| Gemini quotas | Configure authentication, per-user quotas, rate limits, and spend alerts; provider limits vary by account and model |
 | Demo mode | Most users never trigger API calls (pre-loaded data) |
 
 ### Additional Gemini API Key Safety

@@ -3,14 +3,15 @@ import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Responsive
 import { ParticipantAnalysis } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
 import { InfoIcon } from '../ui/MetricGlossary';
-import { ANALYSIS_CONFIG } from '../../constants';
 
 interface BlindSpotPlotProps {
   data: ParticipantAnalysis[];
   onSelect: (id: string) => void;
+  /** Brushing: participant currently selected elsewhere in the dashboard. */
+  selectedId?: string | null;
 }
 
-export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) => {
+export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect, selectedId }) => {
   const { containerRef, isCompact, isMobile, config, width } = useResponsiveChart({
     minHeight: 380,
     needsExtraBottomMargin: true
@@ -24,25 +25,16 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
   const medianCentrality = centralityScores[mid];
   const medianRep = repScores[mid];
 
-  // Blind spot COUNT uses absolute threshold (consistent with ExecutiveSummary).
-  // A true blind spot = peripheral perspective (below-median centrality) AND
-  // genuinely underrepresented (score < 0.5, the "low" interpretation band).
-  // The quadrant COLORING still uses medians for relative visualization.
-  const LOW_THRESHOLD = ANALYSIS_CONFIG.representationInterpretation.low;
-  const blindSpotCount = data.filter(p => {
-    const centrality = 1 - p.semanticIsolation;
-    return centrality < medianCentrality && p.representationScore < LOW_THRESHOLD;
-  }).length;
-
-  // Helper to categorize points
+  // Relative review quadrants. Median splits organize inspection; they do not
+  // establish omission, uniqueness, or a validated risk class.
   const getStatus = (centrality: number, representation: number) => {
     const isCentral = centrality >= medianCentrality;
     const isRepresented = representation >= medianRep;
 
-    if (isCentral && isRepresented) return 'Included Majority';
-    if (!isCentral && isRepresented) return 'Included Minority';
-    if (isCentral && !isRepresented) return 'Excluded Majority';
-    return 'Blind Spot';
+    if (isCentral && isRepresented) return 'High centrality / High alignment';
+    if (!isCentral && isRepresented) return 'Low centrality / High alignment';
+    if (isCentral && !isRepresented) return 'High centrality / Low alignment';
+    return 'Low centrality / Low alignment';
   };
 
   const plotData = data.map(p => {
@@ -56,11 +48,12 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
 
   // Quadrant counts for large-N annotation
   const quadrantCounts = {
-    coreIncluded: plotData.filter(d => d.status === 'Included Majority').length,
-    edgeIncluded: plotData.filter(d => d.status === 'Included Minority').length,
-    coreExcluded: plotData.filter(d => d.status === 'Excluded Majority').length,
-    blindSpot: plotData.filter(d => d.status === 'Blind Spot').length,
+    coreIncluded: plotData.filter(d => d.status === 'High centrality / High alignment').length,
+    edgeIncluded: plotData.filter(d => d.status === 'Low centrality / High alignment').length,
+    coreExcluded: plotData.filter(d => d.status === 'High centrality / Low alignment').length,
+    blindSpot: plotData.filter(d => d.status === 'Low centrality / Low alignment').length,
   };
+  const blindSpotCount = quadrantCounts.blindSpot;
 
   // Large-N scaling: smaller points so they don't overlap
   const isLargeN = data.length > 200;
@@ -72,10 +65,10 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
 
   const getColor = (status: string) => {
     switch (status) {
-      case 'Included Majority': return '#10b981';
-      case 'Included Minority': return '#3b82f6';
-      case 'Excluded Majority': return '#f59e0b';
-      case 'Blind Spot': return '#ef4444';
+      case 'High centrality / High alignment': return '#10b981';
+      case 'Low centrality / High alignment': return '#3b82f6';
+      case 'High centrality / Low alignment': return '#f59e0b';
+      case 'Low centrality / Low alignment': return '#ef4444';
       default: return '#94a3b8';
     }
   };
@@ -83,7 +76,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
-      const isBlindSpot = d.status === 'Blind Spot';
+      const isBlindSpot = d.status === 'Low centrality / Low alignment';
       return (
         <div
           className="bg-white p-3 border border-slate-200 shadow-xl rounded-lg z-50"
@@ -95,7 +88,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
               className="text-[10px] px-1.5 py-0.5 rounded-full text-white whitespace-nowrap flex-shrink-0"
               style={{ backgroundColor: getColor(d.status) }}
             >
-              {isBlindSpot ? '⚠️ Blind Spot' : d.status}
+              {d.status}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 my-2 bg-slate-50 p-2 rounded">
@@ -111,7 +104,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
           </p>
           {isBlindSpot && (
             <div className="mt-2 pt-2 border-t text-[10px] text-red-600 font-medium">
-              ⚠️ Peripheral voice not captured in summary
+              Review candidate under this run's median split; inspect the exact source and summary match.
             </div>
           )}
         </div>
@@ -137,7 +130,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
             <span><strong>Centrality</strong> (X) vs <strong>Representation</strong> (Y) <InfoIcon metricKey="isolation" /></span>
           ) : (
             <span>
-              Compares <strong>opinion centrality</strong> <InfoIcon metricKey="isolation" /> (X) vs <strong>AI representation</strong> <InfoIcon metricKey="representation" /> (Y).
+              Compares <strong>source-network centrality</strong> <InfoIcon metricKey="isolation" /> (X) with <strong>semantic alignment</strong> <InfoIcon metricKey="representation" /> (Y).
               Crosshairs show median thresholds.
             </span>
           )}
@@ -145,7 +138,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
         {blindSpotCount > 0 && (
           <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 flex items-center gap-2">
             <span className="text-red-600 font-bold text-lg">{blindSpotCount}</span>
-            <span className="text-red-700 text-xs font-medium">Blind Spots</span>
+            <span className="text-red-700 text-xs font-medium">Low / Low quadrant</span>
           </div>
         )}
       </div>
@@ -153,10 +146,10 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 md:gap-4 text-xs mb-3 px-1">
         {[
-          { color: 'bg-green-500', label: 'Core Included', desc: 'Central & represented' },
-          { color: 'bg-blue-500', label: 'Edge Included', desc: 'Peripheral but represented' },
-          { color: 'bg-amber-500', label: 'Core Excluded', desc: 'Central but underrepresented' },
-          { color: 'bg-red-500', label: 'Blind Spots', desc: 'Peripheral & excluded', bold: true }
+          { color: 'bg-green-500', label: 'High / High', desc: 'High centrality and alignment' },
+          { color: 'bg-blue-500', label: 'Low / High', desc: 'Low centrality, high alignment' },
+          { color: 'bg-amber-500', label: 'High / Low', desc: 'High centrality, low alignment' },
+          { color: 'bg-red-500', label: 'Low / Low', desc: 'Low centrality and alignment', bold: true }
         ].map(item => (
           <div key={item.label} className="flex items-center gap-1.5" title={item.desc}>
             <span className={`w-2.5 h-2.5 rounded-full ${item.color} flex-shrink-0`}></span>
@@ -206,7 +199,7 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
               axisLine={{ stroke: '#cbd5e1' }}
             >
               <Label
-                value={isCompact ? 'Rep →' : 'AI Representation'}
+                value={isCompact ? 'Align →' : 'Semantic Alignment'}
                 angle={-90}
                 position="left"
                 offset={isCompact ? 35 : 45}
@@ -238,18 +231,27 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
             <Scatter
               name="Participants"
               data={plotData}
-              onClick={(d) => onSelect(d.id)}
+              // recharts types the click payload as ScatterPointItem, which does not
+              // declare our custom row fields; narrow to the shape we actually supply.
+              onClick={(d) => { const id = (d as unknown as { id?: string }).id; if (id) onSelect(id); }}
               cursor="pointer"
             >
-              {plotData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={getColor(entry.status)}
-                  stroke="#fff"
-                  strokeWidth={entry.status === 'Blind Spot' ? blindSpotStrokeWidth : pointStrokeWidth}
-                  r={entry.status === 'Blind Spot' ? blindSpotRadius : pointRadius}
-                />
-              ))}
+              {plotData.map((entry, index) => {
+                const isSelected = !!selectedId && entry.id === selectedId;
+                return (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={getColor(entry.status)}
+                    // Selection is encoded by stroke + size + opacity, never by hue
+                    // alone: hue already carries the blind-spot status, and relying
+                    // on colour alone would fail WCAG 1.4.1 (use of colour).
+                    stroke={isSelected ? '#1e40af' : '#fff'}
+                    strokeWidth={isSelected ? 3 : entry.status === 'Low centrality / Low alignment' ? blindSpotStrokeWidth : pointStrokeWidth}
+                    r={(entry.status === 'Low centrality / Low alignment' ? blindSpotRadius : pointRadius) + (isSelected ? 2 : 0)}
+                    opacity={selectedId && !isSelected ? 0.25 : 1}
+                  />
+                );
+              })}
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
@@ -258,16 +260,16 @@ export const BlindSpotPlot: React.FC<BlindSpotPlotProps> = ({ data, onSelect }) 
         {width > 500 && (
           <>
             <div className="absolute top-3 right-3 text-[10px] font-bold text-green-700 bg-green-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-green-200">
-              ✓ Core Included {isLargeN && <span className="text-green-500 ml-1">({quadrantCounts.coreIncluded})</span>}
+              High / High {isLargeN && <span className="text-green-500 ml-1">({quadrantCounts.coreIncluded})</span>}
             </div>
             <div className="absolute bottom-16 left-16 text-[10px] font-bold text-red-700 bg-red-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-red-200">
-              ⚠️ Blind Spots {isLargeN && <span className="text-red-500 ml-1">({quadrantCounts.blindSpot})</span>}
+              Low / Low {isLargeN && <span className="text-red-500 ml-1">({quadrantCounts.blindSpot})</span>}
             </div>
             <div className="absolute top-3 left-16 text-[10px] font-medium text-blue-600 bg-blue-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-blue-200">
-              Edge Included {isLargeN && <span className="text-blue-400 ml-1">({quadrantCounts.edgeIncluded})</span>}
+              Low / High {isLargeN && <span className="text-blue-400 ml-1">({quadrantCounts.edgeIncluded})</span>}
             </div>
             <div className="absolute bottom-16 right-3 text-[10px] font-medium text-amber-600 bg-amber-50/90 px-2 py-1 rounded shadow-sm pointer-events-none border border-amber-200">
-              Core Excluded {isLargeN && <span className="text-amber-400 ml-1">({quadrantCounts.coreExcluded})</span>}
+              High / Low {isLargeN && <span className="text-amber-400 ml-1">({quadrantCounts.coreExcluded})</span>}
             </div>
           </>
         )}

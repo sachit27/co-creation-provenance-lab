@@ -22,6 +22,13 @@ const feedbackOptions: Array<{
     color: 'green'
   },
   {
+    label: 'partial',
+    icon: '≈',
+    text: 'Partial',
+    description: 'Some important content is captured and some is missing or changed',
+    color: 'blue'
+  },
+  {
     label: 'missed',
     icon: '○',
     text: 'Missed',
@@ -76,6 +83,7 @@ export const FeedbackPanel: React.FC<FeedbackPanelProps> = ({
     if (selectedLabel === option.label) {
       const selectedColors = {
         green: 'bg-green-100 border-green-500 text-green-800',
+        blue: 'bg-blue-100 border-blue-500 text-blue-800',
         amber: 'bg-amber-100 border-amber-500 text-amber-800',
         red: 'bg-red-100 border-red-500 text-red-800'
       };
@@ -178,6 +186,7 @@ export const FeedbackSummary: React.FC<FeedbackSummaryProps> = ({
 }) => {
   const counts = {
     accurate: 0,
+    partial: 0,
     missed: 0,
     distorted: 0
   };
@@ -212,6 +221,12 @@ export const FeedbackSummary: React.FC<FeedbackSummaryProps> = ({
               style={{ width: `${(counts.missed / totalFeedback) * 100}%` }}
             />
           )}
+          {counts.partial > 0 && (
+            <div
+              className="bg-blue-500 h-full"
+              style={{ width: `${(counts.partial / totalFeedback) * 100}%` }}
+            />
+          )}
           {counts.distorted > 0 && (
             <div
               className="bg-red-500 h-full"
@@ -223,6 +238,7 @@ export const FeedbackSummary: React.FC<FeedbackSummaryProps> = ({
 
       <div className="flex gap-4 text-[10px]">
         <span className="text-green-600">✓ {counts.accurate} accurate</span>
+        <span className="text-blue-600">≈ {counts.partial} partial</span>
         <span className="text-amber-600">○ {counts.missed} missed</span>
         <span className="text-red-600">✗ {counts.distorted} distorted</span>
       </div>

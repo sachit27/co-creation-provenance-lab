@@ -2,29 +2,23 @@
 
 ## Overview
 
-[BGE-M3](https://huggingface.co/BAAI/bge-m3) is a state-of-the-art multilingual embedding model from BAAI. It is integrated into the Co-Creation Provenance Lab as the **primary embedding source**. When the embedding server is running, the tool auto-detects it and uses BGE-M3 for all embeddings.
+[BGE-M3](https://huggingface.co/BAAI/bge-m3) is a published multilingual dense-embedding model from BAAI. It is an optional embedding source. When its local server is available, the setup screen can select it; the run manifest records whether it was actually used or whether the run fell back.
 
 ## Architecture
 
 ```
-Text Generation:   Ollama (default) or Gemini (API key)
-Embeddings:        BGE-M3 → Ollama → Gemini → Local TF-IDF
+Text generation:   User-selected provider, extractive algorithm, or external/manual summary
+Embeddings:        User-selected BGE-M3, provider embedding model, Ollama, or local TF-IDF
 ```
 
-BGE-M3 is used **only for embeddings**, not text generation. The tool checks for BGE-M3 at startup and uses it automatically if available.
+BGE-M3 is used **only for embeddings**, not text generation. The setup screen checks availability and lets the user select it; the documented fallback order applies only when the selected method fails.
 
 ## Setup
 
 ### 1. Install Python dependencies
 
 ```bash
-pip install sentence-transformers flask flask-cors
-```
-
-If you encounter a torch version error (`CVE-2025-32434`), pin transformers:
-
-```bash
-pip install 'transformers<4.50'
+pip install -r requirements-embedding.txt
 ```
 
 ### 2. Start the server
@@ -53,7 +47,7 @@ curl http://localhost:5001/health
 npm run dev
 ```
 
-In the config panel, you will see: **"BGE-M3 embeddings active (state-of-the-art)"**
+In the config panel, you will see whether the BGE-M3 service is available and which embedding method is selected.
 
 ## How It Works
 
@@ -101,13 +95,13 @@ The server API remains the same — no other code changes are needed.
 
 ## Impact on Scoring
 
-BGE-M3 produces 1024-dimensional dense embeddings with state-of-the-art semantic understanding. Compared to fallback options:
+BGE-M3 produces 1024-dimensional dense embeddings. The app applies the same strongest-summary-sentence cosine retrieval indicator to every embedding space, but numeric scores are not directly comparable across models or with TF-IDF:
 
-| Embedding Source | Scoring Formula | Quality |
-|-----------------|-----------------|---------|
-| BGE-M3 | `similarity × 0.8 + concept_overlap × 0.2` | Best — captures semantics, syntax, context |
-| Ollama/Gemini | `similarity × 0.8 + concept_overlap × 0.2` | Good — quality varies by specific model |
-| Local TF-IDF | `(similarity + concept_overlap) / 2` | Basic — bag-of-words only, no semantic understanding |
+| Embedding Source | Scoring Formula | Interpretation boundary |
+|-----------------|-----------------|-------------------------|
+| BGE-M3 | `max_k max(0, cosine(source, summary_sentence_k))` | Multilingual dense retrieval; validate on the target language/domain |
+| Provider/Ollama dense model | Same | Capabilities and score distribution depend on the exact model |
+| Local TF-IDF | Same cosine calculation in its sparse space | Lexical baseline with separately calibrated display bands |
 
 ## References
 

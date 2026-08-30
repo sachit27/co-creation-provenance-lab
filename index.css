@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/*
+ * Explicit source registration.
+ *
+ * Tailwind v4's automatic content detection skips anything listed in
+ * .gitignore. This project deliberately gitignores App.tsx, constants.ts and
+ * several services ("Application entry & orchestration (local only)"), so
+ * Tailwind never scanned them and every utility used ONLY in those files was
+ * missing from the generated stylesheet — most visibly the sidebar's
+ * `md:sticky md:translate-x-0 md:w-64`, which left it fixed on top of the
+ * dashboard instead of docked beside it.
+ *
+ * @source re-registers those paths explicitly, overriding the .gitignore
+ * exclusion. Keep these in sync with the "local only" block in .gitignore.
+ */
+@source "./App.tsx";
+@source "./index.tsx";
+@source "./constants.ts";
+@source "./components";
+@source "./services";
+@source "./hooks";
+
 @theme {
   --color-brand-50: #f0f9ff;
   --color-brand-100: #e0f2fe;

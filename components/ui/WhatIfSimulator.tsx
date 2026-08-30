@@ -12,8 +12,8 @@ const DeltaCard: React.FC<{
   projected: number | string;
   delta: number;
   format?: 'decimal' | 'percent' | 'count';
-  invertGood?: boolean; // true if lower is better (e.g. Gini, blind spots)
-}> = ({ label, baseline, projected, delta, format = 'decimal', invertGood = false }) => {
+  invertGood?: boolean;
+}> = ({ label, baseline, projected, delta, format = 'decimal' }) => {
   const fmt = (v: number | string) => {
     if (typeof v === 'string') return v;
     if (format === 'percent') return `${Math.round(v * 100)}%`;
@@ -21,11 +21,10 @@ const DeltaCard: React.FC<{
     return v.toFixed(3);
   };
 
-  const isImprovement = invertGood ? delta < -0.005 : delta > 0.005;
   const isNeutral = Math.abs(delta) <= 0.005;
-  const colorClass = isNeutral ? 'text-slate-500' : isImprovement ? 'text-green-600' : 'text-red-500';
-  const bgClass = isNeutral ? 'bg-slate-50' : isImprovement ? 'bg-green-50' : 'bg-red-50';
-  const borderClass = isNeutral ? 'border-slate-200' : isImprovement ? 'border-green-200' : 'border-red-200';
+  const colorClass = isNeutral ? 'text-slate-500' : 'text-indigo-600';
+  const bgClass = 'bg-slate-50';
+  const borderClass = 'border-slate-200';
 
   return (
     <div className={`rounded-lg border p-3 ${bgClass} ${borderClass}`}>
@@ -50,6 +49,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
   const [selectedGroup, setSelectedGroup] = useState<StakeholderGroup>('community');
   const [weightBoost, setWeightBoost] = useState(1.5);
   const [result, setResult] = useState<WhatIfResult | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
 
   const baseline = useMemo(() => getBaselineMetrics(data), [data]);
 
@@ -72,24 +72,35 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
     const scenario: WhatIfScenario = scenarioType === 'add_voices'
       ? { type: 'add_voices', clusterId: selectedCluster, additionalCount }
       : { type: 'reweight_group', groupId: selectedGroup, weightBoost };
-    setResult(runWhatIfSimulation(data, scenario));
+    try {
+      setSimulationError(null);
+      setResult(runWhatIfSimulation(data, scenario));
+    } catch (error) {
+      setResult(null);
+      setSimulationError(error instanceof Error ? error.message : 'Simulation unavailable.');
+    }
   };
 
   return (
     <div className="space-y-5">
+      {simulationError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          {simulationError}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="text-sm font-bold text-slate-800">Consultation Planner</h3>
+          <h3 className="text-sm font-bold text-slate-800">Arithmetic Assumption Explorer</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Simulate how adding voices or reweighting groups would affect fairness metrics.
+            Recalculate descriptive score summaries under explicit mechanical assumptions. This is not an intervention forecast.
           </p>
         </div>
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
           <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <span className="text-[10px] font-semibold text-amber-700">Hypothetical projection</span>
+          <span className="text-[10px] font-semibold text-amber-700">Not causal or predictive</span>
         </div>
       </div>
 
@@ -101,8 +112,8 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
             <label className="text-xs font-semibold text-slate-600 block mb-2">Scenario Type</label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: 'add_voices', label: 'Add Voices', desc: 'Simulate new participants from a cluster' },
-                { id: 'reweight_group', label: 'Reweight Group', desc: 'Boost a stakeholder group\'s scores' },
+                { id: 'add_voices', label: 'Append Synthetic Scores', desc: 'Resample observed cluster-score marginals' },
+                { id: 'reweight_group', label: 'Multiply Scores', desc: 'Arithmetic stress test for one group' },
               ].map(opt => (
                 <button
                   key={opt.id}
@@ -153,7 +164,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
                 </div>
               </div>
               <p className="text-[11px] text-slate-400 bg-slate-50 rounded-lg p-2 border border-slate-200">
-                Synthetic scores are sampled from a Normal distribution parameterized by the cluster's empirical mean ± std (Efron & Tibshirani, 1993). Results vary slightly between runs.
+                Synthetic score and centrality values are independently sampled from fitted Normal marginals. This deliberately simplified arithmetic does not model new testimony, recruitment, re-summarization, or uncertainty.
               </p>
             </>
           )}
@@ -197,7 +208,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-400 bg-slate-50 rounded-lg p-2 border border-slate-200">
-                    Applies a hypothetical multiplier to this group's representation scores (capped at 1.0). Models the impact of targeted equity interventions.
+                    Mechanically multiplies existing retrieval indicators (capped at 1.0). It does not model an intervention or change the summary.
                   </p>
                 </>
               )}
@@ -212,7 +223,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
-            Run Simulation
+            Recalculate Assumption
           </button>
         </div>
 
@@ -295,7 +306,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({ data }) => {
               <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300 mb-3">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              <p className="text-sm text-slate-400">Configure a scenario and click Run Simulation to see projections.</p>
+              <p className="text-sm text-slate-400">Configure an assumption and recalculate the descriptive arithmetic.</p>
             </div>
           )}
         </div>

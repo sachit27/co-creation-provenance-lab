@@ -23,17 +23,17 @@ const steps = [
     {
         emoji: '🤖',
         title: 'Step 2: AI Generates a Summary',
-        body: 'Using your preferred AI provider (Gemini, OpenAI, Groq, Ollama, Claude, or Apertus), the tool creates a summary of all participant inputs. The embedding model is auto-selected for best quality — experts can override.',
+        body: 'Choose an AI-generated, extractive, or external/manual summary. Generation, automated evaluator, and embedding roles are shown separately; available methods depend on the verified provider and local services.',
     },
     {
         emoji: '🔬',
         title: 'Step 3: The Provenance Audit',
-        body: 'The system computes a representation score for each participant — how well their voice appears in the summary. It detects blind spots, measures equity across groups, and identifies whose perspective was lost.',
+        body: 'The system computes strongest sentence-level semantic alignment for each valid source record, then exposes distributions, review candidates, and model-coded evidence checks. These indicators are not a fairness verdict.',
     },
     {
         emoji: '🎯',
         title: 'Step 4: Act on the Insights',
-        body: 'Review the Citation Trail to see which voices shaped each sentence. Explore claim attribution, tension mapping, and knowledge graphs to understand how the summary was constructed and where it can be improved.',
+        body: 'Review sentence–source similarity candidates, exact-span transformation evidence, claim support, tension handling, and knowledge graphs. Similarity does not prove that a source caused or shaped a sentence.',
     },
 ];
 
@@ -84,7 +84,7 @@ export const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onDismiss 
                 {/* Content — key triggers fade animation on step change */}
                 <div key={currentStep} className="p-8 text-center animate-fadeIn">
                     {currentStep === 0 ? (
-                      <img src="/logo.png" alt="" className="h-16 w-16 mx-auto mb-4 rounded-xl" />
+                      <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-16 w-16 mx-auto mb-4 rounded-xl" />
                     ) : (
                       <div className="text-5xl mb-4">{step.emoji}</div>
                     )}

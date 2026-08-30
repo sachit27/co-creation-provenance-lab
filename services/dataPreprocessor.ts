@@ -42,22 +42,30 @@ export interface PreprocessResult {
 
 // Strings treated as "no response" regardless of case
 const NULL_PATTERNS = new Set([
-  'na', 'n/a', 'n.a', 'n.a.', 'null', 'none', 'nil', '-', '--', '---',
-  '.', '..', '...', '….', 'no response', 'no comment', 'no answer',
-  'not applicable', 'skip', 'skipped', 'blank', 'empty', 'nothing',
-  'prefer not to say', 'prefer not to answer', 'declined', 'unknown',
+  'na', 'n/a', 'n.a', 'n.a.', 'null', 'nil', '-', '--', '---',
+  '.', '..', '...', '….', 'no response', 'no answer',
+  'not applicable', 'skip', 'skipped', 'blank', 'empty',
 ]);
 
-const MIN_CONTENT_CHARS = 10; // Minimum non-whitespace characters after cleaning
+// Short answers, numbers, refusals, and uncertainty can be substantive survey
+// evidence. Only truly empty/punctuation-only values are removed automatically.
+const MIN_CONTENT_CHARS = 1;
 
 // ─── Delimiter detection ──────────────────────────────────────────────────────
 
-export const detectDelimiter = (firstLine: string): ',' | ';' | '\t' => {
-  const counts = {
-    ',': (firstLine.match(/,/g) ?? []).length,
-    ';': (firstLine.match(/;/g) ?? []).length,
-    '\t': (firstLine.match(/\t/g) ?? []).length,
-  };
+export const detectDelimiter = (text: string): ',' | ';' | '\t' => {
+  const counts = { ',': 0, ';': 0, '\t': 0 };
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') { i++; continue; }
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && (char === '\n' || char === '\r')) break;
+    if (!inQuotes && (char === ',' || char === ';' || char === '\t')) counts[char]++;
+  }
   if (counts[';'] > counts[','] && counts[';'] > counts['\t']) return ';';
   if (counts['\t'] > counts[','] && counts['\t'] > counts[';']) return '\t';
   return ',';
@@ -65,30 +73,41 @@ export const detectDelimiter = (firstLine: string): ',' | ';' | '\t' => {
 
 // ─── CSV row parser (handles quoted fields for any delimiter) ─────────────────
 
-export const parseRow = (row: string, delimiter: string): string[] => {
-  const result: string[] = [];
-  let current = '';
+export const parseDelimitedRecords = (text: string, delimiter: string): string[][] => {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = '';
   let inQuotes = false;
 
-  for (let i = 0; i < row.length; i++) {
-    const char = row[i];
-    const next = row[i + 1];
+  const finishRecord = () => {
+    record.push(field.trim());
+    field = '';
+    if (record.some(cell => cell.length > 0)) records.push(record);
+    record = [];
+  };
 
-    if (char === '"' && !inQuotes) {
-      inQuotes = true;
-    } else if (char === '"' && inQuotes) {
-      if (next === '"') { current += '"'; i++; }
-      else { inQuotes = false; }
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') { field += '"'; i++; }
+      else inQuotes = !inQuotes;
     } else if (char === delimiter && !inQuotes) {
-      result.push(current.trim());
-      current = '';
+      record.push(field.trim());
+      field = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      finishRecord();
     } else {
-      current += char;
+      field += char;
     }
   }
-  result.push(current.trim());
-  return result;
+  if (inQuotes) throw new Error('Malformed delimited file: unterminated quoted field.');
+  if (field.length > 0 || record.length > 0) finishRecord();
+  return records;
 };
+
+export const parseRow = (row: string, delimiter: string): string[] =>
+  parseDelimitedRecords(row, delimiter)[0] ?? [];
 
 // ─── Content quality checks ───────────────────────────────────────────────────
 
@@ -102,8 +121,7 @@ const isMissingValue = (text: string): boolean => {
 };
 
 const isTooShort = (text: string): boolean => {
-  // Count only alphabetic and CJK/Arabic/Devanagari characters — not spaces or punctuation
-  const meaningful = text.replace(/[\s\p{P}\p{N}]/gu, '');
+  const meaningful = text.replace(/[\s\p{P}\p{S}]/gu, '');
   return meaningful.length < MIN_CONTENT_CHARS;
 };
 
@@ -111,8 +129,6 @@ const hasNoContent = (text: string): boolean => {
   // All same character repeated (e.g., "aaaaaaa", "........")
   const stripped = text.trim();
   if (stripped.length > 3 && new Set(stripped.toLowerCase()).size <= 2) return true;
-  // All digits
-  if (/^\d+$/.test(stripped)) return true;
   // Only punctuation/symbols
   if (/^[\s\p{P}\p{S}]+$/u.test(stripped)) return true;
   return false;
@@ -204,9 +220,9 @@ export const preprocessCSV = (rawText: string): PreprocessResult => {
   const bomStripped = rawText.startsWith('\uFEFF');
   const text = bomStripped ? rawText.slice(1) : rawText;
 
-  // 2. Split into lines
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) {
+  const separator = detectDelimiter(text);
+  const records = parseDelimitedRecords(text, separator);
+  if (records.length === 0) {
     return {
       inputs: [],
       report: {
@@ -217,21 +233,24 @@ export const preprocessCSV = (rawText: string): PreprocessResult => {
     };
   }
 
-  // 3. Detect delimiter
-  const separator = detectDelimiter(lines[0]);
-
-  // 4. Detect columns
-  const mapping = detectColumns(lines[0], separator);
-  const dataLines = mapping.hasHeaders ? lines.slice(1) : lines;
-  const totalRows = dataLines.length;
+  const firstRow = records[0];
+  const hasHeaders = looksLikeHeader(firstRow);
+  const mapping = hasHeaders
+    ? detectColumns(firstRow.map(cell => `"${cell.replace(/"/g, '""')}"`).join(separator), separator)
+    : {
+        idColumn: firstRow.length > 1 ? 0 : null,
+        textColumns: [firstRow.length > 1 ? 1 : 0],
+        groupColumn: null,
+        hasHeaders: false,
+        headers: firstRow.map((_, index) => `Column ${index + 1}`),
+      };
+  const dataRecords = hasHeaders ? records.slice(1) : records;
+  const totalRows = dataRecords.length;
   const multiColumnsMerged = mapping.textColumns.length > 1;
 
   // 5. Parse rows
   const seenIds = new Map<string, number>(); // id → count
-  const rawParsed: Array<{ id: string; text: string; group?: StakeholderGroup } | null> = dataLines.map((line, i) => {
-    if (!line.trim()) return null;
-
-    const parts = parseRow(line, separator);
+  const rawParsed: Array<{ id: string; text: string; group?: StakeholderGroup } | null> = dataRecords.map((parts, i) => {
     if (parts.length === 0) return null;
 
     // Extract ID
@@ -340,8 +359,10 @@ export const looksLikeHeader = (cells: string[]): boolean => {
   // If the first cell is a long string (>40 chars), probably data
   if (cells[0].trim().length > 40) return false;
 
-  // Default: assume it has headers (most CSVs exported from survey tools do)
-  return true;
+  // Conservative fallback: an unknown all-text first row is data. A false
+  // negative leaves synthetic column names that the user can correct; a false
+  // positive silently deletes a participant response.
+  return false;
 };
 
 /**
@@ -350,11 +371,11 @@ export const looksLikeHeader = (cells: string[]): boolean => {
  */
 export const scanColumns = (rawText: string): ColumnInfo[] => {
   const text = rawText.startsWith('\uFEFF') ? rawText.slice(1) : rawText;
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length < 2) return [];
+  const sep = detectDelimiter(text);
+  const records = parseDelimitedRecords(text, sep);
+  if (records.length === 0) return [];
 
-  const sep = detectDelimiter(lines[0]);
-  const firstRowCells = parseRow(lines[0], sep);
+  const firstRowCells = records[0];
   if (firstRowCells.length === 0) return [];
 
   // ── Header detection heuristic ─────────────────────────────────────────
@@ -365,8 +386,8 @@ export const scanColumns = (rawText: string): ColumnInfo[] => {
   const headers = hasHeaders
     ? firstRowCells
     : firstRowCells.map((_, i) => `Column ${i + 1}`);
-  const dataLines = hasHeaders ? lines.slice(1) : lines;
-  const totalCount = dataLines.length;
+  const dataRecords = hasHeaders ? records.slice(1) : records;
+  const totalCount = dataRecords.length;
 
   // Values that are junk even if non-empty — single chars, yes/no, etc.
   const JUNK_SINGLE = new Set(['x', 'y', 'n', 'q', 'a', 'v', 'o']);
@@ -388,9 +409,7 @@ export const scanColumns = (rawText: string): ColumnInfo[] => {
     const sampleValues: string[] = [];
     let nonEmptyCount = 0;
 
-    for (const line of dataLines) {
-      if (!line.trim()) continue;
-      const parts = parseRow(line, sep);
+    for (const parts of dataRecords) {
       const cell = parts[colIdx]?.trim() ?? '';
       if (!isJunk(cell)) {
         nonEmptyCount++;
@@ -436,7 +455,8 @@ export const preprocessWithSelections = (
 ): PreprocessResult | PreprocessResult[] => {
   const bomStripped = rawText.startsWith('\uFEFF');
   const text = bomStripped ? rawText.slice(1) : rawText;
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const separator = detectDelimiter(text);
+  const records = parseDelimitedRecords(text, separator);
 
   const emptyReport = (): PreprocessReport => ({
     totalRows: 0, keptRows: 0, droppedRows: [],
@@ -444,23 +464,19 @@ export const preprocessWithSelections = (
     separatorDetected: ',', bomStripped,
   });
 
-  if (lines.length < 2) {
+  if (records.length === 0) {
     return mode === 'per_question'
       ? selection.textColumnIndices.map(() => ({ inputs: [], report: emptyReport() }))
       : { inputs: [], report: emptyReport() };
   }
 
-  const separator = detectDelimiter(lines[0]);
-
   // Detect headerless files — same heuristic as scanColumns
-  const firstRowCells = parseRow(lines[0], separator);
+  const firstRowCells = records[0];
   const hasHeaders = looksLikeHeader(firstRowCells);
-  const dataLines = hasHeaders ? lines.slice(1) : lines;
+  const dataRecords = hasHeaders ? records.slice(1) : records;
 
   // Parse all rows once
-  const parsedRows = dataLines.map((line, i) => {
-    if (!line.trim()) return { rawId: `Row_${i + 1}`, cells: [] as string[] };
-    const cells = parseRow(line, separator);
+  const parsedRows = dataRecords.map((cells, i) => {
     const rawId = cells[selection.idColumnIndex]?.trim() ?? '';
     return { rawId: rawId.length > 0 ? rawId : `Row_${i + 1}`, cells };
   });
@@ -474,7 +490,7 @@ export const preprocessWithSelections = (
 
   // Quality filter + dedup — mirrors preprocessCSV steps 6-7
   const applyFilter = (
-    candidates: Array<{ id: string; text: string; group?: StakeholderGroup }>,
+    candidates: Array<{ id: string; text: string; group?: StakeholderGroup; sourceSegments?: ParticipantInput['sourceSegments'] }>,
     multiMerged: boolean,
   ): PreprocessResult => {
     const dropped: DroppedRow[] = [];
@@ -501,6 +517,7 @@ export const preprocessWithSelections = (
       if (count > 1 && !duplicateIdsMerged.includes(row.id)) duplicateIdsMerged.push(row.id);
       const input: ParticipantInput = { id: finalId, text: row.text };
       if (row.group) input.group = row.group;
+      if (row.sourceSegments?.length) input.sourceSegments = row.sourceSegments;
       return input;
     });
 
@@ -523,27 +540,18 @@ export const preprocessWithSelections = (
     const hasSyntheticHeaders = !hasHeaders; // headerless CSV → all headers are "Column N"
 
     const candidates = parsedRows.map(row => {
-      const parts = selection.textColumnIndices
+      const sourceSegments = selection.textColumnIndices
         .map(colIdx => {
           const cell = row.cells[colIdx]?.trim() ?? '';
           if (isMissingValue(cell)) return null;
-
-          if (!isMultiColumn) {
-            // Single column — just the raw text, no wrapping
-            return cell;
-          }
-
-          if (hasSyntheticHeaders) {
-            // Multiple columns but no real headers — concatenate without Q/A labels
-            return cell;
-          }
-
-          // Multiple columns with real headers — use Q/A format
           const qHeader = allColumns.find(h => h.index === colIdx)?.header ?? `Column ${colIdx + 1}`;
-          return `Q: ${qHeader}\nA: ${cell}`;
+          return { text: cell, context: isMultiColumn && !hasSyntheticHeaders ? qHeader : undefined };
         })
-        .filter((p): p is string => p !== null);
-      return { id: row.rawId, text: parts.join('\n\n'), group: extractGroup(row.cells) };
+        .filter((segment): segment is { text: string; context: string | undefined } => segment !== null);
+      const promptText = sourceSegments.map(segment => segment.context
+        ? `Q: ${segment.context}\nA: ${segment.text}`
+        : segment.text).join('\n\n');
+      return { id: row.rawId, text: promptText, sourceSegments, group: extractGroup(row.cells) };
     });
     return applyFilter(candidates, selection.textColumnIndices.length > 1);
   } else {
@@ -558,6 +566,10 @@ export const preprocessWithSelections = (
         .map(row => ({
           id: row.rawId,
           text: row.cells[colIdx]?.trim() ?? '',
+          sourceSegments: [{
+            text: row.cells[colIdx]?.trim() ?? '',
+            context: hasHeaders ? qHeader : undefined,
+          }],
           group: extractGroup(row.cells),
         }));
       return applyFilter(candidates, false);
@@ -722,4 +734,3 @@ export const chunkSingleDocument = (
       text: chunk,
     }));
 };
-

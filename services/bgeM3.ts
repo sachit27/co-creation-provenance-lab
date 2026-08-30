@@ -1,8 +1,8 @@
 /**
  * BGE-M3 Embedding Service
  *
- * Connects to a local Python server running BGE-M3 (BAAI/bge-m3),
- * a state-of-the-art multilingual embedding model.
+ * Connects to a local Python server running the published multilingual
+ * BGE-M3 embedding model (BAAI/bge-m3).
  *
  * Setup: See docs/BGE-M3-INTEGRATION.md
  *

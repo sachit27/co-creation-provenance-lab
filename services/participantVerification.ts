@@ -1,315 +1,312 @@
 /**
- * Participant Verification Service
+ * Privacy-minimal participant response package.
  *
- * Generates a standalone HTML "verification hub" that participants can open
- * to confirm whether the AI summary captured their perspective. Since this
- * tool is privacy-first with no backend, responses are stored in the page's
- * own localStorage and can be exported as JSON for the facilitator to import.
- *
- * Workflow:
- *  1. Facilitator runs analysis → clicks "Export Verification Page"
- *  2. A self-contained HTML file is downloaded
- *  3. Facilitator distributes the file (email, shared drive, USB, etc.)
- *  4. Each participant opens it, finds their name, and clicks their verdict
- *  5. Responses are saved in the page's localStorage
- *  6. Facilitator opens the same page and clicks "Export Responses (JSON)"
- *  7. JSON is imported back into the main tool via "Import Verification" button
+ * The exported page contains one summary and produces exactly one response. A
+ * request is cryptographically bound to the analysis run and summary, and the
+ * importer verifies that binding, expiry, participant membership, and payload
+ * digest. These controls detect stale, mismatched, duplicate, and corrupted
+ * files. They do not authenticate participant identity or prove authorship: a
+ * static offline page has no trusted identity provider or facilitator-held key.
  */
 
-import { AnalysisResult } from '../types';
+import { AnalysisResult, ParticipantFeedback } from '../types';
 
-// ─── HTML template ────────────────────────────────────────────────────────────
+export const VERIFICATION_RESPONSE_SCHEMA = 'participant-response-v3' as const;
+export const VERIFICATION_REQUEST_SCHEMA = 'participant-verification-request-v3' as const;
+export const VERIFICATION_CANONICALIZATION = 'cprov-canonical-json-v1' as const;
+const DEFAULT_VALIDITY_DAYS = 30;
+const MAX_COMMENT_LENGTH = 5000;
 
-export const generateVerificationHTML = (data: AnalysisResult): string => {
-  // Embed all participant data as JSON directly into the HTML
-  const participantData = data.participants.map(p => ({
-    id: p.id,
-    text: p.originalText,
-    score: p.representationScore,
-    matchedSentence: data.summarySentences[p.topSentenceMatchIndex] ?? '',
-    status:
-      p.representationScore >= 0.6
-        ? 'well-represented'
-        : p.representationScore < 0.3
-        ? 'at-risk'
-        : 'underrepresented',
-  }));
+export interface VerificationRequest {
+  schemaVersion: typeof VERIFICATION_REQUEST_SCHEMA;
+  requestId: string;
+  issuedAt: string;
+  expiresAt: string;
+  runId: string | null;
+  datasetDigest: string;
+  summaryDigest: string;
+  requestDigest: string;
+}
 
-  const escapeJson = (obj: unknown) =>
-    JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+export interface ParticipantResponsePayload {
+  responseId: string;
+  participantId: string;
+  verdict: 'yes' | 'partial' | 'no';
+  comment: string;
+  submittedAt: string;
+}
 
+export interface ParticipantResponseExport {
+  schemaVersion: typeof VERIFICATION_RESPONSE_SCHEMA;
+  request: VerificationRequest;
+  response: ParticipantResponsePayload;
+  integrity: {
+    algorithm: 'SHA-256';
+    canonicalization: typeof VERIFICATION_CANONICALIZATION;
+    payloadDigest: string;
+    assurance: 'corruption-and-binding-check-only';
+  };
+}
+
+export interface VerificationImportContext {
+  runId: string | null;
+  datasetName: string;
+  summary: string;
+  participantIds: Iterable<string>;
+  existingResponseIds?: Iterable<string>;
+}
+
+export interface VerificationImportResult {
+  feedback: ParticipantFeedback | null;
+  errors: string[];
+  warnings: string[];
+}
+
+const escHtml = (value: unknown): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const safeJson = (value: unknown): string => JSON.stringify(value)
+  .replace(/</g, '\\u003c')
+  .replace(/>/g, '\\u003e')
+  .replace(/&/g, '\\u0026');
+
+const canonicalize = (value: unknown, inArray = false): string | undefined => {
+  if (value === null) return 'null';
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : 'null';
+  if (Array.isArray(value)) return `[${value.map(item => canonicalize(item, true) ?? 'null').join(',')}]`;
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined && typeof item !== 'function' && typeof item !== 'symbol')
+      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalize(item)}`);
+    return `{${entries.join(',')}}`;
+  }
+  return inArray ? 'null' : undefined;
+};
+
+export const canonicalizeVerificationJson = (value: unknown): string => canonicalize(value) ?? 'null';
+
+export const sha256Digest = async (value: string): Promise<string> => {
+  if (!globalThis.crypto?.subtle) throw new Error('SHA-256 is unavailable in this environment.');
+  const bytes = new TextEncoder().encode(value);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+};
+
+const randomId = (): string => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (!globalThis.crypto?.getRandomValues) throw new Error('A cryptographically secure random-number generator is unavailable.');
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
+const requestDigestInput = (request: Omit<VerificationRequest, 'requestDigest'>) => ({
+  schemaVersion: request.schemaVersion,
+  requestId: request.requestId,
+  issuedAt: request.issuedAt,
+  expiresAt: request.expiresAt,
+  runId: request.runId,
+  datasetDigest: request.datasetDigest,
+  summaryDigest: request.summaryDigest,
+});
+
+export const createVerificationRequest = async (
+  data: AnalysisResult,
+  validityDays = DEFAULT_VALIDITY_DAYS,
+): Promise<VerificationRequest> => {
+  if (!Number.isFinite(validityDays) || validityDays <= 0 || validityDays > 365) {
+    throw new Error('Verification validity must be between 1 and 365 days.');
+  }
+  const issued = new Date();
+  const unsigned: Omit<VerificationRequest, 'requestDigest'> = {
+    schemaVersion: VERIFICATION_REQUEST_SCHEMA,
+    requestId: randomId(),
+    issuedAt: issued.toISOString(),
+    expiresAt: new Date(issued.getTime() + validityDays * 86_400_000).toISOString(),
+    runId: data.runManifest?.runId ?? null,
+    datasetDigest: await sha256Digest(data.config.datasetName),
+    summaryDigest: await sha256Digest(data.summary),
+  };
+  return { ...unsigned, requestDigest: await sha256Digest(canonicalizeVerificationJson(requestDigestInput(unsigned))) };
+};
+
+const summaryLabel = (data: AnalysisResult): string => {
+  const origin = data.config.summaryProvenance?.origin;
+  if (origin === 'human-authored') return 'Human-authored summary under review';
+  if (origin === 'ai-assisted' || origin === 'mixed') return 'AI-assisted or mixed-authorship summary under review';
+  if (origin === 'algorithmic-extractive' || data.config.summaryMethod === 'extractive') return 'Extractive summary under review';
+  if (origin === 'generated-in-run' || data.config.summaryMethod === 'ai') return 'Model-generated summary under review';
+  return 'Summary under review (origin not declared)';
+};
+
+export const generateVerificationHTML = async (data: AnalysisResult): Promise<string> => {
+  const request = await createVerificationRequest(data);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Participant Verification — ${data.config.datasetName}</title>
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>Participant response — ${escHtml(data.config.datasetName)}</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f8fafc; color: #1e293b; padding: 24px;
-      max-width: 860px; margin: 0 auto; line-height: 1.6;
-    }
-    header { border-bottom: 3px solid #3b82f6; padding-bottom: 16px; margin-bottom: 24px; }
-    header h1 { font-size: 22px; color: #0f172a; }
-    header p { color: #64748b; font-size: 14px; margin-top: 4px; }
-    .summary-box {
-      background: #f0f9ff; border-left: 4px solid #3b82f6;
-      padding: 16px; border-radius: 6px; margin-bottom: 28px; font-size: 14px; color: #1e293b;
-    }
-    .summary-box strong { display: block; margin-bottom: 6px; font-size: 12px; text-transform: uppercase; color: #64748b; letter-spacing: .5px; }
-    .participant-card {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-      padding: 18px; margin-bottom: 16px; transition: box-shadow .15s;
-    }
-    .participant-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.07); }
-    .p-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .p-id { font-weight: 700; font-size: 15px; }
-    .score-badge {
-      font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 20px;
-    }
-    .score-well  { background: #dcfce7; color: #166534; }
-    .score-under { background: #fef9c3; color: #854d0e; }
-    .score-risk  { background: #fee2e2; color: #991b1b; }
-    .quote { font-style: italic; color: #475569; font-size: 14px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; }
-    .match { font-size: 13px; color: #64748b; border-left: 3px solid #cbd5e1; padding-left: 10px; margin-bottom: 12px; }
-    .match strong { display: block; font-size: 11px; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px; letter-spacing: .4px; }
-    .verdict-row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .verdict-btn {
-      border: 2px solid #e2e8f0; background: #f8fafc; color: #475569;
-      font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 8px;
-      cursor: pointer; transition: all .15s;
-    }
-    .verdict-btn:hover { border-color: #94a3b8; background: #fff; }
-    .verdict-btn.selected-yes  { background: #dcfce7; border-color: #16a34a; color: #166534; }
-    .verdict-btn.selected-partial { background: #fef9c3; border-color: #ca8a04; color: #854d0e; }
-    .verdict-btn.selected-no   { background: #fee2e2; border-color: #dc2626; color: #991b1b; }
-    .comment-input {
-      display: none; width: 100%; margin-top: 10px; padding: 8px 12px;
-      border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; resize: vertical;
-      min-height: 60px; font-family: inherit;
-    }
-    .comment-input.visible { display: block; }
-    .save-btn {
-      display: none; margin-top: 8px; background: #3b82f6; color: #fff;
-      border: none; padding: 7px 18px; border-radius: 6px; font-size: 13px;
-      font-weight: 600; cursor: pointer;
-    }
-    .save-btn.visible { display: inline-block; }
-    .save-btn:hover { background: #2563eb; }
-    .saved-badge { display: none; margin-top: 8px; font-size: 12px; color: #16a34a; font-weight: 600; }
-    .saved-badge.visible { display: block; }
-    .actions { display: flex; gap: 12px; margin-top: 28px; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-    .action-btn {
-      padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600;
-      cursor: pointer; border: none;
-    }
-    .action-export { background: #0f172a; color: #fff; }
-    .action-export:hover { background: #1e293b; }
-    .action-clear { background: #f1f5f9; color: #64748b; }
-    .action-clear:hover { background: #e2e8f0; }
-    .progress-bar-wrap { background: #e2e8f0; height: 8px; border-radius: 4px; margin-bottom: 6px; }
-    .progress-bar { height: 100%; border-radius: 4px; background: #3b82f6; }
-    .progress-label { font-size: 12px; color: #64748b; margin-bottom: 20px; }
-    footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 16px; font-size: 12px; color: #94a3b8; text-align: center; }
-    @media(max-width:600px) { body { padding: 14px; } .verdict-row { flex-direction: column; } }
+    *,*::before,*::after{box-sizing:border-box} body{font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#1e293b;line-height:1.55;margin:0;padding:24px} main{max-width:760px;margin:auto} h1{font-size:1.45rem;margin:.25rem 0} .meta{color:#64748b;font-size:.875rem}.notice,.summary,.form{border-radius:10px;padding:16px;margin-top:18px}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.summary{background:#eff6ff;border-left:4px solid #2563eb;white-space:pre-wrap}.summary strong{display:block;text-transform:uppercase;letter-spacing:.04em;font-size:.75rem;color:#475569;margin-bottom:8px}.form{background:white;border:1px solid #e2e8f0} label,legend{font-weight:650;font-size:.9rem} input[type=text],textarea{width:100%;margin-top:6px;border:1px solid #94a3b8;border-radius:7px;padding:10px;font:inherit} textarea{min-height:100px;resize:vertical} fieldset{border:0;padding:0;margin:18px 0}.choice{display:block;border:1px solid #cbd5e1;border-radius:8px;padding:10px;margin-top:8px;cursor:pointer}.choice:has(input:checked){border-color:#2563eb;background:#eff6ff} button{border:0;border-radius:8px;background:#0f172a;color:white;font-weight:700;padding:11px 18px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.status{font-size:.85rem;color:#166534;margin-top:10px}.status.error{color:#b91c1c}footer{color:#64748b;font-size:.75rem;margin-top:24px}@media(max-width:600px){body{padding:14px}}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Participant Verification</h1>
-    <p>
-      Project: <strong>${data.config.datasetName}</strong> &bull;
-      ${data.participants.length} participants &bull;
-      Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-    </p>
-  </header>
-
-  <div class="summary-box">
-    <strong>AI-Generated Summary (under review)</strong>
-    ${data.summary}
-  </div>
-
-  <div id="progress-area">
-    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
-    <div class="progress-label" id="progress-label">0 of ${data.participants.length} verified</div>
-  </div>
-
-  <div id="cards">
-    ${participantData
-      .map(
-        (p, i) => `
-    <div class="participant-card" id="card-${i}">
-      <div class="p-header">
-        <div class="p-id">${p.id}</div>
-        <div class="score-badge ${
-          p.status === 'well-represented'
-            ? 'score-well'
-            : p.status === 'at-risk'
-            ? 'score-risk'
-            : 'score-under'
-        }">
-          ${Math.round(p.score * 100)}% match
-        </div>
-      </div>
-      <div class="quote">"${p.text}"</div>
-      ${
-        p.matchedSentence
-          ? `<div class="match"><strong>Closest summary sentence</strong>"${p.matchedSentence}"</div>`
-          : ''
-      }
-      <div class="verdict-row">
-        <button class="verdict-btn" data-idx="${i}" data-verdict="yes" onclick="selectVerdict(${i},'yes')">
-          ✓ Yes, captured well
-        </button>
-        <button class="verdict-btn" data-idx="${i}" data-verdict="partial" onclick="selectVerdict(${i},'partial')">
-          ≈ Partially captured
-        </button>
-        <button class="verdict-btn" data-idx="${i}" data-verdict="no" onclick="selectVerdict(${i},'no')">
-          ✗ Not captured
-        </button>
-      </div>
-      <textarea class="comment-input" id="comment-${i}" placeholder="Optional: What was missed or misrepresented?"></textarea>
-      <button class="save-btn" id="save-${i}" onclick="saveResponse(${i})">Save response</button>
-      <div class="saved-badge" id="saved-${i}">✓ Response saved</div>
-    </div>`
-      )
-      .join('')}
-  </div>
-
-  <div class="actions">
-    <button class="action-btn action-export" onclick="exportResponses()">Export Responses (JSON)</button>
-    <button class="action-btn action-clear" onclick="clearAll()">Clear All</button>
-  </div>
-
-  <footer>
-    Generated by Co-Creation Provenance Lab &bull; Responses stored locally in this browser only
-  </footer>
-
-  <script>
-    const PARTICIPANTS = ${escapeJson(participantData)};
-    const STORAGE_KEY = 'cprov_verification_${encodeURIComponent(data.config.datasetName)}_${Date.now().toString(36)}';
-
-    // ── Load existing responses ──────────────────────────────────────────────
-    let responses = {};
+<main>
+  <header><h1>Participant response</h1><div class="meta">Project: <strong>${escHtml(data.config.datasetName)}</strong> · Request expires ${escHtml(new Date(request.expiresAt).toLocaleDateString())}</div></header>
+  <div class="notice"><strong>Manual return required.</strong> This offline file cannot send responses or verify identity. Complete one response, download the JSON, and return it through the agreed secure channel. The facilitator's app can check that the file matches this run and summary, but not who completed it.</div>
+  <section class="summary" aria-labelledby="summary-label"><strong id="summary-label">${escHtml(summaryLabel(data))}</strong>${escHtml(data.summary)}</section>
+  <form class="form" id="response-form">
+    <label for="participant-id">Your assigned participant ID</label>
+    <input id="participant-id" name="participantId" type="text" maxlength="200" autocomplete="off" required>
+    <fieldset><legend>Does this summary accurately represent your contribution?</legend>
+      <label class="choice"><input type="radio" name="verdict" value="yes" required> Yes — captured accurately</label>
+      <label class="choice"><input type="radio" name="verdict" value="partial"> Partly — some important content is missing or changed</label>
+      <label class="choice"><input type="radio" name="verdict" value="no"> No — missed or distorted my contribution</label>
+    </fieldset>
+    <label for="comment">Optional explanation</label>
+    <textarea id="comment" name="comment" maxlength="${MAX_COMMENT_LENGTH}" placeholder="What was missing or changed? Do not include sensitive information you do not want returned to the facilitator."></textarea>
+    <div style="margin-top:16px"><button id="download" type="submit">Download my response (JSON)</button></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </form>
+  <footer>No participant roster, source contribution, audit score, or other response is embedded. SHA-256 checks detect mismatches or corruption; they are not a digital signature.</footer>
+</main>
+<script>
+  const REQUEST = ${safeJson(request)};
+  const RESPONSE_SCHEMA = ${safeJson(VERIFICATION_RESPONSE_SCHEMA)};
+  const CANONICALIZATION = ${safeJson(VERIFICATION_CANONICALIZATION)};
+  const canonicalize = (value, inArray = false) => {
+    if (value === null) return 'null';
+    if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+    if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : 'null';
+    if (Array.isArray(value)) return '[' + value.map(item => canonicalize(item, true) ?? 'null').join(',') + ']';
+    if (typeof value === 'object') return '{' + Object.entries(value).filter(([,item]) => item !== undefined && typeof item !== 'function' && typeof item !== 'symbol').sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0).map(([key,item]) => JSON.stringify(key) + ':' + canonicalize(item)).join(',') + '}';
+    return inArray ? 'null' : undefined;
+  };
+  const sha256 = async value => {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return 'sha256:' + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2,'0')).join('');
+  };
+  const status = document.getElementById('status');
+  const button = document.getElementById('download');
+  if (!globalThis.crypto?.subtle || !globalThis.crypto?.randomUUID) {
+    status.textContent = 'This browser cannot create the cryptographically bound response. Open the file in a current browser.';
+    status.className = 'status error'; button.disabled = true;
+  } else if (Date.now() > Date.parse(REQUEST.expiresAt)) {
+    status.textContent = 'This request has expired. Ask the facilitator for a new response file.';
+    status.className = 'status error'; button.disabled = true;
+  }
+  document.getElementById('response-form').addEventListener('submit', async function(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const participantId = String(form.get('participantId') || '').trim();
+    const verdict = String(form.get('verdict') || '');
+    if (!participantId || !['yes','partial','no'].includes(verdict) || button.disabled) return;
+    button.disabled = true;
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) responses = JSON.parse(stored);
-    } catch(e) {}
-
-    // Restore UI state
-    window.addEventListener('DOMContentLoaded', function() {
-      Object.keys(responses).forEach(function(idx) {
-        const r = responses[idx];
-        applyVerdict(+idx, r.verdict);
-        if (r.comment) {
-          const ta = document.getElementById('comment-' + idx);
-          if (ta) { ta.value = r.comment; ta.classList.add('visible'); }
-        }
-        const sb = document.getElementById('saved-' + idx);
-        const saveBtn = document.getElementById('save-' + idx);
-        if (sb) sb.classList.add('visible');
-        if (saveBtn) saveBtn.classList.add('visible');
-      });
-      updateProgress();
-    });
-
-    // ── Verdict selection ────────────────────────────────────────────────────
-    function selectVerdict(idx, verdict) {
-      applyVerdict(idx, verdict);
-      // Show comment box and save button
-      const ta = document.getElementById('comment-' + idx);
-      const saveBtn = document.getElementById('save-' + idx);
-      if (ta) ta.classList.add('visible');
-      if (saveBtn) saveBtn.classList.add('visible');
-      // Auto-save verdict immediately
-      if (!responses[idx]) responses[idx] = {};
-      responses[idx].verdict = verdict;
-      responses[idx].participantId = PARTICIPANTS[idx].id;
-      persist();
-      updateProgress();
-    }
-
-    function applyVerdict(idx, verdict) {
-      const btns = document.querySelectorAll('[data-idx="' + idx + '"]');
-      btns.forEach(function(btn) {
-        btn.classList.remove('selected-yes', 'selected-partial', 'selected-no');
-      });
-      const target = document.querySelector('[data-idx="' + idx + '"][data-verdict="' + verdict + '"]');
-      if (target) target.classList.add('selected-' + verdict);
-    }
-
-    function saveResponse(idx) {
-      const ta = document.getElementById('comment-' + idx);
-      if (!responses[idx]) responses[idx] = { participantId: PARTICIPANTS[idx].id };
-      responses[idx].comment = ta ? ta.value : '';
-      responses[idx].timestamp = new Date().toISOString();
-      persist();
-      const sb = document.getElementById('saved-' + idx);
-      const saveBtn = document.getElementById('save-' + idx);
-      if (sb) sb.classList.add('visible');
-      if (saveBtn) saveBtn.classList.remove('visible');
-    }
-
-    function persist() {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(responses)); } catch(e) {}
-    }
-
-    function updateProgress() {
-      const done = Object.keys(responses).length;
-      const total = PARTICIPANTS.length;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const bar = document.getElementById('progress-bar');
-      const label = document.getElementById('progress-label');
-      if (bar) bar.style.width = pct + '%';
-      if (label) label.textContent = done + ' of ' + total + ' verified';
-    }
-
-    // ── Export ───────────────────────────────────────────────────────────────
-    function exportResponses() {
+      const response = { responseId: crypto.randomUUID(), participantId, verdict, comment: String(form.get('comment') || ''), submittedAt: new Date().toISOString() };
       const output = {
-        exportedAt: new Date().toISOString(),
-        datasetName: ${JSON.stringify(data.config.datasetName)},
-        totalParticipants: PARTICIPANTS.length,
-        responses: Object.values(responses)
+        schemaVersion: RESPONSE_SCHEMA, request: REQUEST, response,
+        integrity: { algorithm: 'SHA-256', canonicalization: CANONICALIZATION, payloadDigest: await sha256(canonicalize({request: REQUEST, response})), assurance: 'corruption-and-binding-check-only' }
       };
-      const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(output, null, 2)], {type:'application/json'});
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'verification-responses-' + new Date().toISOString().split('T')[0] + '.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'participant-response-' + REQUEST.requestId.slice(0,8) + '.json';
+      document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+      status.textContent = 'Response downloaded. Return it to the facilitator; it has not been sent automatically.';
+    } catch (error) {
+      status.textContent = 'The response could not be created: ' + (error instanceof Error ? error.message : 'unknown error');
+      status.className = 'status error'; button.disabled = false;
     }
-
-    function clearAll() {
-      if (!confirm('Clear all saved responses?')) return;
-      responses = {};
-      persist();
-      location.reload();
-    }
-  </script>
+  });
+</script>
 </body>
-</html>`.trim();
+</html>`;
 };
 
-// ─── Download helper ──────────────────────────────────────────────────────────
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const validIsoTime = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
-export const downloadVerificationPage = (data: AnalysisResult): void => {
-  const html = generateVerificationHTML(data);
-  const blob = new Blob([html], { type: 'text/html' });
+export const validateParticipantResponse = async (
+  value: unknown,
+  context: VerificationImportContext,
+): Promise<VerificationImportResult> => {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  if (!isRecord(value) || value.schemaVersion !== VERIFICATION_RESPONSE_SCHEMA) {
+    return { feedback: null, errors: ['Unsupported or missing participant-response-v3 schema.'], warnings };
+  }
+  const request = isRecord(value.request) ? value.request : null;
+  const response = isRecord(value.response) ? value.response : null;
+  const integrity = isRecord(value.integrity) ? value.integrity : null;
+  if (!request || !response || !integrity) return { feedback: null, errors: ['Response package is missing request, response, or integrity data.'], warnings };
+
+  const issuedAt = validIsoTime(request.issuedAt) ? Date.parse(request.issuedAt) : NaN;
+  const expiresAt = validIsoTime(request.expiresAt) ? Date.parse(request.expiresAt) : NaN;
+  const submittedAt = validIsoTime(response.submittedAt) ? Date.parse(response.submittedAt) : NaN;
+  if (request.schemaVersion !== VERIFICATION_REQUEST_SCHEMA) errors.push('Verification request schema is invalid.');
+  if (typeof request.requestId !== 'string' || request.requestId.length < 16 || request.requestId.length > 200) errors.push('Request ID is invalid.');
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= issuedAt) errors.push('Request validity dates are invalid.');
+  if (!Number.isFinite(submittedAt)) errors.push('Submission time is invalid.');
+  if (Number.isFinite(submittedAt) && Number.isFinite(issuedAt) && submittedAt < issuedAt) errors.push('Response predates the verification request.');
+  if (Number.isFinite(submittedAt) && Number.isFinite(expiresAt) && submittedAt > expiresAt) errors.push('Response was completed after the request expired.');
+
+  const expectedDatasetDigest = await sha256Digest(context.datasetName);
+  const expectedSummaryDigest = await sha256Digest(context.summary);
+  if (request.runId !== context.runId) errors.push('Response belongs to a different analysis run.');
+  if (request.datasetDigest !== expectedDatasetDigest) errors.push('Response belongs to a different dataset label.');
+  if (request.summaryDigest !== expectedSummaryDigest) errors.push('Response was issued for a different summary.');
+
+  if (typeof request.requestDigest === 'string') {
+    const requestWithoutDigest = { schemaVersion: request.schemaVersion, requestId: request.requestId, issuedAt: request.issuedAt, expiresAt: request.expiresAt, runId: request.runId, datasetDigest: request.datasetDigest, summaryDigest: request.summaryDigest };
+    const expectedRequestDigest = await sha256Digest(canonicalizeVerificationJson(requestWithoutDigest));
+    if (request.requestDigest !== expectedRequestDigest) errors.push('Verification request digest does not match its contents.');
+  } else errors.push('Verification request digest is missing.');
+
+  const participantId = typeof response.participantId === 'string' ? response.participantId.trim() : '';
+  if (!participantId || !new Set(context.participantIds).has(participantId)) errors.push('Participant ID is not in this analysis.');
+  const verdict = response.verdict;
+  if (verdict !== 'yes' && verdict !== 'partial' && verdict !== 'no') errors.push('Verdict is invalid.');
+  const comment = typeof response.comment === 'string' ? response.comment : '';
+  if (comment.length > MAX_COMMENT_LENGTH) errors.push(`Comment exceeds ${MAX_COMMENT_LENGTH} characters.`);
+  const responseId = typeof response.responseId === 'string' ? response.responseId : '';
+  if (responseId.length < 16 || responseId.length > 200) errors.push('Response ID is invalid.');
+  if (responseId && new Set(context.existingResponseIds ?? []).has(responseId)) errors.push('This response was already imported.');
+
+  if (integrity.algorithm !== 'SHA-256' || integrity.canonicalization !== VERIFICATION_CANONICALIZATION) errors.push('Unsupported response integrity method.');
+  else {
+    const expectedPayloadDigest = await sha256Digest(canonicalizeVerificationJson({ request, response }));
+    if (integrity.payloadDigest !== expectedPayloadDigest) errors.push('Response payload digest does not match its contents.');
+  }
+
+  if (errors.length > 0 || !Number.isFinite(submittedAt) || !participantId || (verdict !== 'yes' && verdict !== 'partial' && verdict !== 'no')) return { feedback: null, errors, warnings };
+  const label: ParticipantFeedback['label'] = verdict === 'yes' ? 'accurate' : verdict === 'partial' ? 'partial' : 'distorted';
+  return {
+    feedback: { participantId, label, comment: comment || undefined, timestamp: submittedAt, responseId, requestId: String(request.requestId), bindingVerified: true },
+    errors,
+    warnings,
+  };
+};
+
+export const downloadVerificationPage = async (data: AnalysisResult): Promise<void> => {
+  const blob = new Blob([await generateVerificationHTML(data)], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
-
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `participant-verification-${data.config.datasetName
-    .replace(/\s+/g, '-')
-    .toLowerCase()}-${new Date().toISOString().split('T')[0]}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `participant-response-${data.config.datasetName.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.html`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
   URL.revokeObjectURL(url);
 };

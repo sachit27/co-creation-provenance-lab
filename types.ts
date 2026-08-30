@@ -34,23 +34,90 @@ export interface QuestionAnalysis {
 
 export type StakeholderGroup = 'community' | 'expert' | 'youth' | 'government' | 'business' | 'other';
 export type EntailmentLabel = 'entails' | 'neutral' | 'contradicts';
-export type FeedbackLabel = 'accurate' | 'missed' | 'distorted';
+export type FeedbackLabel = 'accurate' | 'partial' | 'missed' | 'distorted';
 
 export interface ParticipantInput {
   id: string;
   text: string;
   group?: StakeholderGroup; // Optional stakeholder group for group equity analysis
+  /**
+   * Optional evidentiary answer segments. `context` (for example a survey
+   * question) helps interpretation but is not itself treated as participant
+   * testimony in source-census metrics.
+   */
+  sourceSegments?: Array<{ text: string; context?: string }>;
 }
 
 export type SummarizationStrategy = 'balanced' | 'diversity' | 'consensus';
 export type ModelType = string;
 export type AIProvider = 'gemini' | 'ollama' | 'groq' | 'openai' | 'claude' | 'apertus';
 
+export interface CompletionUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+/** Provider-returned execution facts for one completion. Fields are optional
+ * because providers expose different response envelopes. */
+export interface CompletionMetadata {
+  provider: AIProvider;
+  /** Application role for this call; assigned by the run orchestrator. */
+  role?: 'generator' | 'evaluator' | 'auxiliary';
+  requestedModel: string;
+  returnedModel?: string;
+  responseId?: string;
+  requestId?: string;
+  createdAt: string;
+  finishReason?: string;
+  /** Provider-supplied refusal text/category when a refused call is recorded. */
+  refusal?: string;
+  usage?: CompletionUsage;
+  effectiveParameters: {
+    temperature: number | null;
+    maxOutputTokens?: number;
+    reasoningEffort?: string;
+    topP?: number;
+    /** Provider-enforced response envelope when supported. */
+    responseFormat?: 'text' | 'json' | 'json-schema';
+    /** Whether a provider-side hidden/reasoning channel was enabled. */
+    thinking?: boolean;
+  };
+}
+
+export interface CompletionResult {
+  text: string;
+  metadata: CompletionMetadata;
+}
+
+export interface CompletionFailure extends Error {
+  completionMetadata?: CompletionMetadata;
+}
+
+/** Declared authorship/origin of the summary being audited. Never inferred. */
+export type SummaryOrigin =
+  | 'generated-in-run'
+  | 'algorithmic-extractive'
+  | 'human-authored'
+  | 'ai-generated-external'
+  | 'ai-assisted'
+  | 'mixed'
+  | 'unknown';
+
+export interface DeclaredSummaryProvenance {
+  origin: SummaryOrigin;
+  /** Provider/model that created an externally supplied summary, when known. */
+  provider?: string;
+  model?: string;
+  generatedAt?: string;
+  notes?: string;
+}
+
 /**
  * Where to generate embeddings — independent of the completion provider.
  * 'bge-m3'  : Local Xenova BGE-M3 transformer (requires server running)
  * 'openai'  : OpenAI text-embedding-3-small/large (requires API key)
- * 'gemini'  : Google text-embedding-004 (requires API key)
+ * 'gemini'  : Google Gemini Embedding (requires API key)
  * 'ollama'  : Ollama embedding model (requires Ollama running)
  * 'tfidf'   : Local TF-IDF bag-of-words — always available, no API needed
  */
@@ -70,11 +137,22 @@ export interface AnalysisConfig {
   strategy: SummarizationStrategy;
   aiProvider: AIProvider;
   model: ModelType;
+  /** Optional provider used for model-coded audits. Undefined reuses aiProvider. */
+  evaluatorProvider?: AIProvider;
+  /** Optional evaluator model. Undefined reuses the configured generator model. */
+  evaluatorModel?: ModelType;
+  /** Internal per-run observer; omitted from stored/exported public config. */
+  completionMetadataSink?: (metadata: CompletionMetadata) => void;
+  /** Internal cancellation signal for in-flight model-coded work. It is never
+   * stored or exported as part of the public run configuration. */
+  completionAbortSignal?: AbortSignal;
   embeddingModel: string;       // Model name within the embedding provider
   embeddingProvider: EmbeddingProvider; // Which service generates embeddings
   runLOO: boolean;
   summaryMethod: 'ai' | 'extractive' | 'manual';
   manualSummaryText?: string;
+  /** User-declared provenance for an existing/manual summary. */
+  summaryProvenance?: DeclaredSummaryProvenance;
   // New config options
   thresholds?: ThresholdConfig;
   enableNLI?: boolean;
@@ -100,6 +178,8 @@ export interface InterGroupAnalysis {
   groupMetrics: GroupEquityMetrics[];
   interGroupGini: number;
   representationGapMatrix: Record<string, Record<string, number>>; // Group-to-group representation gaps
+  /** Tier-specific provisional bands used for display/review, not fairness thresholds. */
+  reviewBands?: { atRisk: number; low: number; target: number };
 }
 
 // Uncertainty Quantification
@@ -126,8 +206,11 @@ export interface ThresholdSensitivityAnalysis {
 export interface StrategyComparisonResult {
   strategy: SummarizationStrategy;
   summary: string;
-  metrics: DiversityMetrics;
-  avgRepresentation: number;
+  metrics?: DiversityMetrics;
+  avgRepresentation: number | null;
+  status: 'complete' | 'failed';
+  isCurrentSummary?: boolean;
+  error?: string;
   recommendation?: string;
 }
 
@@ -136,9 +219,10 @@ export interface LanguageEquityReport {
   hasMultipleLanguages: boolean;
   languageCounts: Record<string, number>; // language code → count
   languageRepresentation: Record<string, number>; // language code → avg representation score
-  hasEquityIssue: boolean; // true if non-English inputs are statistically underrepresented vs English
+  /** Legacy field name: true when a script/language alignment review flag fires; not a causal equity finding. */
+  hasEquityIssue: boolean;
   underrepresentedLanguages: string[];
-  /** Permutation test p-value for the gap between English and non-English scores.
+  /** Holm-adjusted permutation p-value for a flagged comparison.
    *  null when sample sizes are too small for a meaningful test (< 3 per group). */
   pValue?: number | null;
 }
@@ -159,39 +243,7 @@ export interface FacilitationGapBrief {
   modelUsed: string;
 }
 
-// ─── Feature #3: Bias Source Attribution ──────────────────────────────────────
-
-/**
- * The primary diagnosed reason a participant's voice is underrepresented.
- *
- * embedding_gap    — The embedding model performs poorly on this input's language/script.
- * topical_uniqueness — The perspective is genuinely novel; no other participant reinforced it.
- * summarizer_bias  — The LLM omitted the perspective despite detectable semantic relevance.
- * phrasing_mismatch — The participant expresses mainstream ideas in non-standard phrasing.
- */
-export type BiasAttributionCause =
-  | 'embedding_gap'
-  | 'topical_uniqueness'
-  | 'summarizer_bias'
-  | 'phrasing_mismatch';
-
-export interface BiasAttributionFactor {
-  cause: BiasAttributionCause;
-  /** 0–1 confidence that this cause applies, based on observable evidence */
-  confidence: number;
-  /** Human-readable explanation of the evidence for this cause */
-  evidence: string;
-}
-
-export interface BiasAttribution {
-  primaryCause: BiasAttributionCause;
-  /** All detected factors, sorted by confidence descending */
-  factors: BiasAttributionFactor[];
-  /** Concrete, actionable recommendation for the facilitator */
-  actionableIntervention: string;
-}
-
-// ─── Feature #4: Feedback Calibration Analytics ───────────────────────────────
+// ─── Feedback Calibration Analytics ──────────────────────────────────────────
 
 export interface FeedbackCalibration {
   /** Fraction of feedbacks where the label aligns with the expected direction of the score */
@@ -206,7 +258,9 @@ export interface FeedbackCalibration {
    * (accurate=1, missed=0, distorted=-0.5).
    * Range −1 to 1; higher = algorithm and humans agree.
    */
-  calibrationScore: number;
+  calibrationScore: number | null;
+  /** Feedback cases outside the prespecified high and low score bands. */
+  indeterminateCount?: number;
 }
 
 // ─── Feature #5: What-If Simulation ──────────────────────────────────────────
@@ -243,10 +297,13 @@ export interface AnalysisResult {
   config: AnalysisConfig;
   summary: string;
   summarySentences: string[];
-  summarySentenceSentiments: { score: number; label: 'positive' | 'neutral' | 'negative' }[]; // New Audit Metric
+  /** Legacy-only coarse sentiment labels. New runs leave this empty. */
+  summarySentenceSentiments: { score: number; label: 'positive' | 'neutral' | 'negative' }[];
   participants: ParticipantAnalysis[];
   metrics: DiversityMetrics;
   clusters: ClusterData[];
+  /** Validation record for the run-specific semantic partition. Legacy runs may omit it. */
+  clusteringDiagnostics?: ClusteringDiagnostics;
   sensitivityAnalysis?: SensitivityResult[];
   bridgingOpportunities?: BridgingSuggestion[];
   conceptAnalysis?: ConceptFidelityResult;
@@ -259,21 +316,49 @@ export interface AnalysisResult {
   inputEmbeddings?: number[][];
   // Methodological transparency
   embeddingTierUsed?: EmbeddingProvider; // Which tier was active for this analysis
-  languageAnalysis?: LanguageEquityReport; // Language equity across participant inputs
-  enrichmentStatus?: 'pending' | 'complete'; // Phase 2 concept fidelity completion state
+  languageAnalysis?: LanguageEquityReport; // Exploratory script/language alignment comparison
+  enrichmentStatus?: 'pending' | 'complete' | 'partial' | 'cancelled' | 'failed';
+  /** Per-stage execution state makes partial results and failures explicit. */
+  enrichmentStages?: Partial<Record<EnrichmentStageName, EnrichmentStageRecord>>;
   networkGraph?: NetworkGraph; // Participant semantic similarity network
   languageFidelity?: LanguageFidelity; // Phase 2: how raw language was transformed in summary
+  affectiveFidelity?: AffectiveFidelity; // Phase 2: model-estimated affect/stance fidelity on verified spans
   // Phase 2: advanced provenance features
   rhetoricalBias?: RhetoricalBiasAnalysis;
   claimAttribution?: ClaimAttribution;
   tensionAnalysis?: TensionAnalysis;
   sankeyData?: SankeyData;
   knowledgeGraph?: KnowledgeGraph;
+  /** Execution facts recorded at run time. This is an unsigned audit log. */
+  runManifest?: {
+    runId: string;
+    startedAt: string;
+    completedAt: string;
+    requestedSummaryMethod: AnalysisConfig['summaryMethod'];
+    actualSummaryMethod: AnalysisConfig['summaryMethod'];
+    requestedGenerator?: { provider: AIProvider; model: string };
+    actualGenerator?: { provider: AIProvider; model: string };
+    requestedEvaluator?: { provider: AIProvider; model: string };
+    actualEvaluator?: { provider: AIProvider; model: string };
+    requestedEmbedding: { provider: EmbeddingProvider; model: string };
+    actualEmbedding: { provider: EmbeddingProvider; model: string };
+    /** Provider-returned execution facts, in call order. Prompt/output text is never stored here. */
+    completionCalls?: CompletionMetadata[];
+    fallbackEvents: string[];
+    softwareVersion: string;
+  };
+}
+
+export type EnrichmentStageName = 'language' | 'affect' | 'claims' | 'tensions' | 'knowledgeGraph' | 'sankey';
+
+export interface EnrichmentStageRecord {
+  status: 'pending' | 'complete' | 'failed' | 'skipped' | 'cancelled';
+  message?: string;
 }
 
 // ── Language Fidelity Analysis ────────────────────────────────────────────────
 
-export type TransformationType = 'preserved' | 'softened' | 'sanitized' | 'abstracted' | 'dropped';
+export type TransformationType = 'preserved' | 'softened' | 'sanitized' | 'abstracted' | 'target_shifted' | 'target_uncertain' | 'dropped' | 'unassessed';
 
 /**
  * Epistemic classification for summary claims.
@@ -287,9 +372,21 @@ export type EpistemicClass = 'explicit' | 'inferred' | 'extrapolated' | 'specula
 
 export interface PhraseMapping {
   participantId: string;
+  /** Collision-free identifier for the inventoried source unit within this run. */
+  sourceUnitId?: string;
+  /** Position of the sentence-like source unit within the participant contribution. */
+  sourceUnitIndex?: number;
   rawPhrase: string;
   summaryPhrase: string | null;
   type: TransformationType;
+  /** False when the evaluator omitted the unit or returned unverifiable output. */
+  alignmentAssessed?: boolean;
+  /** Non-evidentiary context such as the survey question for this source span. */
+  sourceContext?: string;
+  /** Whether the source and summary phrases refer to the same target/aspect. */
+  targetRelation?: TargetRelation;
+  /** Actual sentence containing summaryPhrase (it may differ from the sentence being audited). */
+  summarySentenceIndex?: number | null;
 }
 
 export interface SentenceFidelity {
@@ -304,11 +401,185 @@ export interface SentenceFidelity {
 }
 
 export interface LanguageFidelity {
+  /** New runs use a complete source-first census; absent on archived legacy results. */
+  methodVersion?: 'language-transformation-v2-source-census';
+  /** Time at which the automated transformation assessment completed. */
+  generatedAt?: string;
   sentences: SentenceFidelity[];
   overallCounts: Record<TransformationType, number>;
-  fidelityScore: number; // 0–1, proportion preserved (adjusted for cross-sentence presence)
-  /** Participant IDs whose key phrases never appear in ANY summary sentence (truly dropped) */
+  /** Participant-balanced preservation fraction, conditional on assessed units. */
+  fidelityScore: number | null;
+  /** Complete source census, including explicit dropped and unassessed units. */
+  sourceMappings?: PhraseMapping[];
+  /** Source units with no verified summary span, shown separately from per-sentence mappings. */
+  unmappedMappings?: PhraseMapping[];
+  totalSourceUnitCount?: number;
+  /** Valid evaluator outputs, including explicit target uncertainty. */
+  completedSourceUnitCount?: number;
+  assessedSourceUnitCount?: number;
+  /** Sum of each participant's within-participant preservation fraction. */
+  preservedParticipantEquivalent?: number;
+  /** Number of participants contributing at least one assessed unit to fidelityScore. */
+  assessedParticipantEquivalent?: number;
+  /** Participant-balanced fraction of inventoried units receiving a valid assessment. */
+  assessmentCoverageRate?: number | null;
+  evaluator?: {
+    provider: AIProvider;
+    model: string;
+    requestedTemperature: 0;
+    promptVersion: 'language-transformation-v2-source-census';
+    completionCalls?: CompletionMetadata[];
+  };
+  limitations?: string[];
+  /** Participants for whom every source unit was assessed and every unit was absent. */
   summaryDroppedParticipantIds: string[];
+}
+
+// ── Affective Fidelity Analysis ──────────────────────────────────────────────
+
+/**
+ * A constrained, deliberately coarse affect taxonomy. The eight named
+ * families follow Plutchik; `other` avoids forcing culturally/domain-specific
+ * expressions into an ill-fitting family. An empty array means no expressed
+ * emotion was detected — never that the speaker has no emotion.
+ */
+export type AffectEmotion =
+  | 'joy' | 'trust' | 'fear' | 'surprise'
+  | 'sadness' | 'disgust' | 'anger' | 'anticipation'
+  | 'other';
+
+export type AffectValence = -2 | -1 | 0 | 1 | 2;
+export type AffectLevel = 0 | 1 | 2 | 3;
+export type AffectStance = 'support' | 'oppose' | 'mixed' | 'none' | 'uncertain';
+export type TargetRelation = 'same' | 'different' | 'uncertain';
+
+/** A pointwise reading of one text span; it contains no comparison judgment. */
+export interface AffectProfile {
+  valence: AffectValence;
+  intensity: AffectLevel;
+  /** Deliberation-specific extension: how strongly the span calls for timely action. */
+  urgency: AffectLevel;
+  emotions: AffectEmotion[];
+  stance: AffectStance;
+  /** Short textual referent/aspect toward which valence and stance are expressed. */
+  target: string;
+  /** Model-reported certainty, used only as an exclusion screen; it is not calibrated probability. */
+  certainty: number;
+}
+
+export type AffectiveTransition =
+  | 'preserved'
+  | 'attenuated'
+  | 'amplified'
+  | 'mixed'
+  | 'polarity_shifted'
+  | 'stance_shifted'
+  | 'emotion_shifted'
+  | 'target_shifted'
+  | 'omitted'
+  | 'unassessed'
+  | 'uncertain';
+
+export interface AffectiveTransitionFlags {
+  valenceMagnitudeDelta: number;
+  intensityDelta: number;
+  urgencyDelta: number;
+  polarityReversed: boolean;
+  /** False when either pointwise profile abstained on stance. */
+  stanceAssessed: boolean;
+  stanceChanged: boolean;
+  emotionSetChanged: boolean;
+  /** Literal profile labels differ; this is a review flag, not a semantic target verdict. */
+  profileTargetLabelsDiffer: boolean;
+  attenuatedDimensions: Array<'valence' | 'intensity' | 'urgency'>;
+  amplifiedDimensions: Array<'valence' | 'intensity' | 'urgency'>;
+}
+
+export interface AffectiveFidelityCase {
+  participantId: string;
+  /** Zero-based source-unit index within the participant's source census. */
+  mappingSentenceIndex: number;
+  summarySentenceIndex: number | null;
+  sourceSpan: string;
+  sourceContext?: string;
+  summarySpan: string | null;
+  targetRelation: TargetRelation;
+  alignmentAssessed: boolean;
+  sourceProfile: AffectProfile | null;
+  summaryProfile: AffectProfile | null;
+  transition: AffectiveTransition;
+  flags: AffectiveTransitionFlags;
+  sourceAffectBearing: boolean;
+  unitWeight: number;
+  comparable: boolean;
+  exclusionReason?: 'invalid_span' | 'missing_profile' | 'low_certainty' | 'uncertain_target' | 'alignment_unassessed';
+}
+
+export interface AffectiveSensitivityPoint {
+  label: 'inclusive' | 'primary' | 'conservative';
+  minCertainty: number;
+  materialDifference: 1 | 2;
+  comparableAffectBearingCount: number;
+  attenuatedCount: number;
+  comparableAffectBearingWeight: number;
+  attenuatedWeight: number;
+  attenuationRate: number | null;
+}
+
+export interface AffectiveFidelity {
+  methodVersion: 'affective-fidelity-v2-source-census';
+  generatedAt: string;
+  evaluator: {
+    provider: AIProvider;
+    model: string;
+    requestedTemperature: 0;
+    /** null when the selected model does not support a temperature parameter. */
+    effectiveTemperature: 0 | null;
+    reasoningEffort?: string;
+    promptVersion: 'affect-profile-v2-source-census';
+    completionCalls?: CompletionMetadata[];
+  };
+  thresholds: {
+    minCertainty: number;
+    materialDifference: 1;
+  };
+  cases: AffectiveFidelityCase[];
+  stageCounts: {
+    totalSourceUnits: number;
+    sourceProfileReturned: number;
+    sourceProfileAboveCertainty: number;
+    sourceAffectBearing: number;
+    alignmentAssessedAffectBearing: number;
+    sameTargetAlignedAffectBearing: number;
+    summaryProfileReturned: number;
+    comparableAffectBearing: number;
+  };
+  /** Participant-balanced source-profile return rate over the complete census. */
+  sourceProfileCompletionRate: number | null;
+  sourceProfileCompletedWeight: number;
+  sourceCensusParticipantWeight: number;
+  counts: Record<AffectiveTransition, number>;
+  comparableCount: number;
+  comparableAffectBearingCount: number;
+  sourceAffectBearingCount: number;
+  representedAffectBearingCount: number;
+  comparableAffectBearingWeight: number;
+  sourceAffectBearingWeight: number;
+  assessedSourceAffectBearingWeight: number;
+  representedAffectBearingWeight: number;
+  /** Participant-balanced denominator with a verified same-target summary span. */
+  profileEligibleAffectBearingWeight: number;
+  /** Participant-balanced numerator whose source and summary profiles both passed screens. */
+  profileComparableAffectBearingWeight: number;
+  /** Participant-balanced numerator used by attenuationRate. */
+  attenuatedWeight: number;
+  attenuationRate: number | null;
+  affectiveCoverageRate: number | null;
+  /** Profile comparability among aligned same-target affect-bearing units. */
+  profileComparabilityRate: number | null;
+  sensitivity: AffectiveSensitivityPoint[];
+  /** Machine-readable cautions that must travel with exported results. */
+  limitations: string[];
 }
 
 export interface NetworkNode {
@@ -378,9 +649,8 @@ export interface SensitivityResult {
   participantId: string;
   shiftScore: number;
   semanticDelta: number;
-  // How the average representation of ALL OTHER participants changes when this one is removed.
-  // Positive = removing them improves others' representation (they were pulling away from mainstream).
-  // Negative = removing them hurts others' representation (they were anchoring cohesion).
+  // Descriptive deviation of this participant's semantic-alignment estimate
+  // from the observed mean. This is not a leave-one-out summary effect.
   representationDelta?: number;
 }
 
@@ -409,7 +679,8 @@ export interface AnomalyFlags {
 export interface CounterfactualSuggestion {
   type: 'keyword_emphasis' | 'phrasing_alignment' | 'tone_adjustment';
   suggestion: string;
-  predictedImpact: number; // Estimated representation improvement
+  /** Deprecated: no effect size is shown without actually rescoring a revision. */
+  predictedImpact?: number;
 }
 
 // Participant Feedback
@@ -418,6 +689,12 @@ export interface ParticipantFeedback {
   label: FeedbackLabel;
   comment?: string;
   timestamp: number;
+  /** Opaque identifier from a participant-response export; used for import deduplication. */
+  responseId?: string;
+  /** Verification request that the response was bound to. */
+  requestId?: string;
+  /** True only when local hashes, run/summary binding, expiry, and roster membership validated. */
+  bindingVerified?: boolean;
 }
 
 export interface ParticipantAnalysis {
@@ -430,7 +707,8 @@ export interface ParticipantAnalysis {
   // We now store ALL significant matches, not just the top one
   sentenceMatches: SentenceMatch[];
   topSentenceMatchIndex: number; // Kept for backward compat in other views
-  sentiment: 'positive' | 'neutral' | 'negative';
+  /** Legacy-only coarse sentiment label; not used as a fidelity measure. */
+  sentiment?: 'positive' | 'neutral' | 'negative';
   keywords: string[];
   group?: StakeholderGroup;  // Inherited from ParticipantInput
   // New fields for enhanced features
@@ -446,8 +724,11 @@ export interface ParticipantAnalysis {
    *  in aggregate metrics (Gini, avgRep, distinctGap). Displayed as a warning
    *  badge in the UI instead of a numeric score. */
   embeddingFailed?: boolean;
-  // Feature #3: computed on-the-fly in UI for participants with score < 0.6
-  biasAttribution?: BiasAttribution;
+  /** True when a selected extractive source was scored only against the
+   *  remainder of the summary, excluding its own verbatim sentence(s). */
+  alignmentLeaveSelfOut?: boolean;
+  /** Why an alignment score could not be computed comparably. */
+  alignmentUnavailableReason?: 'no-independent-extractive-summary';
   rhetoricalProfile?: RhetoricalProfile;
 }
 
@@ -455,7 +736,9 @@ export interface DiversityMetrics {
   giniCoefficient: number;
   inputDiversity: number;
   /** @deprecated Derived metric: always equals `1 - giniCoefficient`. Use giniCoefficient directly. */
-  coverageUniformity: number;
+  /** Legacy complement of Gini. Unavailable when every retrieval score is zero,
+   * because equal non-coverage must not be presented as perfect coverage. */
+  coverageUniformity: number | null;
   distinctRepresentationGap: number;
   totalParticipants: number;
   /** Number of participants with valid embeddings included in aggregate metrics (Gini, avg rep). */
@@ -466,6 +749,61 @@ export interface ClusterData {
   id: number;
   label: string;
   color: string;
+}
+
+export interface ClusteringCandidateDiagnostic {
+  k: number;
+  silhouette: number;
+  /** Full-space validation silhouette; null when the candidate failed an earlier gate. */
+  fullSpaceSilhouette: number | null;
+  restartStability: number;
+  subsampleStability: number;
+  neighborhoodAgreement: number;
+  methodAgreement: number;
+  minimumClusterSize: number;
+  clusterSizes: number[];
+  inertia: number;
+  eligible: boolean;
+  rejectionReasons: string[];
+}
+
+/**
+ * Diagnostics for exploratory semantic grouping. `usableForDownstream` is the
+ * single gate for cluster-conditioned attribution, facilitation, tension, and
+ * score-simulation paths. It does not make groups causal, social, or validated topics.
+ */
+export interface ClusteringDiagnostics {
+  methodVersion: 'spherical-kmeans-stability-v1';
+  status: 'available' | 'unavailable';
+  usableForDownstream: boolean;
+  reason: string;
+  sampleSize: number;
+  inputDimensions: number;
+  analysisDimensions: number;
+  projectionMethod: 'none' | 'deterministic-signed-feature-hash';
+  projectionDistanceCorrelation: number;
+  selectedK: number;
+  silhouette: number | null;
+  stability: number | null;
+  neighborhoodAgreement: number | null;
+  /** ARI agreement with a same-k single-linkage sensitivity partition. */
+  methodAgreement: number | null;
+  clusterSizes: number[];
+  candidateDiagnostics: ClusteringCandidateDiagnostic[];
+  distanceMetric: 'cosine';
+  normalized: true;
+  restarts: number;
+  stabilityRuns: number;
+  thresholds: {
+    minimumSampleSize: number;
+    minimumClusterSize: number;
+    minimumSilhouette: number;
+    minimumStability: number;
+    minimumNeighborhoodAgreement: number;
+    minimumMethodAgreement: number;
+    minimumProjectionDistanceCorrelation: number;
+  };
+  limitations: string[];
 }
 
 export interface MetricDefinition {
@@ -484,7 +822,7 @@ export interface RhetoricalProfile {
   register: 'formal' | 'colloquial' | 'mixed';
   evidentiality: number;       // 0–1: citations, data references, statistics
   emotionalIntensity: number;  // 0–1: urgency markers, strong adjectives, exclamation
-  compositeScore: number;      // weighted average = "rhetorical power"
+  compositeScore: number;      // unvalidated weighted marker composite
 }
 
 export interface RhetoricalBiasAnalysis {
@@ -494,14 +832,14 @@ export interface RhetoricalBiasAnalysis {
     representationScore: number;
   }>;
   correlation: number;           // Spearman rank correlation
-  pValue: number;                // statistical significance
-  hasBias: boolean;              // true if correlation positive + significant
+  pValue: number;                // seeded Monte Carlo permutation p-value
+  hasBias: boolean;              // legacy name: exploratory |rho|/p review rule
   regressionLine: { slope: number; intercept: number };
 }
 
 // ── Claim-Level Attribution (Atomic Provenance) ───────────────────────────────
 
-export type ClaimSupportLevel = 'supported' | 'inferrable' | 'unsupported' | 'contradicted';
+export type ClaimSupportLevel = 'supported' | 'inferrable' | 'unsupported' | 'contradicted' | 'unassessed';
 
 export interface AtomicClaim {
   claimIndex: number;
@@ -521,12 +859,13 @@ export interface ClaimAttribution {
   inferrableCount: number;
   unsupportedCount: number;
   contradictedCount: number;
-  attributionScore: number;  // (supported + inferrable) / total
+  unassessedCount: number;
+  attributionScore: number | null;  // directly supported fraction among assessed claims
 }
 
 // ── Tension & Contradiction Mapping ───────────────────────────────────────────
 
-export type TensionHandling = 'acknowledged' | 'suppressed' | 'merged' | 'distorted';
+export type TensionHandling = 'acknowledged' | 'suppressed' | 'merged' | 'distorted' | 'unassessed';
 
 export interface TensionPair {
   claimA: { participantId: string; text: string; clusterId: number };
@@ -537,12 +876,16 @@ export interface TensionPair {
 }
 
 export interface TensionAnalysis {
+  /** Whether candidate sampling used a validated semantic partition. */
+  basis?: 'stable-semantic-groups' | 'unavailable';
+  unavailableReason?: string;
   pairs: TensionPair[];
-  tensionFidelityScore: number;  // fraction acknowledged / total
+  tensionFidelityScore: number | null;  // fraction acknowledged among assessed pairs
   suppressedCount: number;
   acknowledgedCount: number;
   mergedCount: number;
   distortedCount: number;
+  unassessedCount: number;
   clusterTensions: Array<{
     clusterA: number;
     clusterB: number;
@@ -655,6 +998,7 @@ export interface SankeyLink {
   transformationType?: TransformationType;
   isOrphan?: boolean;
   isPhantom?: boolean;
+  isLoss?: boolean;
 }
 
 export interface SankeyData {

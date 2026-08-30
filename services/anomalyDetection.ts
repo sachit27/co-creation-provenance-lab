@@ -7,7 +7,7 @@ import { AnomalyFlags, ParticipantInput } from '../types';
  * Copy-paste detection uses MinHash/LSH (Broder 1997) for O(n) near-duplicate
  * detection at scale, with TF-IDF cosine similarity verification for precision.
  * Falls back to O(n²) pairwise comparison for n < 20 where LSH overhead isn't warranted.
- * Async version uses HuggingFace semantic similarity when available.
+ * The async compatibility wrapper uses the same deterministic local method.
  */
 
 // Extended stopwords for robust tokenization
@@ -295,41 +295,13 @@ const detectCopyPaste = (
   return { isCopyPaste: false };
 };
 
-/**
- * Async version of copy-paste detection using HuggingFace semantic similarity
- * Catches paraphrased duplicates that TF-IDF might miss
- */
+/** Backward-compatible async wrapper around deterministic local detection. */
 export const detectCopyPasteAsync = async (
   text: string,
   allTexts: string[],
   threshold: number = 0.85
-): Promise<{ isCopyPaste: boolean; similarTo?: string; similarity?: number }> => {
-  try {
-    const { checkHuggingFaceAvailable, semanticSimilarityHF } = await import('./huggingface');
-
-    if (await checkHuggingFaceAvailable()) {
-      for (const otherText of allTexts) {
-        if (otherText === text) continue;
-
-        const similarity = await semanticSimilarityHF(text, otherText);
-        if (similarity >= threshold) {
-          console.log(`[Anomaly] HF semantic duplicate: ${similarity.toFixed(2)}`);
-          return {
-            isCopyPaste: true,
-            similarTo: otherText.substring(0, 50) + '...',
-            similarity
-          };
-        }
-      }
-      return { isCopyPaste: false };
-    }
-  } catch (e) {
-    console.warn('[Anomaly] HuggingFace unavailable, using TF-IDF fallback');
-  }
-
-  // Fallback to TF-IDF
-  return detectCopyPaste(text, allTexts, threshold - 0.15); // Lower threshold for TF-IDF
-};
+): Promise<{ isCopyPaste: boolean; similarTo?: string; similarity?: number }> =>
+  detectCopyPaste(text, allTexts, threshold);
 
 // Detect outlier clusters using Z-score on representation scores
 const detectOutlierCluster = (

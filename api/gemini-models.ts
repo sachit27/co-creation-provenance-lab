@@ -5,21 +5,12 @@
  * into generation (generateContent) and embedding (embedContent) lists.
  */
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from './_types';
+import { guardBrowserRequest, guardSharedGeminiProxy } from './_security';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (!guardBrowserRequest(req, res, ['GET'])) return;
+  if (!guardSharedGeminiProxy(res)) return;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -28,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
 
     if (!response.ok) {
       const err = await response.text();

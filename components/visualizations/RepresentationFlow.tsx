@@ -5,12 +5,31 @@ import { getResponsiveColumns, truncateText, formatMetric } from '../../hooks/us
 interface ContributionLineageProps {
   data: ParticipantAnalysis[];
   sentences: string[];
+  /**
+   * Brushing: the participant selected elsewhere in the dashboard. When
+   * provided, this view becomes a controlled component so a participant picked
+   * on the Discussion Map stays highlighted here (and vice versa) instead of
+   * each chart keeping its own private selection.
+   */
+  selectedId?: string | null;
+  onSelectParticipant?: (id: string | null) => void;
 }
 
-export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, sentences }) => {
+export const ContributionLineage: React.FC<ContributionLineageProps> = ({
+  data, sentences, selectedId, onSelectParticipant,
+}) => {
   const [hoveredInput, setHoveredInput] = useState<string | null>(null);
   const [hoveredSentence, setHoveredSentence] = useState<number | null>(null);
-  const [selectedInput, setSelectedInput] = useState<string | null>(null);
+  const [localSelected, setLocalSelected] = useState<string | null>(null);
+
+  // Controlled when the parent supplies a selection, uncontrolled otherwise —
+  // so the component still works standalone.
+  const isControlled = onSelectParticipant !== undefined;
+  const selectedInput = isControlled ? (selectedId ?? null) : localSelected;
+  const setSelectedInput = (id: string | null) => {
+    if (isControlled) onSelectParticipant!(id);
+    else setLocalSelected(id);
+  };
   const [currentPage, setCurrentPage] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -101,15 +120,15 @@ export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, 
       <div className="p-3 md:p-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
         <div className="flex flex-wrap justify-between items-start gap-2">
           <div>
-            <h3 className="font-semibold text-slate-700 text-sm md:text-base">Contribution Lineage</h3>
+            <h3 className="font-semibold text-slate-700 text-sm md:text-base">Contribution-to-Sentence Matches</h3>
             <p className="text-[10px] text-slate-500 mt-0.5">
-              {isCompact ? 'Hover to explore connections' : 'Tracing how participant inputs map to summary sentences'}
+              {isCompact ? 'Hover to inspect similarity links' : 'Semantic similarity candidates between source records and summary sentences'}
             </p>
           </div>
           <div className="flex gap-2">
             <div className="bg-slate-100 rounded px-2 py-1 text-center">
               <div className="text-slate-700 font-bold text-sm">{connectionStats.total}</div>
-              <div className="text-slate-500 text-[9px]">Links</div>
+              <div className="text-slate-500 text-[9px]">Candidates</div>
             </div>
             <div className="bg-green-50 border border-green-200 rounded px-2 py-1 text-center">
               <div className="text-green-700 font-bold text-sm">{connectionStats.strong}</div>

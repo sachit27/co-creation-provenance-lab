@@ -31,8 +31,11 @@ const percentile = (sortedValues: number[], p: number): number => {
   return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
 };
 
-// Compute confidence interval from bootstrap samples
-const computeCI = (samples: number[], confidenceLevel: number = 0.95): {
+// Compute a percentile resampling interval around the observed statistic.
+// The point estimate must be computed on the observed data; using the mean of
+// bootstrap replicates silently substitutes a bias-shifted value (notably for
+// Gini) and can disagree with the dashboard's primary metric.
+const computeCI = (samples: number[], observedPoint: number, confidenceLevel: number = 0.95): {
   lower: number;
   upper: number;
   point: number;
@@ -42,9 +45,7 @@ const computeCI = (samples: number[], confidenceLevel: number = 0.95): {
 
   const lower = percentile(sorted, (alpha / 2) * 100);
   const upper = percentile(sorted, (1 - alpha / 2) * 100);
-  const point = samples.reduce((a, b) => a + b, 0) / samples.length;
-
-  return { lower, upper, point };
+  return { lower, upper, point: observedPoint };
 };
 
 // Compute Gini coefficient for a sample
@@ -63,7 +64,7 @@ const computeGap = (participants: ParticipantAnalysis[]): number => {
   if (participants.length < 4) return 0;
 
   const sortedByIsolation = [...participants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
-  const splitIndex = Math.floor(participants.length * 0.25);
+  const splitIndex = Math.max(1, Math.min(participants.length - 1, Math.ceil(participants.length * 0.25)));
 
   if (splitIndex === 0) return 0;
 
@@ -81,20 +82,21 @@ const computeGap = (participants: ParticipantAnalysis[]): number => {
  *
  * IMPORTANT — what these CIs represent:
  *
- * The bootstrap resamples *participants* (with replacement) and recomputes
- * aggregate metrics (Gini, mean representation, equity gap) on each resample.
- * This quantifies **sampling variability**: "If we had drawn a different
- * sample of participants from the same population, how much would these
- * aggregate metrics change?"
+ * The bootstrap resamples *observed participants* (with replacement) and
+ * recomputes aggregate metrics. We report these as participant-resampling
+ * stability intervals. They are population confidence intervals only when the
+ * participants can defensibly be treated as an IID sample from a defined target
+ * population; public consultations and purposive recruitment rarely meet that
+ * condition.
  *
  * This does NOT capture:
  * - Measurement uncertainty in individual representation scores (those are
  *   deterministic given the embedding model and summary).
  * - Model uncertainty (different embedding models would give different scores).
  *
- * Interpretation: a wide CI means the aggregate metric is sensitive to which
- * particular participants happen to be in the dataset. A narrow CI means the
- * metric is stable regardless of participant composition.
+ * Interpretation: a wide interval means the aggregate is sensitive to which
+ * observed records are reweighted by resampling. A narrow interval does not
+ * establish population representativeness or measurement validity.
  *
  * Reference: Efron & Tibshirani (1993) "An Introduction to the Bootstrap",
  * Chapter 13 (percentile intervals).
@@ -145,9 +147,9 @@ export const computeUncertaintyMetrics = (
   }
 
   return {
-    giniCI: computeCI(giniSamples, confidenceLevel),
-    avgRepresentationCI: computeCI(avgRepSamples, confidenceLevel),
-    gapCI: computeCI(gapSamples, confidenceLevel),
+    giniCI: computeCI(giniSamples, calculateGini(participants.map(p => p.representationScore)), confidenceLevel),
+    avgRepresentationCI: computeCI(avgRepSamples, computeAvgRepresentation(participants), confidenceLevel),
+    gapCI: computeCI(gapSamples, computeGap(participants), confidenceLevel),
     bootstrapSamples: numSamples
   };
 };
@@ -194,7 +196,7 @@ export const getUncertaintyWarning = (metrics: UncertaintyMetrics): string | nul
 
   if (warnings.length === 0) return null;
 
-  return `⚠️ ${warnings.join('; ')}. These aggregate metrics are sensitive to participant composition — consider a larger sample for more stable estimates.`;
+  return `⚠️ ${warnings.join('; ')}. These descriptive aggregates are sensitive to participant composition. The interval does not correct recruitment or measurement bias.`;
 };
 
 export default computeUncertaintyMetrics;

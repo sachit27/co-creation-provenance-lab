@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { AnalysisConfig, ParticipantInput, StakeholderGroup, ColumnInfo, ColumnSelection, MultiColumnMode } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { AnalysisConfig, ParticipantInput, StakeholderGroup, ColumnInfo, ColumnSelection, MultiColumnMode, AIProvider } from '../../types';
 import { SAMPLE_DATA, SAMPLE_DATASETS, ANALYSIS_CONFIG } from '../../constants';
-import { checkAIConnection, getGeminiModels, setRuntimeGeminiKey } from '../../services/gemini';
-import { checkOllamaConnection, getOllamaModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy } from '../../services/ollama';
+import { checkAIConnection, getGeminiModels, setRuntimeGeminiKey, DEFAULT_GEMINI_GENERATION_MODEL, DEFAULT_GEMINI_EMBEDDING_MODEL } from '../../services/gemini';
+import { checkOllamaConnection, filterOllamaEmbeddingModels, getOllamaModels, rankOllamaCompletionModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy } from '../../services/ollama';
 import { checkBgeM3Connection, resetBgeM3Cache } from '../../services/bgeM3';
-import { checkGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GROQ_FREE_MODELS, fetchGroqModels } from '../../services/groq';
-import { checkOpenAIConnection, setOpenAIApiKey, getOpenAIApiKey, OPENAI_CHAT_MODELS, OPENAI_EMBEDDING_MODELS, fetchOpenAIChatModels } from '../../services/openai';
-import { checkClaudeConnection, setClaudeApiKey, getClaudeApiKey, CLAUDE_MODELS } from '../../services/claude';
-import { checkApertusConnection, setApertusApiKey, getApertusApiKey, APERTUS_MODELS } from '../../services/apertus';
+import { checkGroqConnection, verifyGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GROQ_FREE_MODELS, fetchGroqModels } from '../../services/groq';
+import { checkOpenAIConnection, verifyOpenAIConnection, setOpenAIApiKey, getOpenAIApiKey, OPENAI_CHAT_MODELS, OPENAI_EMBEDDING_MODELS, fetchOpenAIChatModels } from '../../services/openai';
+import { checkClaudeConnection, verifyClaudeConnection, setClaudeApiKey, getClaudeApiKey, CLAUDE_MODELS, fetchClaudeModels } from '../../services/claude';
+import { checkApertusConnection, setApertusApiKey, getApertusApiKey, APERTUS_MODELS, fetchApertusModels, PublicAIModelInfo } from '../../services/apertus';
 import { preprocessCSV, scanColumns, preprocessWithSelections, PreprocessReport, PreprocessResult, parseMultiDocumentText, chunkSingleDocument } from '../../services/dataPreprocessor';
 import { ColumnSelector } from './ColumnSelector';
+import { clearEmbeddingCache, isPersistentEmbeddingCacheEnabled, setPersistentEmbeddingCacheEnabled } from '../../services/embeddingCache';
 
 interface ConfigPanelProps {
   onRun: (
@@ -61,6 +62,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [chunkStrategy, setChunkStrategy] = useState<'paragraph' | 'sentence' | 'section'>('paragraph');
   const [selectedDataset, setSelectedDataset] = useState<string>('citizen');
   const [rawText, setRawText] = useState('');
+  const [persistEmbeddings, setPersistEmbeddings] = useState(() => isPersistentEmbeddingCacheEnabled());
+  const [cacheCleared, setCacheCleared] = useState(false);
 
   // Validation / Preview state
   const [parsedPreview, setParsedPreview] = useState<ParticipantInput[]>([]);
@@ -81,17 +84,23 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   // Status check states
   const [geminiStatus, setGeminiStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
-  const [groqStatus, setGroqStatus] = useState<'connected' | 'offline'>('offline');
-  const [openAIStatus, setOpenAIStatus] = useState<'connected' | 'offline'>('offline');
-  const [claudeStatus, setClaudeStatus] = useState<'connected' | 'offline'>('offline');
-  const [apertusStatus, setApertusStatus] = useState<'connected' | 'offline'>('offline');
+  const [groqStatus, setGroqStatus] = useState<'checking' | 'connected' | 'offline'>('offline');
+  const [openAIStatus, setOpenAIStatus] = useState<'checking' | 'connected' | 'offline'>('offline');
+  const [claudeStatus, setClaudeStatus] = useState<'checking' | 'connected' | 'offline'>('offline');
+  const [apertusStatus, setApertusStatus] = useState<'checking' | 'connected' | 'offline'>('offline');
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const ollamaCompletionModels = rankOllamaCompletionModels(ollamaModels);
+  const ollamaEmbeddingModels = filterOllamaEmbeddingModels(ollamaModels);
   const [geminiModels, setGeminiModels] = useState<{ generation: string[]; embedding: string[] }>({ generation: [], embedding: [] });
   const [openAIModels, setOpenAIModels] = useState<string[]>(OPENAI_CHAT_MODELS);
   const [groqModels, setGroqModels] = useState<string[]>(GROQ_FREE_MODELS);
-  const [isFetchingModels, setIsFetchingModels] = useState<'openai' | 'groq' | null>(null);
+  const [claudeModels, setClaudeModels] = useState<string[]>(CLAUDE_MODELS);
+  const [apertusModels, setApertusModels] = useState<string[]>(APERTUS_MODELS);
+  const [apertusModelInfo, setApertusModelInfo] = useState<PublicAIModelInfo[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState<'openai' | 'groq' | 'claude' | 'apertus' | null>(null);
   const [bgeM3Status, setBgeM3Status] = useState<'checking' | 'connected' | 'offline'>('checking');
-  // API key inputs — values are written to sessionStorage, never to a server
+  // API key inputs — values are written to sessionStorage. Provider routing is
+  // disclosed in the corresponding UI; Apertus uses a same-origin BYOK relay.
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [groqKeyInput, setGroqKeyInput] = useState(() => getGroqApiKey());
   const [openAIKeyInput, setOpenAIKeyInput] = useState(() => getOpenAIApiKey());
@@ -99,6 +108,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [apertusKeyInput, setApertusKeyInput] = useState(() => getApertusApiKey());
   // Ollama host URL (for Vercel deployments)
   const [ollamaHostInput, setOllamaHostInput] = useState(() => isUsingViteProxy() ? '' : getOllamaHostUrl());
+  const apertusValidationSequence = useRef(0);
 
   const [config, setConfig] = useState<AnalysisConfig>({
     datasetName: 'Citizen Feedback Project',
@@ -110,15 +120,26 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
             : 'gemini',
     model: checkGroqConnection() ? GROQ_FREE_MODELS[0]
       : checkOpenAIConnection() ? OPENAI_CHAT_MODELS[0]
-        : checkClaudeConnection() ? CLAUDE_MODELS[0]
+        : checkClaudeConnection() ? claudeModels[0]
           : checkApertusConnection() ? APERTUS_MODELS[0]
-            : 'gemini-2.0-flash',
-    embeddingModel: checkOpenAIConnection() ? 'text-embedding-3-small' : 'text-embedding-004',
+            : DEFAULT_GEMINI_GENERATION_MODEL,
+    embeddingModel: checkOpenAIConnection() ? 'text-embedding-3-small' : DEFAULT_GEMINI_EMBEDDING_MODEL,
     embeddingProvider: checkOpenAIConnection() ? 'openai' : 'gemini',
-    runLOO: false,
+    runLOO: true,
     summaryMethod: 'ai',
-    manualSummaryText: ''
+    manualSummaryText: '',
+    summaryProvenance: { origin: 'generated-in-run' },
   });
+
+  const reconcileCompletionCatalog = (prev: AnalysisConfig, provider: AIProvider, models: string[]): AnalysisConfig => {
+    if (models.length === 0) return prev;
+    const next = { ...prev };
+    if (prev.aiProvider === provider && !models.includes(prev.model)) next.model = models[0];
+    if (prev.evaluatorProvider === provider && (!prev.evaluatorModel || !models.includes(prev.evaluatorModel))) {
+      next.evaluatorModel = models[0];
+    }
+    return next;
+  };
 
   // Helper: fetch live models for a provider and update state
   const refreshOpenAIModels = async () => {
@@ -126,7 +147,18 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     try {
       const models = await fetchOpenAIChatModels();
       setOpenAIModels(models);
-      setConfig(prev => ({ ...prev, model: models[0] || OPENAI_CHAT_MODELS[0] }));
+      setConfig(prev => reconcileCompletionCatalog(prev, 'openai', models.length ? models : OPENAI_CHAT_MODELS));
+    } finally {
+      setIsFetchingModels(null);
+    }
+  };
+
+  const refreshClaudeModels = async () => {
+    setIsFetchingModels('claude');
+    try {
+      const models = await fetchClaudeModels();
+      setClaudeModels(models);
+      setConfig(prev => reconcileCompletionCatalog(prev, 'claude', models.length ? models : CLAUDE_MODELS));
     } finally {
       setIsFetchingModels(null);
     }
@@ -137,7 +169,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     try {
       const models = await fetchGroqModels();
       setGroqModels(models);
-      setConfig(prev => ({ ...prev, model: models[0] || GROQ_FREE_MODELS[0] }));
+      setConfig(prev => reconcileCompletionCatalog(prev, 'groq', models.length ? models : GROQ_FREE_MODELS));
     } finally {
       setIsFetchingModels(null);
     }
@@ -151,8 +183,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
         const models = await getGeminiModels();
         setGeminiModels(models);
         if (models.generation.length > 0 && config.aiProvider === 'gemini') {
-          const defaultGen = models.generation.find(m => m.includes('gemini-2.0-flash')) || models.generation[0];
-          const defaultEmbed = models.embedding.find(m => m.includes('text-embedding-004')) || models.embedding[0] || 'text-embedding-004';
+          const defaultGen = models.generation.find(m => m === DEFAULT_GEMINI_GENERATION_MODEL) || models.generation[0];
+          const defaultEmbed = models.embedding.find(m => m === DEFAULT_GEMINI_EMBEDDING_MODEL) || models.embedding[0] || DEFAULT_GEMINI_EMBEDDING_MODEL;
           setConfig(prev => ({ ...prev, model: defaultGen, embeddingModel: defaultEmbed }));
         }
       }
@@ -162,35 +194,57 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       if (connected) {
         const models = await getOllamaModels();
         setOllamaModels(models);
-        if (models.length > 0 && !models.includes(config.model) && config.aiProvider === 'ollama') {
-          const defaultModel = models.find(m => m.includes('qwen') || m.includes('llama') || m.includes('gpt')) || models[0];
-          setConfig(prev => ({ ...prev, model: defaultModel }));
-        }
+        const completionModels = rankOllamaCompletionModels(models);
+        setConfig(prev => {
+          if (prev.aiProvider !== 'ollama' || completionModels.length === 0) return prev;
+          return completionModels.includes(prev.model) ? prev : { ...prev, model: completionModels[0] };
+        });
       }
     });
-    // Groq (key already in sessionStorage from previous session)
-    const alreadyHasGroqKey = checkGroqConnection();
-    setGroqStatus(alreadyHasGroqKey ? 'connected' : 'offline');
-    // OpenAI
-    setOpenAIStatus(checkOpenAIConnection() ? 'connected' : 'offline');
-    // Claude
-    setClaudeStatus(checkClaudeConnection() ? 'connected' : 'offline');
-    // Apertus
-    setApertusStatus(checkApertusConnection() ? 'connected' : 'offline');
+    // A stored key is not a verified connection. Test authentication before
+    // enabling an AI run or showing a provider as connected.
+    if (checkGroqConnection()) {
+      setGroqStatus('checking');
+      verifyGroqConnection().then(ok => setGroqStatus(ok ? 'connected' : 'offline'));
+    }
+    if (checkOpenAIConnection()) {
+      setOpenAIStatus('checking');
+      verifyOpenAIConnection().then(ok => setOpenAIStatus(ok ? 'connected' : 'offline'));
+    }
+    if (checkClaudeConnection()) {
+      setClaudeStatus('checking');
+      verifyClaudeConnection().then(ok => {
+        setClaudeStatus(ok ? 'connected' : 'offline');
+        if (ok) refreshClaudeModels();
+      });
+    }
+    // Apertus: key presence is not a connection test. Verify against /models.
+    if (checkApertusConnection()) {
+      const sequence = ++apertusValidationSequence.current;
+      fetchApertusModels().then(models => {
+        if (sequence !== apertusValidationSequence.current) return;
+        const ids = models.map(model => model.id);
+        setApertusModelInfo(models);
+        setApertusModels(ids.length > 0 ? ids : APERTUS_MODELS);
+        setApertusStatus(ids.length > 0 ? 'connected' : 'offline');
+      }).catch(() => {
+        if (sequence === apertusValidationSequence.current) setApertusStatus('offline');
+      });
+    }
     // BGE-M3 check (independent — used for embeddings regardless of provider)
     resetBgeM3Cache();
     checkBgeM3Connection().then(connected => setBgeM3Status(connected ? 'connected' : 'offline'));
   }, []);
 
-  // Auto-detect the best available embedding provider in priority order.
+  // Select an available embedding provider using the documented fallback order.
   // This is used as the default so non-expert users always get optimal quality.
   // Experts can still override via the Embedding Model dropdown.
   const getBestEmbeddingConfig = (): { embeddingProvider: AnalysisConfig['embeddingProvider']; embeddingModel: string } => {
     if (bgeM3Status === 'connected') return { embeddingProvider: 'bge-m3', embeddingModel: 'bge-m3' };
     if (openAIStatus === 'connected') return { embeddingProvider: 'openai', embeddingModel: 'text-embedding-3-small' };
-    if (geminiStatus === 'connected') return { embeddingProvider: 'gemini', embeddingModel: 'text-embedding-004' };
-    if (ollamaStatus === 'connected' && ollamaModels.length > 0) {
-      const embModel = ollamaModels.find(m => m.includes('minilm') || m.includes('embed')) || ollamaModels[0];
+    if (geminiStatus === 'connected') return { embeddingProvider: 'gemini', embeddingModel: DEFAULT_GEMINI_EMBEDDING_MODEL };
+    if (ollamaStatus === 'connected' && ollamaEmbeddingModels.length > 0) {
+      const embModel = ollamaEmbeddingModels.find(m => m === 'qwen3-embedding:8b') || ollamaEmbeddingModels[0];
       return { embeddingProvider: 'ollama', embeddingModel: embModel };
     }
     return { embeddingProvider: 'tfidf', embeddingModel: 'tfidf' };
@@ -201,21 +255,25 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     const bestEmb = getBestEmbeddingConfig();
 
     if (config.aiProvider === 'ollama') {
-      const defaultGen = ollamaModels.find(m => m.includes('qwen') || m.includes('llama')) || ollamaModels[0] || 'qwen3:30b-instruct';
-      setConfig(prev => ({ ...prev, model: defaultGen, ...bestEmb }));
+      const defaultGen = ollamaCompletionModels[0] || 'qwen3:30b-instruct';
+      setConfig(prev => ({
+        ...prev,
+        model: ollamaCompletionModels.includes(prev.model) ? prev.model : defaultGen,
+        ...bestEmb,
+      }));
     } else if (config.aiProvider === 'groq') {
       setConfig(prev => ({ ...prev, model: groqModels[0] || GROQ_FREE_MODELS[0], ...bestEmb }));
     } else if (config.aiProvider === 'openai') {
       setConfig(prev => ({ ...prev, model: openAIModels[0] || OPENAI_CHAT_MODELS[0], ...bestEmb }));
     } else if (config.aiProvider === 'claude') {
-      setConfig(prev => ({ ...prev, model: CLAUDE_MODELS[0], ...bestEmb }));
+      setConfig(prev => ({ ...prev, model: claudeModels[0] || CLAUDE_MODELS[0], ...bestEmb }));
     } else if (config.aiProvider === 'apertus') {
-      setConfig(prev => ({ ...prev, model: APERTUS_MODELS[0], ...bestEmb }));
+      setConfig(prev => ({ ...prev, model: apertusModels[0] || APERTUS_MODELS[0], ...bestEmb }));
     } else {
-      const defaultGen = geminiModels.generation.find(m => m.includes('gemini-2.0-flash')) || geminiModels.generation[0] || 'gemini-2.0-flash';
+      const defaultGen = geminiModels.generation.find(m => m === DEFAULT_GEMINI_GENERATION_MODEL) || geminiModels.generation[0] || DEFAULT_GEMINI_GENERATION_MODEL;
       setConfig(prev => ({ ...prev, model: defaultGen, ...bestEmb }));
     }
-  }, [config.aiProvider, ollamaModels, geminiModels, openAIModels, groqModels, bgeM3Status, openAIStatus, geminiStatus, ollamaStatus]);
+  }, [config.aiProvider, ollamaModels, geminiModels, openAIModels, groqModels, claudeModels, apertusModels, bgeM3Status, openAIStatus, geminiStatus, ollamaStatus]);
 
   // State Management for Inputs
   useEffect(() => {
@@ -353,17 +411,19 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
 
     return text.split('\n')
       .map(t => t.trim())
-      .filter(t => t.length > 5)
+      .filter(t => t.length > 0)
       .map((line, i) => {
         // Support "ID, Text" or "ID, Text, Group" format in paste
         const parts = parseCSVRow(line);
-        if (parts.length >= 2 && parts[0].length < 20 && parts[0].length > 0) {
+        const looksLikeId = /^[A-Za-z0-9_.-]{1,40}$/.test(parts[0] ?? '');
+        if (parts.length >= 2 && looksLikeId) {
+          const knownGroup = parts.length >= 3 && /^(community|citizen|resident|expert|professional|scientist|youth|student|young|government|official|policy|business|company|corporate|other)$/i.test(parts[parts.length - 1]);
           const result: ParticipantInput = {
             id: parts[0],
-            text: parts[1]
+            text: (knownGroup ? parts.slice(1, -1) : parts.slice(1)).join(', ').trim()
           };
-          if (parts.length >= 3 && parts[2]) {
-            result.group = parseGroup(parts[2]);
+          if (knownGroup) {
+            result.group = parseGroup(parts[parts.length - 1]);
           }
           return result;
         }
@@ -391,7 +451,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     e.target.value = ''; // reset so same file can be selected again
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processUploadedFile = (file: File) => {
     setUploadError(null);
     setColumnMapping(null);
     setPreprocessReport(null);
@@ -401,10 +461,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     setParsedPreview([]);
     setColumnSelection({ idColumnIndex: -1, textColumnIndices: [], groupColumnIndex: -1 });
 
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.endsWith('.csv') && !file.name.endsWith('.tsv') && !file.name.endsWith('.txt')) {
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith('.csv') && !lowerName.endsWith('.tsv') && !lowerName.endsWith('.txt')) {
       setUploadError("Invalid file type. Please upload a .csv, .tsv, or .txt file.");
       return;
     }
@@ -435,6 +493,18 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processUploadedFile(file);
+    e.target.value = '';
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) processUploadedFile(file);
   };
 
   // Called when user confirms column selection (step 2 → step 3)
@@ -470,6 +540,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   };
 
   const handleRunClick = () => {
+    if (config.summaryMethod === 'ai' && currentStatus !== 'connected') {
+      setUploadError(`Verify a working ${providerLabel} connection or choose Extractive / Manual summary mode before running.`);
+      return;
+    }
     if (inputType === 'upload' && multiColumnMode === 'per_question' && columnSelection.textColumnIndices.length > 1) {
       onRun(inputs, config, { rawCsvText, selection: columnSelection, columns: scannedColumns });
     } else {
@@ -502,6 +576,37 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
             config.aiProvider === 'claude' ? 'Claude' :
               'Apertus'
   );
+  const completionModelsForCurrentProvider = config.aiProvider === 'gemini'
+    ? (geminiModels.generation.length > 0 ? geminiModels.generation : [DEFAULT_GEMINI_GENERATION_MODEL])
+    : config.aiProvider === 'groq'
+      ? groqModels
+      : config.aiProvider === 'openai'
+        ? openAIModels
+        : config.aiProvider === 'claude'
+          ? claudeModels
+          : config.aiProvider === 'apertus'
+            ? apertusModels
+            : ollamaCompletionModels;
+  const modelsForProvider = (provider: AIProvider): string[] => provider === 'gemini'
+    ? (geminiModels.generation.length > 0 ? geminiModels.generation : [DEFAULT_GEMINI_GENERATION_MODEL])
+    : provider === 'groq' ? groqModels
+      : provider === 'openai' ? openAIModels
+        : provider === 'claude' ? claudeModels
+          : provider === 'apertus' ? apertusModels
+            : ollamaCompletionModels;
+  const statusForProvider = (provider: AIProvider) => provider === 'gemini' ? geminiStatus
+    : provider === 'groq' ? groqStatus
+      : provider === 'openai' ? openAIStatus
+        : provider === 'claude' ? claudeStatus
+          : provider === 'apertus' ? apertusStatus
+            : ollamaStatus;
+  const labelForProvider = (provider: AIProvider) => ({
+    gemini: 'Gemini', groq: 'Groq', ollama: 'Ollama', openai: 'OpenAI', claude: 'Claude', apertus: 'Apertus',
+  }[provider]);
+  const evaluatorProvider = config.evaluatorProvider ?? config.aiProvider;
+  const evaluatorModels = modelsForProvider(evaluatorProvider);
+  const evaluatorStatus = statusForProvider(evaluatorProvider);
+  const providerIsUsed = (provider: AIProvider) => config.aiProvider === provider || evaluatorProvider === provider;
 
   // Handle runtime Gemini key entry
   const handleGeminiKeyChange = (key: string) => {
@@ -513,6 +618,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       if (connected) {
         const models = await getGeminiModels();
         setGeminiModels(models);
+        setConfig(prev => reconcileCompletionCatalog(prev, 'gemini', models.generation));
       }
     });
   };
@@ -521,32 +627,57 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const handleGroqKeyChange = (key: string) => {
     setGroqKeyInput(key);
     setGroqApiKey(key);
-    const connected = checkGroqConnection();
-    setGroqStatus(connected ? 'connected' : 'offline');
-    if (connected && key.trim().length > 5) refreshGroqModels();
+    if (key.trim().length <= 5) { setGroqStatus('offline'); return; }
+    setGroqStatus('checking');
+    verifyGroqConnection().then(connected => {
+      setGroqStatus(connected ? 'connected' : 'offline');
+      if (connected) refreshGroqModels();
+    });
   };
 
   // Handle OpenAI key entry — fetch live models after key is set
   const handleOpenAIKeyChange = (key: string) => {
     setOpenAIKeyInput(key);
     setOpenAIApiKey(key);
-    const connected = checkOpenAIConnection();
-    setOpenAIStatus(connected ? 'connected' : 'offline');
-    if (connected && key.trim().length > 5) refreshOpenAIModels();
+    if (key.trim().length <= 5) { setOpenAIStatus('offline'); return; }
+    setOpenAIStatus('checking');
+    verifyOpenAIConnection().then(connected => {
+      setOpenAIStatus(connected ? 'connected' : 'offline');
+      if (connected) refreshOpenAIModels();
+    });
   };
 
   // Handle Claude key entry
   const handleClaudeKeyChange = (key: string) => {
     setClaudeKeyInput(key);
     setClaudeApiKey(key);
-    setClaudeStatus(checkClaudeConnection() ? 'connected' : 'offline');
+    if (key.trim().length <= 5) { setClaudeStatus('offline'); return; }
+    setClaudeStatus('checking');
+    verifyClaudeConnection().then(connected => {
+      setClaudeStatus(connected ? 'connected' : 'offline');
+      // Pull the live catalogue as soon as the key works, so the picker reflects
+      // what this account can actually call rather than a list baked into the build.
+      if (connected) refreshClaudeModels();
+    });
   };
 
   // Handle Apertus key entry
   const handleApertusKeyChange = (key: string) => {
     setApertusKeyInput(key);
     setApertusApiKey(key);
-    setApertusStatus(checkApertusConnection() ? 'connected' : 'offline');
+    setApertusStatus(key.trim().length >= 10 ? 'checking' : 'offline');
+    const sequence = ++apertusValidationSequence.current;
+    if (key.trim().length < 10) return;
+    fetchApertusModels().then(models => {
+      if (sequence !== apertusValidationSequence.current) return;
+      const ids = models.map(model => model.id);
+      setApertusModelInfo(models);
+      setApertusModels(ids.length > 0 ? ids : APERTUS_MODELS);
+      setApertusStatus(ids.length > 0 ? 'connected' : 'offline');
+      setConfig(prev => reconcileCompletionCatalog(prev, 'apertus', ids.length > 0 ? ids : APERTUS_MODELS));
+    }).catch(() => {
+      if (sequence === apertusValidationSequence.current) setApertusStatus('offline');
+    });
   };
 
   // Handle Ollama host URL change (fixes Vercel "Inactive" bug)
@@ -559,6 +690,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       if (connected) {
         const models = await getOllamaModels();
         setOllamaModels(models);
+        setConfig(prev => reconcileCompletionCatalog(prev, 'ollama', rankOllamaCompletionModels(models)));
       }
     });
   };
@@ -629,7 +761,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                         className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                       >
                         {Object.entries(SAMPLE_DATASETS).map(([key, ds]) => (
-                          <option key={key} value={key}>{ds.label} — {ds.data.length} inputs (Gini {ds.expectedGini})</option>
+                          <option key={key} value={key}>{ds.label} — {ds.data.length} inputs</option>
                         ))}
                       </select>
                       <div className="flex flex-col items-center justify-center py-6 text-center border-2 border-dashed border-green-200 bg-green-50/50 rounded-lg">
@@ -644,24 +776,28 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       <label className="block text-sm font-medium text-slate-700 mb-2">Paste Contributions (One per line)</label>
                       <textarea
                         className="w-full h-40 p-4 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm text-slate-700 placeholder:text-slate-400 font-mono"
-                        placeholder="User_01, The app crashes often...&#10;User_02, I need better tools..."
+                        placeholder={'User_01, "The app crashes often, especially offline"\nUser_02, I need better tools'}
                         value={rawText}
                         onChange={(e) => setRawText(e.target.value)}
                       />
-                      <p className="text-xs text-slate-500 mt-2">Supported formats: Simple lines or "ID, Content" CSV style.</p>
+                      <p className="text-xs text-slate-500 mt-2">One contribution per line. Optional CSV-style ID first; quote content containing commas. Short, numeric, refusal, and uncertainty responses are retained.</p>
                     </div>
                   )}
                   {inputType === 'upload' && (
                     <div className="space-y-3">
-                      <div className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-slate-300 rounded-lg hover:bg-white transition-colors relative group">
+                      <div
+                        className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-slate-300 rounded-lg hover:bg-white transition-colors relative group"
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={handleFileDrop}
+                      >
                         <input
                           type="file"
-                          accept=".csv"
+                          accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
                           onChange={handleFileUpload}
                           className="absolute opacity-0 w-full h-full cursor-pointer z-10"
                         />
                         <div className="text-4xl mb-3 text-slate-300 group-hover:text-blue-400 transition-colors">📄</div>
-                        <span className="text-sm font-medium text-slate-600">Click to browse or drag CSV file</span>
+                        <span className="text-sm font-medium text-slate-600">Click to browse or drag a CSV, TSV, or text file</span>
                         <span className="text-xs text-slate-400 mt-1">Auto-detects columns: ID, Text, Group (optional)</span>
                         {uploadError && (
                           <div className="absolute bottom-2 left-0 w-full text-center text-red-500 text-xs font-bold">{uploadError}</div>
@@ -971,15 +1107,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                 <div className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border ${currentStatus === 'connected' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                   <div className={`w-2 h-2 rounded-full ${currentStatus === 'connected' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
                   {currentStatus === 'connected'
-                    ? `${providerLabel} Online`
-                    : 'Service Unavailable (Offline Mode)'}
+                    ? `${providerLabel} connection verified`
+                    : currentStatus === 'checking' ? `Checking ${providerLabel}…` : `${providerLabel} unavailable`}
                 </div>
               </div>
 
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Project Name</label>
+                  <label htmlFor="project-name" className="block text-sm font-semibold text-slate-700 mb-2">Project Name</label>
                   <input
+                    id="project-name"
                     type="text"
                     value={config.datasetName}
                     onChange={(e) => setConfig({ ...config, datasetName: e.target.value })}
@@ -989,9 +1126,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
 
                 <div>
                   <div className="flex items-end justify-between mb-1">
-                    <label className="block text-sm font-semibold text-slate-700">Domain Context <span className="text-slate-400 font-normal">(Optional)</span></label>
+                    <label htmlFor="domain-context" className="block text-sm font-semibold text-slate-700">Domain Context <span className="text-slate-400 font-normal">(Optional)</span></label>
                   </div>
-                  <p className="text-xs text-slate-500 mb-3">Select a preset to auto-configure context and bias hints, or write your own.</p>
+                  <p className="text-xs text-slate-500 mb-3">Select descriptive domain context or write your own. Audit hypotheses are not silently injected into model judgments.</p>
 
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
                     {DOMAIN_PRESETS.map(preset => {
@@ -999,7 +1136,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       return (
                         <button
                           key={preset.id}
-                          onClick={() => setConfig({ ...config, domainContext: `${preset.context}\n\nBIAS HINT: ${preset.biasHint}` })}
+                          type="button"
+                          onClick={() => setConfig({ ...config, domainContext: preset.context })}
                           className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${isActive ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                         >
                           <div className="font-semibold mb-0.5">{preset.label}</div>
@@ -1010,6 +1148,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                   </div>
 
                   <textarea
+                    id="domain-context"
                     value={config.domainContext || ''}
                     onChange={(e) => setConfig({ ...config, domainContext: e.target.value })}
                     rows={2}
@@ -1018,12 +1157,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                   />
                 </div>
 
-                {/* Provider Selection — 2 rows: 3 + 3 */}
+                {/* Provider Selection — data destination is part of the scientific execution manifest. */}
+                <fieldset>
+                  <legend className="block text-sm font-semibold text-slate-700">Model provider and data destination</legend>
+                  <p className="mb-3 mt-1 text-xs text-slate-500">Cloud providers receive participant text for generation/evaluation. Ollama stays on the configured host only when that host is local or organization-controlled.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {/* Row 1 */}
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'gemini' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'gemini' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'gemini', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'gemini'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'gemini' ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">☁️</div>
@@ -1031,25 +1174,26 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {geminiStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {geminiStatus === 'offline' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">No key</span>}
                     </div>
-                    <p className="text-xs text-slate-500">Cloud-based. Free tier at <strong>ai.google.dev</strong>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Third-party cloud · usage limits and retention depend on your Google plan.</p>
+                  </button>
 
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'groq' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'groq' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'groq', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'groq'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'groq' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">⚡</div>
                       <div className="font-bold text-slate-800">Groq</div>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">FREE</span>
                       {groqStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                     </div>
-                    <p className="text-xs text-slate-500">Ultra-fast Llama 3. Free at <strong>console.groq.com</strong>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Third-party cloud · available models and pricing come from your Groq account.</p>
+                  </button>
 
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'ollama' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'ollama' ? 'border-violet-500 bg-violet-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'ollama', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'ollama'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'ollama' ? 'border-violet-500 bg-violet-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">💻</div>
@@ -1057,13 +1201,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {ollamaStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {ollamaStatus === 'offline' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Offline</span>}
                     </div>
-                    <p className="text-xs text-slate-500">100% local, privacy-first. Requires <code>ollama serve</code>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Local/organization host · privacy depends on the configured host.</p>
+                  </button>
 
                   {/* Row 2 */}
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'openai' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'openai' ? 'border-teal-500 bg-teal-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'openai', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'openai'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'openai' ? 'border-teal-500 bg-teal-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">🤖</div>
@@ -1071,12 +1216,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {openAIStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {openAIStatus === 'offline' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">No key</span>}
                     </div>
-                    <p className="text-xs text-slate-500">GPT-4o & embeddings. At <strong>platform.openai.com</strong>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Third-party cloud · live catalog is filtered to compatible text models.</p>
+                  </button>
 
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'claude' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'claude' ? 'border-orange-500 bg-orange-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'claude', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'claude'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'claude' ? 'border-orange-500 bg-orange-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">🧠</div>
@@ -1084,12 +1230,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {claudeStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {claudeStatus === 'offline' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">No key</span>}
                     </div>
-                    <p className="text-xs text-slate-500">Anthropic Claude 3.5. At <strong>console.anthropic.com</strong>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Third-party cloud · completion only; select embeddings separately.</p>
+                  </button>
 
-                  <div
-                    onClick={() => setConfig({ ...config, aiProvider: 'apertus' })}
-                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'apertus' ? 'border-red-500 bg-red-50/50' : 'border-slate-200 hover:border-slate-300'}`}
+                  <button type="button"
+                    onClick={() => setConfig({ ...config, aiProvider: 'apertus', evaluatorModel: config.evaluatorProvider ? config.evaluatorModel : undefined })}
+                    aria-pressed={config.aiProvider === 'apertus'}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${config.aiProvider === 'apertus' ? 'border-red-500 bg-red-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <div className="text-xl">🇨🇭</div>
@@ -1098,15 +1245,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {apertusStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
                       {apertusStatus === 'offline' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">No key</span>}
                     </div>
-                    <p className="text-xs text-slate-500">ETH/EPFL open-source. Via <strong>publicai.co</strong>.</p>
-                  </div>
+                    <p className="text-xs text-slate-500">Apertus open weights hosted by PublicAI cloud · live authenticated model catalog.</p>
+                  </button>
                 </div>
+                </fieldset>
 
                 {/* API Key inputs — always visible when provider is selected; stored only in sessionStorage */}
-                {config.aiProvider === 'gemini' && (
+                {providerIsUsed('gemini') && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-blue-800">
+                      <label htmlFor="gemini-api-key" className="text-sm font-semibold text-blue-800">
                         Gemini API Key
                       </label>
                       {geminiStatus === 'connected' ? (
@@ -1119,6 +1267,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     </div>
                     <div className="flex gap-2">
                       <input
+                        id="gemini-api-key"
                         type="password"
                         value={geminiKeyInput}
                         onChange={(e) => handleGeminiKeyChange(e.target.value)}
@@ -1130,15 +1279,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       )}
                     </div>
                     <p className="text-xs text-blue-600 mt-1.5">
-                      Get a free key at <strong>ai.google.dev</strong> → Get API key (takes ~30 sec)
+                      <a className="underline" href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noreferrer">Google API-key documentation</a>. A browser-entered key is exposed to this page's JavaScript and extensions; use a restricted research key, not a production secret.
                     </p>
                   </div>
                 )}
 
-                {config.aiProvider === 'groq' && (
+                {providerIsUsed('groq') && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-emerald-800">
+                      <label htmlFor="groq-api-key" className="text-sm font-semibold text-emerald-800">
                         Groq API Key
                       </label>
                       {groqStatus === 'connected' ? (
@@ -1151,6 +1300,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     </div>
                     <div className="flex gap-2">
                       <input
+                        id="groq-api-key"
                         type="password"
                         value={groqKeyInput}
                         onChange={(e) => handleGroqKeyChange(e.target.value)}
@@ -1159,15 +1309,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       />
                     </div>
                     <p className="text-xs text-emerald-600 mt-1.5">
-                      Free key (no credit card) at <strong>console.groq.com</strong> → API Keys → Create key
+                      <a className="underline" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">Groq API keys</a>. The key remains in this tab's session storage but is accessible to page JavaScript and extensions.
                     </p>
                   </div>
                 )}
 
-                {config.aiProvider === 'openai' && (
+                {providerIsUsed('openai') && (
                   <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-teal-800">OpenAI API Key</label>
+                      <label htmlFor="openai-api-key" className="text-sm font-semibold text-teal-800">OpenAI API Key</label>
                       {openAIStatus === 'connected' ? (
                         <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Active</span>
                       ) : (
@@ -1175,6 +1325,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       )}
                     </div>
                     <input
+                      id="openai-api-key"
                       type="password"
                       value={openAIKeyInput}
                       onChange={(e) => handleOpenAIKeyChange(e.target.value)}
@@ -1182,15 +1333,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       className="w-full p-2.5 border border-teal-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white"
                     />
                     <p className="text-xs text-teal-600 mt-1.5">
-                      Get a key at <strong>platform.openai.com/api-keys</strong>. Paid service.
+                      <a className="underline" href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI API keys</a>. OpenAI advises against deploying secret keys in browser applications; use this BYOK mode only in a trusted research session.
                     </p>
                   </div>
                 )}
 
-                {config.aiProvider === 'claude' && (
+                {providerIsUsed('claude') && (
                   <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-orange-800">Anthropic API Key</label>
+                      <label htmlFor="claude-api-key" className="text-sm font-semibold text-orange-800">Anthropic API Key</label>
                       {claudeStatus === 'connected' ? (
                         <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Active</span>
                       ) : (
@@ -1198,6 +1349,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       )}
                     </div>
                     <input
+                      id="claude-api-key"
                       type="password"
                       value={claudeKeyInput}
                       onChange={(e) => handleClaudeKeyChange(e.target.value)}
@@ -1205,15 +1357,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       className="w-full p-2.5 border border-orange-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white"
                     />
                     <p className="text-xs text-orange-600 mt-1.5">
-                      Get a key at <strong>console.anthropic.com/keys</strong>. Note: Claude has no embeddings endpoint — BGE-M3/TF-IDF used instead.
+                      <a className="underline" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">Anthropic API keys</a>. Direct-browser access exposes the key to page JavaScript; Claude has no embeddings endpoint, so embeddings are configured separately.
                     </p>
                   </div>
                 )}
 
-                {config.aiProvider === 'apertus' && (
+                {providerIsUsed('apertus') && (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-red-800">🇨🇭 PublicAI Key (Apertus)</label>
+                      <label htmlFor="apertus-api-key" className="text-sm font-semibold text-red-800">🇨🇭 PublicAI Key (hosted Apertus)</label>
                       {apertusStatus === 'connected' ? (
                         <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Active</span>
                       ) : (
@@ -1221,6 +1373,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       )}
                     </div>
                     <input
+                      id="apertus-api-key"
                       type="password"
                       value={apertusKeyInput}
                       onChange={(e) => handleApertusKeyChange(e.target.value)}
@@ -1228,15 +1381,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       className="w-full p-2.5 border border-red-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none bg-white"
                     />
                     <p className="text-xs text-red-600 mt-1.5">
-                      Apertus is open-source Swiss AI by ETH/EPFL/CSCS. Get a free key at <strong>publicai.co</strong>.
+                      Apertus is an open-weight Swiss model; this option sends the key and text through this deployment's same-origin BYOK relay to the PublicAI cloud host. Use only a scoped research key and ensure the deployment does not log authorization headers. <a className="underline" href="https://platform.publicai.co/docs" target="_blank" rel="noreferrer">PublicAI API documentation</a>.
                     </p>
                   </div>
                 )}
 
-                {config.aiProvider === 'ollama' && (
+                {providerIsUsed('ollama') && (
                   <div className="bg-violet-50 border border-violet-200 rounded-lg p-4 animate-fadeIn">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-violet-800">Ollama Host URL</label>
+                      <label htmlFor="ollama-host" className="text-sm font-semibold text-violet-800">Ollama Host URL</label>
                       {ollamaStatus === 'connected' ? (
                         <span className="text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Connected</span>
                       ) : (
@@ -1244,6 +1397,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       )}
                     </div>
                     <input
+                      id="ollama-host"
                       type="text"
                       value={ollamaHostInput}
                       onChange={(e) => handleOllamaHostChange(e.target.value)}
@@ -1252,7 +1406,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     />
                     <p className="text-xs text-violet-600 mt-1.5">
                       <strong>Local dev:</strong> Leave blank — Vite auto-proxies to localhost:11434.<br />
-                      <strong>Vercel/cloud:</strong> Enter your Ollama URL directly. Requires <code>OLLAMA_ORIGINS="*" ollama serve</code> (or use a Cloudflare Tunnel).
+                      <strong>Hosted app:</strong> use an origin-specific Ollama allowlist or an authenticated reverse proxy. Do not expose Ollama through a public unauthenticated tunnel.
                     </p>
                   </div>
                 )}
@@ -1262,7 +1416,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                   <label className="block text-sm font-semibold text-slate-700 mb-3">Summary Generation Method</label>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <button
-                      onClick={() => setConfig({ ...config, summaryMethod: 'ai' })}
+                      type="button"
+                      onClick={() => setConfig({ ...config, summaryMethod: 'ai', summaryProvenance: { origin: 'generated-in-run' } })}
                       disabled={currentStatus !== 'connected'}
                       className={`p-4 rounded-lg border-2 text-left transition-all ${config.summaryMethod === 'ai' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'} ${currentStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
@@ -1273,7 +1428,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     </button>
 
                     <button
-                      onClick={() => setConfig({ ...config, summaryMethod: 'extractive' })}
+                      type="button"
+                      onClick={() => setConfig({ ...config, summaryMethod: 'extractive', summaryProvenance: { origin: 'algorithmic-extractive' } })}
                       className={`p-4 rounded-lg border-2 text-left transition-all ${config.summaryMethod === 'extractive' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
                     >
                       <div className={`font-bold ${config.summaryMethod === 'extractive' ? 'text-blue-700' : 'text-slate-700'}`}>Extractive (NLP)</div>
@@ -1281,13 +1437,77 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     </button>
 
                     <button
-                      onClick={() => setConfig({ ...config, summaryMethod: 'manual' })}
+                      type="button"
+                      onClick={() => setConfig({ ...config, summaryMethod: 'manual', summaryProvenance: { origin: 'unknown' } })}
                       className={`p-4 rounded-lg border-2 text-left transition-all ${config.summaryMethod === 'manual' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
                     >
                       <div className={`font-bold ${config.summaryMethod === 'manual' ? 'text-blue-700' : 'text-slate-700'}`}>Manual Input</div>
                       <div className="text-xs text-slate-500 mt-1">Paste your own</div>
                     </button>
                   </div>
+                </div>
+
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">Summary author</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-800">
+                        {config.summaryMethod === 'ai' ? `${providerLabel} / ${config.model}` : config.summaryMethod === 'extractive' ? 'Deterministic extractive algorithm' : 'User-declared external/manual text'}
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="evaluator-provider" className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">Automated audit evaluator</label>
+                      <select
+                        id="evaluator-provider"
+                        value={evaluatorProvider}
+                        onChange={(event) => {
+                          const provider = event.target.value as AIProvider;
+                          const models = modelsForProvider(provider);
+                          setConfig({
+                            ...config,
+                            evaluatorProvider: provider === config.aiProvider ? undefined : provider,
+                            evaluatorModel: provider === config.aiProvider ? undefined : models[0],
+                          });
+                        }}
+                        className="mt-1 w-full rounded border border-indigo-200 bg-white p-2 text-xs text-slate-700 focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="gemini">Google Gemini</option>
+                        <option value="groq">Groq</option>
+                        <option value="ollama">Ollama</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="claude">Claude</option>
+                        <option value="apertus">Apertus / PublicAI</option>
+                      </select>
+                      <select
+                        id="evaluator-model"
+                        value={config.evaluatorModel ?? ''}
+                        onChange={(event) => setConfig({ ...config, evaluatorModel: event.target.value || undefined })}
+                        className="mt-1 w-full rounded border border-indigo-200 bg-white p-2 text-xs text-slate-700 focus:ring-2 focus:ring-indigo-500"
+                      >
+                        {evaluatorProvider === config.aiProvider && <option value="">Same as generator ({config.model})</option>}
+                        {evaluatorModels.filter(model => evaluatorProvider !== config.aiProvider || model !== config.model).map(model => (
+                          <option key={model} value={model}>{model}</option>
+                        ))}
+                      </select>
+                      <div className={`mt-1 text-[10px] ${evaluatorStatus === 'connected' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {labelForProvider(evaluatorProvider)} {evaluatorStatus === 'connected' ? 'connection verified' : 'not verified; model-coded audits will be unavailable'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">Semantic representation</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-800">{config.embeddingProvider} / {config.embeddingModel}</div>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-[10px] leading-relaxed text-indigo-900/70">
+                    {config.evaluatorProvider && config.evaluatorProvider !== config.aiProvider
+                      ? `A different provider (${labelForProvider(evaluatorProvider)}) will perform model-coded transformation, affect, claim, tension, graph, and rhetoric checks. Participant text is sent to both configured providers.`
+                      : config.evaluatorModel
+                      ? 'A different same-provider model will perform model-coded transformation, affect, claim, tension, graph, and rhetoric checks. This reduces direct self-review but is still automated and provider-dependent.'
+                      : config.summaryMethod === 'ai'
+                        ? 'The configured summary model will also judge the automated audit modules. This same-model self-review is less independent; choose another listed evaluator model when available.'
+                        : 'The primary configured model will judge the automated audit modules. It did not author this summary, but the audit remains automated and provider-dependent.'}
+                    {evaluatorStatus !== 'connected' && ' The evaluator provider is not verified, so model-coded enrichments will remain unavailable; deterministic semantic analysis can still run.'}
+                  </p>
                 </div>
 
                 {/* AI Configuration */}
@@ -1303,9 +1523,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                           onChange={(e) => setConfig({ ...config, strategy: e.target.value as any })}
                           className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                         >
-                          <option value="balanced">⚖️ Balanced (Standard)</option>
-                          <option value="diversity">🌈 Diversity Focus (Minorities)</option>
-                          <option value="consensus">🤝 Consensus Focus (Agreements)</option>
+                          <option value="balanced">Balanced evidence (default)</option>
+                          <option value="diversity">Diverse-perspective emphasis</option>
+                          <option value="consensus">Shared-theme emphasis</option>
                         </select>
                       </div>
                       <div>
@@ -1343,7 +1563,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                               value={config.model}
                               onChange={(e) => setConfig({ ...config, model: e.target.value })}
                               className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                              placeholder="gemini-2.0-flash"
+                              placeholder={DEFAULT_GEMINI_GENERATION_MODEL}
                             />
                           )}
                           <div className="text-[10px] text-slate-400 mt-1">Embedding: {bgeM3Status === 'connected' ? 'BGE-M3 (active)' : config.embeddingModel}</div>
@@ -1354,13 +1574,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {config.aiProvider === 'ollama' && (
                         <div>
                           <label className="block text-sm font-semibold text-slate-700 mb-2">Local Generation Model</label>
-                          {ollamaModels.length > 0 ? (
+                          {ollamaCompletionModels.length > 0 ? (
                             <select
                               value={config.model}
                               onChange={(e) => setConfig({ ...config, model: e.target.value })}
                               className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                             >
-                              {ollamaModels.map(m => (
+                              {ollamaCompletionModels.map(m => (
                                 <option key={m} value={m}>{m}</option>
                               ))}
                             </select>
@@ -1370,7 +1590,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                             </div>
                           )}
                           <div className="text-[10px] text-slate-400 mt-1">
-                            Embedding: {bgeM3Status === 'connected' ? <b>BGE-M3 (active)</b> : <><b>all-minilm:latest</b> (Auto-selected)</>}
+                            Embedding: {bgeM3Status === 'connected'
+                              ? <b>BGE-M3 (active)</b>
+                              : <><b>{config.embeddingModel}</b> ({config.embeddingProvider})</>}
                           </div>
                         </div>
                       )}
@@ -1430,18 +1652,29 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       {/* Claude Specifics */}
                       {config.aiProvider === 'claude' && (
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">Claude Model</label>
+                          <div className="mb-2 flex items-center justify-between">
+                            <label className="block text-sm font-semibold text-slate-700">Claude Model</label>
+                            <button
+                              type="button"
+                              onClick={refreshClaudeModels}
+                              disabled={isFetchingModels === 'claude'}
+                              className="flex items-center gap-1 text-[10px] text-orange-600 hover:text-orange-700 disabled:opacity-40"
+                              title="Fetch the authenticated account's live model catalog from Anthropic"
+                            >
+                              {isFetchingModels === 'claude' ? '⏳ Fetching…' : '↻ Refresh'}
+                            </button>
+                          </div>
                           <select
                             value={config.model}
                             onChange={(e) => setConfig({ ...config, model: e.target.value })}
                             className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white"
                           >
-                            {CLAUDE_MODELS.map(m => (
+                            {claudeModels.map(m => (
                               <option key={m} value={m}>{m}</option>
                             ))}
                           </select>
                           <div className="text-[10px] text-slate-400 mt-1">
-                            Embedding: {bgeM3Status === 'connected' ? <b>BGE-M3 (active)</b> : 'TF-IDF (Claude has no embeddings API)'}
+                            Live account catalog when authenticated. Embedding: {bgeM3Status === 'connected' ? <b>BGE-M3 (active)</b> : 'TF-IDF (Claude has no embeddings API)'}
                           </div>
                         </div>
                       )}
@@ -1455,10 +1688,20 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                             onChange={(e) => setConfig({ ...config, model: e.target.value })}
                             className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-white"
                           >
-                            {APERTUS_MODELS.map(m => (
+                            {apertusModels.map(m => (
                               <option key={m} value={m}>{m}</option>
                             ))}
                           </select>
+                          {(() => {
+                            const info = apertusModelInfo.find(item => item.id === config.model);
+                            if (!info) return null;
+                            return (
+                              <div className="mt-1 text-[10px] text-slate-500">
+                                {info.contextLength ? `Context limit: ${info.contextLength.toLocaleString()} tokens.` : 'Context limit not reported.'}
+                                {(info.inputPrice !== undefined || info.outputPrice !== undefined) && ` Catalog input/output price: ${info.inputPrice ?? 'n/a'} / ${info.outputPrice ?? 'n/a'} (provider-defined units; verify before running).`}
+                              </div>
+                            );
+                          })()}
                           <div className="text-[10px] text-slate-400 mt-1">
                             Embedding: {bgeM3Status === 'connected' ? <b>BGE-M3 (active)</b> : 'TF-IDF (Apertus has no embeddings API)'}
                           </div>
@@ -1482,7 +1725,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                         >
                           {/* BGE-M3 – only shown if detected */}
                           {bgeM3Status === 'connected' && (
-                            <option value="bge-m3::bge-m3">⭐ BGE-M3 (local · state-of-the-art)</option>
+                            <option value="bge-m3::bge-m3">BGE-M3 (local service · multilingual dense)</option>
                           )}
                           {/* OpenAI embeddings – shown if key is set */}
                           {(openAIStatus === 'connected') && (
@@ -1499,14 +1742,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                                 ? geminiModels.embedding.map(m => (
                                   <option key={m} value={`gemini::${m}`}>{m}</option>
                                 ))
-                                : <option value="gemini::text-embedding-004">text-embedding-004</option>
+                                : <option value={`gemini::${DEFAULT_GEMINI_EMBEDDING_MODEL}`}>{DEFAULT_GEMINI_EMBEDDING_MODEL}</option>
                               }
                             </optgroup>
                           )}
                           {/* Ollama embeddings – shown if connected */}
-                          {(ollamaStatus === 'connected' && ollamaModels.length > 0) && (
+                          {(ollamaStatus === 'connected' && ollamaEmbeddingModels.length > 0) && (
                             <optgroup label="Ollama Embeddings">
-                              {ollamaModels.map(m => (
+                              {ollamaEmbeddingModels.map(m => (
                                 <option key={m} value={`ollama::${m}`}>{m}</option>
                               ))}
                             </optgroup>
@@ -1515,7 +1758,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                           <option value="tfidf::tfidf">TF-IDF (local · no API needed)</option>
                         </select>
                         <div className="text-[10px] text-slate-400 mt-1.5">
-                          {config.embeddingProvider === 'bge-m3' && '✓ Local multilingual transformer — best quality'}
+                          {config.embeddingProvider === 'bge-m3' && 'Local multilingual dense embedding service; validate for your language and domain'}
                           {config.embeddingProvider === 'openai' && `OpenAI API · model: ${config.embeddingModel}`}
                           {config.embeddingProvider === 'gemini' && `Gemini API · model: ${config.embeddingModel}`}
                           {config.embeddingProvider === 'ollama' && `Local Ollama · model: ${config.embeddingModel}`}
@@ -1547,7 +1790,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                                   <div className="mt-1.5 text-[10px] text-slate-500 space-y-1">
                                     <p>Run the BGE-M3 embedding server locally:</p>
                                     <code className="block bg-slate-100 text-slate-700 px-2 py-1 rounded text-[10px] font-mono">
-                                      pip install sentence-transformers flask<br />
+                                      pip install -r requirements-embedding.txt<br />
                                       python embedding_server.py
                                     </code>
                                     <p className="text-slate-400">Or use Docker:</p>
@@ -1566,13 +1809,39 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                   </div>
                 )}
 
+                {config.summaryMethod !== 'ai' && (
+                  <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="non-ai-embedding-model" className="text-sm font-semibold text-slate-700">Embedding model for the semantic audit</label>
+                      <span className="text-[10px] text-slate-500">Independent of summary origin</span>
+                    </div>
+                    <select
+                      id="non-ai-embedding-model"
+                      value={`${config.embeddingProvider}::${config.embeddingModel}`}
+                      onChange={(event) => {
+                        const [provider, model] = event.target.value.split('::') as [AnalysisConfig['embeddingProvider'], string];
+                        setConfig(previous => ({ ...previous, embeddingProvider: provider, embeddingModel: model }));
+                      }}
+                      className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-2.5 text-sm focus:ring-2 focus:ring-violet-500"
+                    >
+                      {bgeM3Status === 'connected' && <option value="bge-m3::bge-m3">BGE-M3 (local service · multilingual dense)</option>}
+                      {openAIStatus === 'connected' && OPENAI_EMBEDDING_MODELS.map(model => <option key={model} value={`openai::${model}`}>OpenAI / {model}</option>)}
+                      {geminiStatus === 'connected' && (geminiModels.embedding.length > 0 ? geminiModels.embedding : [DEFAULT_GEMINI_EMBEDDING_MODEL]).map(model => <option key={model} value={`gemini::${model}`}>Gemini / {model}</option>)}
+                      {ollamaStatus === 'connected' && ollamaEmbeddingModels.map(model => <option key={model} value={`ollama::${model}`}>Ollama / {model}</option>)}
+                      <option value="tfidf::tfidf">TF-IDF (local baseline · no API)</option>
+                    </select>
+                    <p className="mt-2 text-[10px] text-slate-500">Sparse TF-IDF and dense embeddings have different score distributions; the run records the actual method and uses tier-specific provisional display bands.</p>
+                  </div>
+                )}
+
                 {/* Manual Summary Input */}
                 {config.summaryMethod === 'manual' && (
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 animate-fadeIn">
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    <label htmlFor="manual-summary" className="block text-sm font-semibold text-slate-700 mb-2">
                       Manual Summary Text
                     </label>
                     <textarea
+                      id="manual-summary"
                       value={config.manualSummaryText || ''}
                       onChange={(e) => setConfig({ ...config, manualSummaryText: e.target.value })}
                       className="w-full h-32 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
@@ -1581,8 +1850,75 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     <p className="text-xs text-slate-500 mt-2">
                       The tool will generate embeddings for this text to compare against participant inputs.
                     </p>
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label htmlFor="summary-origin" className="block text-sm font-semibold text-slate-700 mb-1">Declared summary origin</label>
+                        <select
+                          id="summary-origin"
+                          value={config.summaryProvenance?.origin ?? 'unknown'}
+                          onChange={(event) => setConfig({
+                            ...config,
+                            summaryProvenance: { ...config.summaryProvenance, origin: event.target.value as any },
+                          })}
+                          className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm"
+                        >
+                          <option value="unknown">Unknown / not documented</option>
+                          <option value="human-authored">Human-authored</option>
+                          <option value="ai-generated-external">AI-generated outside this run</option>
+                          <option value="ai-assisted">AI-assisted, human edited</option>
+                          <option value="mixed">Mixed authorship</option>
+                        </select>
+                      </div>
+                      {(config.summaryProvenance?.origin === 'ai-generated-external' || config.summaryProvenance?.origin === 'ai-assisted' || config.summaryProvenance?.origin === 'mixed') && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label htmlFor="summary-source-provider" className="block text-xs font-semibold text-slate-600 mb-1">Original provider</label>
+                            <input id="summary-source-provider" type="text" value={config.summaryProvenance.provider ?? ''} onChange={(event) => setConfig({ ...config, summaryProvenance: { ...config.summaryProvenance!, provider: event.target.value } })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm" placeholder="If known" />
+                          </div>
+                          <div>
+                            <label htmlFor="summary-source-model" className="block text-xs font-semibold text-slate-600 mb-1">Exact original model</label>
+                            <input id="summary-source-model" type="text" value={config.summaryProvenance.model ?? ''} onChange={(event) => setConfig({ ...config, summaryProvenance: { ...config.summaryProvenance!, model: event.target.value } })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm" placeholder="If known" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-amber-700">This declaration is recorded as supplied; the tool does not infer or authenticate missing origin information.</p>
                   </div>
                 )}
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={persistEmbeddings}
+                        onChange={(event) => {
+                          const enabled = event.target.checked;
+                          setPersistEmbeddings(enabled);
+                          setPersistentEmbeddingCacheEnabled(enabled);
+                          setCacheCleared(false);
+                        }}
+                        className="mt-0.5 h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">Persist derived embeddings for 7 days</span>
+                        <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                          Off by default. Embeddings can retain information about participant text. When enabled, they stay in this browser's IndexedDB under SHA-256 identities; raw text is not stored in the cache.
+                        </span>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearEmbeddingCache();
+                        setCacheCleared(true);
+                      }}
+                      className="whitespace-nowrap rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    >
+                      {cacheCleared ? 'Cleared' : 'Clear cache'}
+                    </button>
+                  </div>
+                </div>
 
                 <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 hover:border-slate-300 transition-colors">
                   <div className="flex items-start gap-3">
@@ -1591,15 +1927,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                         type="checkbox"
                         checked={config.runLOO}
                         onChange={(e) => setConfig({ ...config, runLOO: e.target.checked })}
-                        disabled={config.summaryMethod !== 'ai' || currentStatus !== 'connected'}
                         className="w-5 h-5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer disabled:opacity-50"
                       />
                     </div>
                     <div>
-                      <div className={`text-sm font-semibold ${config.summaryMethod === 'ai' ? 'text-slate-800' : 'text-slate-400'}`}>Enable Sensitivity Analysis (Leave-One-Out)</div>
+                      <div className="text-sm font-semibold text-slate-800">Compute semantic-centroid sensitivity</div>
                       <div className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        Regenerates summary multiple times.
-                        {config.aiProvider === 'ollama' && <span className="text-amber-600 font-bold ml-1">Warning: Very slow on local CPU.</span>}
+                        Deterministically removes each embedding in turn; no summaries are regenerated and no extra model calls are made.
                       </div>
                     </div>
                   </div>

@@ -1,25 +1,37 @@
 import React, { useMemo } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
-import { ParticipantAnalysis, ClusterData } from '../../types';
+import { ParticipantAnalysis, ClusterData, ClusteringDiagnostics } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
 import { InfoIcon } from '../ui/MetricGlossary';
 
 interface SemanticMapProps {
   data: ParticipantAnalysis[];
   clusters: ClusterData[];
+  clusteringDiagnostics?: ClusteringDiagnostics;
   onSelect: (id: string) => void;
   selectedId: string | null;
 }
 
-export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSelect, selectedId }) => {
+export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, clusteringDiagnostics, onSelect, selectedId }) => {
   const { containerRef, isCompact, isMobile, config, width } = useResponsiveChart({ minHeight: 380 });
+  const groupingUsable = clusteringDiagnostics?.usableForDownstream === true;
 
   const getColor = (clusterId: number) => {
+    if (!groupingUsable) return '#94a3b8';
     return clusters.find(c => c.id === clusterId)?.color || '#94a3b8';
   };
 
   // Calculate cluster statistics for legend
   const clusterStats = useMemo(() => {
+    if (!groupingUsable) {
+      return [{
+        id: 0,
+        label: 'Unpartitioned records',
+        color: '#94a3b8',
+        count: data.length,
+        avgRep: data.reduce((sum, item) => sum + item.representationScore, 0) / Math.max(1, data.length),
+      }];
+    }
     return clusters.map(c => ({
       ...c,
       count: data.filter(d => d.clusterId === c.id).length,
@@ -27,7 +39,7 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
         .reduce((sum, d) => sum + d.representationScore, 0) /
         Math.max(1, data.filter(d => d.clusterId === c.id).length)
     }));
-  }, [data, clusters]);
+  }, [data, clusters, groupingUsable]);
 
   // Find selected participant for enhanced display
   const selectedParticipant = selectedId ? data.find(p => p.id === selectedId) : null;
@@ -35,7 +47,9 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
-      const clusterInfo = clusters.find(c => c.id === d.clusterId);
+      const clusterInfo = groupingUsable
+        ? clusters.find(c => c.id === d.clusterId)
+        : { label: 'Unpartitioned', color: '#94a3b8' };
       return (
         <div
           className="bg-slate-900/95 backdrop-blur border border-slate-700 text-white text-xs p-3 rounded-lg shadow-xl z-50"
@@ -58,10 +72,6 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
             </span>
             <span className="text-slate-400">Isolation:</span>
             <span className="font-mono text-right text-slate-300">{formatMetric(d.semanticIsolation)}</span>
-            <span className="text-slate-400">Sentiment:</span>
-            <span className={`text-right capitalize ${d.sentiment === 'positive' ? 'text-green-400' :
-                d.sentiment === 'negative' ? 'text-red-400' : 'text-slate-400'
-              }`}>{d.sentiment}</span>
           </div>
           <p className="text-slate-300 leading-relaxed line-clamp-2 italic">
             "{d.originalText}"
@@ -100,7 +110,7 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
         <div className="flex items-center justify-between gap-2 mb-2 border-b border-slate-100 pb-1.5">
           <span className={`font-semibold text-slate-600 uppercase tracking-wider ${isMobile ? 'text-[8px]' : 'text-[10px]'
             }`}>
-            Topic Clusters <InfoIcon metricKey="clusters" size="sm" />
+            Semantic Groups <InfoIcon metricKey="clusters" size="sm" />
           </span>
           <span className="text-[9px] text-slate-400">{data.length} points</span>
         </div>
@@ -122,6 +132,22 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
             </div>
           ))}
         </div>
+      </div>
+
+      <div className={`absolute z-10 left-3 top-11 max-w-[290px] rounded-lg border px-2.5 py-2 text-[10px] leading-relaxed shadow-sm ${
+        clusteringDiagnostics?.usableForDownstream
+          ? 'border-emerald-200 bg-emerald-50/95 text-emerald-900'
+          : 'border-amber-200 bg-amber-50/95 text-amber-900'
+      }`}>
+        {clusteringDiagnostics?.usableForDownstream ? (
+          <>
+            Exploratory partition passed internal gates: k={clusteringDiagnostics.selectedK}, full-space silhouette={clusteringDiagnostics.silhouette?.toFixed(2)}, stability={clusteringDiagnostics.stability?.toFixed(2)}, neighborhood coherence={clusteringDiagnostics.neighborhoodAgreement?.toFixed(2)}, method agreement={clusteringDiagnostics.methodAgreement?.toFixed(2)}{clusteringDiagnostics.projectionMethod !== 'none' ? `, projection r=${clusteringDiagnostics.projectionDistanceCorrelation.toFixed(2)}` : ''}. Review source text before interpreting groups.
+          </>
+        ) : (
+          <>
+            No validated semantic partition. {clusteringDiagnostics?.reason || 'This legacy result has no clustering diagnostics.'}
+          </>
+        )}
       </div>
 
       {/* Selected participant info */}
@@ -172,7 +198,9 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, onSele
           <Scatter
             name="Participants"
             data={data}
-            onClick={(d) => onSelect(d.id)}
+            // recharts types the click payload as ScatterPointItem, which does not
+            // declare our custom row fields; narrow to the shape we actually supply.
+            onClick={(d) => { const id = (d as unknown as { id?: string }).id; if (id) onSelect(id); }}
             cursor="pointer"
           >
             {data.map((entry, index) => (

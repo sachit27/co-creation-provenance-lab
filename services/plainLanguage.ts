@@ -1,4 +1,4 @@
-import { ANALYSIS_CONFIG } from '../constants';
+import { ANALYSIS_CONFIG, getRepresentationBands } from '../constants';
 import { ParticipantAnalysis, DiversityMetrics } from '../types';
 
 /**
@@ -26,23 +26,23 @@ export const interpretGini = (gini: number): PlainInsight => {
     return {
       metric: 'Representation Equality',
       value: gini.toFixed(3),
-      interpretation: 'Voices are represented fairly equally in the summary. No single group dominates.',
+      interpretation: 'Semantic-alignment scores are distributed relatively evenly. This does not show that all voices are well represented or that the process is fair.',
       severity: 'good'
     };
   } else if (gini <= moderate) {
     return {
       metric: 'Representation Equality',
       value: gini.toFixed(3),
-      interpretation: 'Some participants are better represented than others. The summary may favor certain viewpoints.',
-      recommendation: 'Review the summary to ensure minority perspectives are included.',
+      interpretation: 'The valid source-to-summary alignment scores have moderate dispersion under the interface convention.',
+      recommendation: 'Inspect the score distribution and exact source–summary matches.',
       severity: 'moderate'
     };
   } else {
     return {
       metric: 'Representation Equality',
       value: gini.toFixed(3),
-      interpretation: 'There is significant inequality in how voices are represented. The summary may be dominated by a few perspectives.',
-      recommendation: 'Consider revising the summary to better balance different viewpoints.',
+      interpretation: 'Semantic-alignment scores are unevenly distributed. Inspect the underlying evidence; this descriptive value does not establish domination or unfairness.',
+      recommendation: 'Inspect low-scoring evidence before deciding whether revision is warranted.',
       severity: 'concern'
     };
   }
@@ -56,29 +56,29 @@ export const interpretEquityGap = (gap: number): PlainInsight => {
 
   if (absGap <= 0.05) {
     return {
-      metric: 'Mainstream vs. Unique Balance',
+      metric: 'Distinct-record Alignment Gap',
       value: `${(gap * 100).toFixed(0)}%`,
-      interpretation: 'Mainstream opinions and unique perspectives are represented roughly equally.',
+      interpretation: 'The centroid-distant quartile and remaining valid records have similar mean alignment scores in this run.',
       severity: 'good'
     };
   } else if (absGap <= 0.15) {
     return {
-      metric: 'Mainstream vs. Unique Balance',
+      metric: 'Distinct-record Alignment Gap',
       value: `${(gap * 100).toFixed(0)}%`,
       interpretation: gap > 0
-        ? 'Participants with unique viewpoints are slightly less represented than those with mainstream opinions.'
-        : 'Unique perspectives are slightly overrepresented compared to mainstream views.',
-      recommendation: 'Minor adjustment may improve balance.',
+        ? 'The centroid-distant quartile has a slightly lower mean alignment score.'
+        : 'The centroid-distant quartile has a slightly higher mean alignment score.',
+      recommendation: 'Inspect the underlying records; centroid distance is not a social-group label.',
       severity: 'moderate'
     };
   } else {
     return {
-      metric: 'Mainstream vs. Unique Balance',
+      metric: 'Distinct-record Alignment Gap',
       value: `${(gap * 100).toFixed(0)}%`,
       interpretation: gap > 0
-        ? 'Participants with unique viewpoints are significantly underrepresented. Minority voices may be lost.'
-        : 'The summary overemphasizes outlier perspectives at the expense of common concerns.',
-      recommendation: 'Review which voices are being missed and consider how to include them.',
+        ? 'More isolated source records have lower semantic-alignment scores in this run. Review those records directly.'
+        : 'More centroid-distant source records have higher semantic-alignment scores in this run.',
+      recommendation: 'Review the exact records and summary matches; this geometry does not prove omission or overemphasis.',
       severity: 'concern'
     };
   }
@@ -89,47 +89,47 @@ export const interpretEquityGap = (gap: number): PlainInsight => {
  */
 export const interpretParticipantRepresentation = (
   participant: ParticipantAnalysis,
-  avgScore: number
+  _avgScore: number
 ): PlainInsight => {
   const { atRisk, low, adequate, good } = ANALYSIS_CONFIG.representationInterpretation;
   const score = participant.representationScore;
 
   if (score >= good) {
     return {
-      metric: 'Voice Captured',
+      metric: 'Semantic Alignment',
       value: `${(score * 100).toFixed(0)}%`,
-      interpretation: `This participant's contribution is well-represented in the summary.`,
+      interpretation: 'This record has a comparatively high strongest-sentence cosine under the selected embedding method.',
       severity: 'good'
     };
   } else if (score >= adequate) {
     return {
-      metric: 'Voice Captured',
+      metric: 'Semantic Alignment',
       value: `${(score * 100).toFixed(0)}%`,
-      interpretation: `This participant's main points are captured, though some nuance may be lost.`,
+      interpretation: 'This record is above the provisional alignment reference; inspect evidence for entailment and nuance.',
       severity: 'good'
     };
   } else if (score >= low) {
     return {
-      metric: 'Voice Captured',
+      metric: 'Semantic Alignment',
       value: `${(score * 100).toFixed(0)}%`,
-      interpretation: `This participant's perspective is partially represented but may not be fully reflected.`,
-      recommendation: 'Consider whether their key points appear in the summary.',
+      interpretation: 'This record falls in a middle semantic-alignment band.',
+      recommendation: 'Inspect whether its substantive claims appear in the summary.',
       severity: 'moderate'
     };
   } else if (score >= atRisk) {
     return {
-      metric: 'Voice Captured',
+      metric: 'Semantic Alignment',
       value: `${(score * 100).toFixed(0)}%`,
-      interpretation: `This participant's input is weakly connected to the summary. Their perspective may be underrepresented.`,
-      recommendation: 'Review whether this voice should be explicitly included.',
+      interpretation: 'This record has relatively low source-to-summary semantic similarity.',
+      recommendation: 'Review its best match and claim-level evidence before inferring omission.',
       severity: 'moderate'
     };
   } else {
     return {
-      metric: 'Voice Captured',
+      metric: 'Semantic Alignment',
       value: `${(score * 100).toFixed(0)}%`,
-      interpretation: `This participant's contribution does not appear in the summary. Their voice may be completely missed.`,
-      recommendation: 'This input should be reviewed for potential inclusion.',
+      interpretation: 'This record falls below the provisional tier-specific review marker.',
+      recommendation: 'Inspect the source and best match; the score alone cannot establish absence.',
       severity: 'concern'
     };
   }
@@ -143,28 +143,28 @@ export const interpretIsolation = (isolation: number): PlainInsight => {
     return {
       metric: 'Perspective Uniqueness',
       value: `${(isolation * 100).toFixed(0)}%`,
-      interpretation: 'This participant shares views similar to the majority.',
+      interpretation: 'This record is close to the source-space centroid.',
       severity: 'good'
     };
   } else if (isolation < 0.5) {
     return {
       metric: 'Perspective Uniqueness',
       value: `${(isolation * 100).toFixed(0)}%`,
-      interpretation: 'This participant offers a somewhat distinct perspective from the group.',
+      interpretation: 'This record is moderately distant from the source-space centroid.',
       severity: 'good'
     };
   } else if (isolation < 0.7) {
     return {
       metric: 'Perspective Uniqueness',
       value: `${(isolation * 100).toFixed(0)}%`,
-      interpretation: 'This participant brings a notably unique viewpoint that differs from most others.',
+      interpretation: 'This record is comparatively distant from the source-space centroid.',
       severity: 'moderate'
     };
   } else {
     return {
       metric: 'Perspective Uniqueness',
       value: `${(isolation * 100).toFixed(0)}%`,
-      interpretation: 'This participant raises topics or concerns that few others mentioned. A truly distinct voice.',
+      interpretation: 'This record is far from the source-space centroid; inspect whether this reflects a coherent theme, language/model effects, or data quality.',
       severity: 'moderate'
     };
   }
@@ -178,37 +178,36 @@ export const interpretLeverage = (zScore: number): PlainInsight => {
 
   if (absZ < 1) {
     return {
-      metric: 'Discussion Influence',
+      metric: 'Centroid Sensitivity',
       value: zScore.toFixed(2),
-      interpretation: 'This participant has typical influence on the discussion—neither driving nor peripheral.',
+      interpretation: 'Removing this record produces a typical shift in the source-space centroid.',
       severity: 'good'
     };
   } else if (absZ < 2) {
     return {
-      metric: 'Discussion Influence',
+      metric: 'Centroid Sensitivity',
       value: zScore.toFixed(2),
-      interpretation: 'This participant has notable influence on the discussion direction.',
+      interpretation: 'Removing this record produces an above-typical shift in the source-space centroid.',
       severity: 'moderate'
     };
   } else {
     return {
-      metric: 'Discussion Influence',
+      metric: 'Centroid Sensitivity',
       value: zScore.toFixed(2),
-      interpretation: 'This participant significantly shapes the discussion. Removing them would notably change the group\'s semantic center.',
-      recommendation: 'Verify this influence is appropriate and not distorting the summary.',
+      interpretation: 'Removing this record produces a comparatively large shift in the source-space centroid. This is geometric sensitivity, not social influence.',
+      recommendation: 'Inspect whether this record is a legitimate distinct perspective, a data-quality issue, or part of a coherent minority cluster.',
       severity: 'concern'
     };
   }
 };
 
 /**
- * Compute at-risk count using the fixed threshold from ANALYSIS_CONFIG (< 0.3).
- * This matches the documented representation bands and the Coverage Stats card.
- * Shared logic used by ExecutiveSummary, reportExport, and plainLanguage.
+ * Count records below their own embedding-tier review marker.
  */
 export const computeAtRiskCount = (participants: ParticipantAnalysis[]): number => {
-  const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
-  return participants.filter(p => p.representationScore < atRisk).length;
+  return participants.filter(participant =>
+    participant.representationScore < getRepresentationBands(participant.embeddingTier).atRisk
+  ).length;
 };
 
 /**
@@ -218,40 +217,34 @@ export const generateOverallInsight = (
   participants: ParticipantAnalysis[],
   metrics: DiversityMetrics
 ): string => {
-  const total = participants.length;
-  const avgScore = participants.reduce((sum, p) => sum + p.representationScore, 0) / total;
-  const { representationTarget, matchingThreshold } = ANALYSIS_CONFIG.thresholds;
+  const valid = participants.filter(participant => !participant.embeddingFailed && !participant.alignmentUnavailableReason);
+  const total = valid.length;
+  if (total === 0) return 'No valid source-to-summary alignment scores are available for this run.';
+  const targetFor = (participant: ParticipantAnalysis) => getRepresentationBands(participant.embeddingTier).target;
 
-  const wellRepresented = participants.filter(p => p.representationScore >= representationTarget).length;
-  const atRiskCount = computeAtRiskCount(participants);
-  const underrepresented = participants.filter(p => p.representationScore < matchingThreshold).length;
+  const aboveReference = valid.filter(p => p.representationScore >= targetFor(p)).length;
+  const belowMarkerCount = computeAtRiskCount(valid);
 
   const parts: string[] = [];
 
   // Coverage
-  if (wellRepresented === total) {
-    parts.push(`All ${total} participants are well-represented in the summary.`);
-  } else if (wellRepresented > total * 0.8) {
-    parts.push(`${wellRepresented} of ${total} participants (${Math.round(wellRepresented/total*100)}%) are well-represented.`);
-  } else {
-    parts.push(`Only ${wellRepresented} of ${total} participants (${Math.round(wellRepresented/total*100)}%) are adequately represented.`);
-  }
+  parts.push(`${aboveReference} of ${total} valid records (${Math.round(aboveReference / total * 100)}%) are above their embedding-tier alignment reference.`);
 
   // At-risk
-  if (atRiskCount > 0) {
-    parts.push(`${atRiskCount} participant${atRiskCount > 1 ? 's are' : ' is'} at risk of being completely overlooked.`);
+  if (belowMarkerCount > 0) {
+    parts.push(`${belowMarkerCount} record${belowMarkerCount > 1 ? 's are' : ' is'} below the tier-specific review marker; this is not proof of omission.`);
   }
 
   // Inequality
   if (metrics.giniCoefficient > ANALYSIS_CONFIG.giniInterpretation.moderate) {
-    parts.push('There is significant inequality in representation—some voices dominate while others fade.');
+    parts.push('The semantic-alignment scores are uneven; inspect low-scoring evidence rather than treating the distribution as a fairness verdict.');
   } else if (metrics.giniCoefficient > ANALYSIS_CONFIG.giniInterpretation.low) {
-    parts.push('Representation is moderately unequal across participants.');
+    parts.push('The valid alignment-score distribution has moderate dispersion under the display convention.');
   }
 
   // Gap
   if (metrics.distinctRepresentationGap > 0.15) {
-    parts.push('Unique perspectives are notably underrepresented compared to mainstream views.');
+    parts.push('The centroid-distant quartile has a lower mean alignment score; inspect those records before interpreting the gap.');
   }
 
   return parts.join(' ');
@@ -265,33 +258,56 @@ export const generateRecommendations = (
   metrics: DiversityMetrics
 ): string[] => {
   const recommendations: string[] = [];
-  const { matchingThreshold } = ANALYSIS_CONFIG.thresholds;
-
   const atRiskCount = computeAtRiskCount(participants);
-  const underrepresented = participants.filter(p => p.representationScore < matchingThreshold);
+  const underrepresented = participants.filter(p =>
+    p.representationScore < getRepresentationBands(p.embeddingTier).low
+  );
 
   if (atRiskCount > 0) {
     recommendations.push(
-      `Review the ${atRiskCount} at-risk participant${atRiskCount > 1 ? 's' : ''} and consider explicitly including their perspectives.`
+      `Review the ${atRiskCount} source record${atRiskCount > 1 ? 's' : ''} below the tier-specific marker and inspect their best matching summary evidence.`
     );
   }
 
   if (metrics.giniCoefficient > ANALYSIS_CONFIG.giniInterpretation.moderate) {
     recommendations.push(
-      'Consider using a diversity-focused summarization strategy to better balance representation.'
+      'Inspect the uneven alignment-score distribution and compare exact source evidence before choosing a revision strategy.'
     );
   }
 
   if (metrics.distinctRepresentationGap > 0.15) {
     recommendations.push(
-      'Pay special attention to outlier perspectives—they may contain valuable minority viewpoints.'
+      'Inspect the centroid-distant records with low alignment; they may be legitimate distinct perspectives, coherent clusters, or data-quality issues.'
     );
   }
 
   if (underrepresented.length > 0) {
-    // Find common themes among underrepresented
+    // Find common themes among underrepresented participants.
+    //
+    // Prefer multi-word noun phrases. Single tokens are far more likely to be
+    // verbs or modifiers that RAKE isolated between stop words, and a
+    // recommendation to attend to the "topic" of, say, "scaled" is noise. The
+    // stopword list in textUtils filters the known procedural verbs; this is
+    // the second line of defence for anything it misses, including
+    // model-supplied keyphrases that never pass through RAKE.
     const keywords = underrepresented.flatMap(p => p.keywords || []);
-    const uniqueKeywords = [...new Set(keywords)].slice(0, 3);
+    const seen = new Set<string>();
+    const ranked = keywords.filter(k => {
+      const key = k.toLowerCase().trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => {
+      const score = (k: string) => {
+        const words = k.trim().split(/\s+/).length;
+        if (words >= 2) return 2;                       // noun phrase: best
+        return /(ed|ing|ly)$/.test(k) ? 0 : 1;          // bare verb/adverb: worst
+      };
+      return score(b) - score(a);
+    });
+    // Drop the weakest tier entirely when better candidates exist.
+    const usable = ranked.filter(k => k.trim().split(/\s+/).length >= 2 || !/(ed|ing|ly)$/.test(k));
+    const uniqueKeywords = (usable.length > 0 ? usable : ranked).slice(0, 3);
     if (uniqueKeywords.length > 0) {
       recommendations.push(
         `Topics that may need more attention: ${uniqueKeywords.join(', ')}.`
@@ -300,7 +316,7 @@ export const generateRecommendations = (
   }
 
   if (recommendations.length === 0) {
-    recommendations.push('The summary appears to represent all voices fairly. No immediate action needed.');
+    recommendations.push('No source records cross the current review threshold. Still inspect evidence coverage, model-coded failures, and the provisional threshold assumptions.');
   }
 
   return recommendations;

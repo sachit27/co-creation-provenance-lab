@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { AnalysisResult, ParticipantAnalysis } from '../../types';
-import { ANALYSIS_CONFIG } from '../../constants';
+import { AnalysisResult } from '../../types';
+import { getRepresentationBands } from '../../constants';
 
 interface BeforeAfterComparisonProps {
   before: AnalysisResult;
@@ -21,8 +21,7 @@ interface ImprovementMetric {
 /**
  * Before/After Comparison Panel
  *
- * Shows how revisions to the summary improve representation.
- * Highlights which participants were helped most.
+ * Shows descriptive changes after revision using a comparable embedding space.
  */
 export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
   before,
@@ -30,59 +29,69 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
   onClose
 }) => {
   const analysis = useMemo(() => {
-    const { matchingThreshold, representationTarget } = ANALYSIS_CONFIG.thresholds;
-    const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
+    const bands = getRepresentationBands(before.embeddingTierUsed);
+    const representationTarget = before.config.thresholds?.representationTarget ?? bands.target;
+    const atRisk = bands.atRisk;
+    const beforeEmbedding = before.runManifest?.actualEmbedding;
+    const afterEmbedding = after.runManifest?.actualEmbedding;
+    const comparableMethod = !!beforeEmbedding && !!afterEmbedding &&
+      beforeEmbedding.provider === afterEmbedding.provider && beforeEmbedding.model === afterEmbedding.model;
+    const eligible = (result: AnalysisResult) => result.participants.filter(
+      participant => !participant.embeddingFailed && !participant.alignmentUnavailableReason
+    );
+    const beforeParticipants = eligible(before);
+    const afterParticipants = eligible(after);
 
     // Calculate metrics
     const metrics: ImprovementMetric[] = [];
 
     // Avg Representation
-    const avgBefore = before.participants.reduce((s, p) => s + p.representationScore, 0) / before.participants.length;
-    const avgAfter = after.participants.reduce((s, p) => s + p.representationScore, 0) / after.participants.length;
+    const avgBefore = beforeParticipants.reduce((s, p) => s + p.representationScore, 0) / Math.max(1, beforeParticipants.length);
+    const avgAfter = afterParticipants.reduce((s, p) => s + p.representationScore, 0) / Math.max(1, afterParticipants.length);
     metrics.push({
-      label: 'Avg Representation',
+      label: 'Average Alignment',
       before: avgBefore,
       after: avgAfter,
       change: avgAfter - avgBefore,
       unit: '%',
       isPositive: true,
       interpretation: avgAfter > avgBefore
-        ? 'Participants are better represented overall'
-        : 'Overall representation decreased'
+        ? 'The mean strongest-sentence alignment score increased'
+        : 'The mean strongest-sentence alignment score decreased'
     });
 
     // Well Represented Count
-    const wellBefore = before.participants.filter(p => p.representationScore >= representationTarget).length;
-    const wellAfter = after.participants.filter(p => p.representationScore >= representationTarget).length;
+    const wellBefore = beforeParticipants.filter(p => p.representationScore >= representationTarget).length;
+    const wellAfter = afterParticipants.filter(p => p.representationScore >= representationTarget).length;
     metrics.push({
-      label: 'Well Represented',
+      label: 'Above Reference',
       before: wellBefore,
       after: wellAfter,
       change: wellAfter - wellBefore,
       unit: '',
       isPositive: true,
       interpretation: wellAfter > wellBefore
-        ? `${wellAfter - wellBefore} more participant${wellAfter - wellBefore > 1 ? 's' : ''} now adequately captured`
+        ? `${wellAfter - wellBefore} more record${wellAfter - wellBefore > 1 ? 's are' : ' is'} above the provisional reference`
         : wellAfter < wellBefore
-          ? 'Fewer participants are well represented'
-          : 'Same number well represented'
+          ? 'Fewer records are above the provisional reference'
+          : 'Same number above the provisional reference'
     });
 
     // At Risk Count
-    const atRiskBefore = before.participants.filter(p => p.representationScore < atRisk).length;
-    const atRiskAfter = after.participants.filter(p => p.representationScore < atRisk).length;
+    const atRiskBefore = beforeParticipants.filter(p => p.representationScore < atRisk).length;
+    const atRiskAfter = afterParticipants.filter(p => p.representationScore < atRisk).length;
     metrics.push({
-      label: 'At Risk',
+      label: 'Below Review Marker',
       before: atRiskBefore,
       after: atRiskAfter,
       change: atRiskAfter - atRiskBefore,
       unit: '',
       isPositive: false, // Lower is better
       interpretation: atRiskAfter < atRiskBefore
-        ? `${atRiskBefore - atRiskAfter} fewer participant${atRiskBefore - atRiskAfter > 1 ? 's' : ''} at risk`
+        ? `${atRiskBefore - atRiskAfter} fewer record${atRiskBefore - atRiskAfter > 1 ? 's' : ''} below the marker`
         : atRiskAfter > atRiskBefore
-          ? 'More participants are now at risk'
-          : 'Same at-risk count'
+          ? 'More records are below the marker'
+          : 'Same below-marker count'
     });
 
     // Gini Coefficient
@@ -94,21 +103,21 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
       unit: '',
       isPositive: false, // Lower is better
       interpretation: after.metrics.giniCoefficient < before.metrics.giniCoefficient
-        ? 'Representation is more equal'
-        : 'Representation became less equal'
+        ? 'Alignment scores became more even'
+        : 'Alignment scores became less even'
     });
 
-    // Equity Gap
+    // Distinct-record alignment gap
     metrics.push({
-      label: 'Equity Gap',
+      label: 'Distinct-record Gap',
       before: Math.abs(before.metrics.distinctRepresentationGap),
       after: Math.abs(after.metrics.distinctRepresentationGap),
       change: Math.abs(after.metrics.distinctRepresentationGap) - Math.abs(before.metrics.distinctRepresentationGap),
       unit: '%',
       isPositive: false, // Lower is better
       interpretation: Math.abs(after.metrics.distinctRepresentationGap) < Math.abs(before.metrics.distinctRepresentationGap)
-        ? 'Unique perspectives better balanced'
-        : 'Gap between mainstream and unique increased'
+        ? 'The absolute centroid-distant-quartile gap decreased'
+        : 'The absolute centroid-distant-quartile gap increased'
     });
 
     // Find most improved participants
@@ -134,46 +143,38 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
       .slice(0, 3);
 
     // Overall improvement score
-    const improvementScore = metrics.reduce((score, m) => {
-      const normalizedChange = m.isPositive ? m.change : -m.change;
-      return score + (normalizedChange > 0 ? 1 : normalizedChange < 0 ? -1 : 0);
-    }, 0);
+    const directions = metrics.map(metric => metric.isPositive ? metric.change : -metric.change);
+    const favorableCount = directions.filter(change => change > 0).length;
+    const unfavorableCount = directions.filter(change => change < 0).length;
 
     return {
       metrics,
       mostImproved,
       mostDeclined,
-      improvementScore,
-      isImprovement: improvementScore > 0
+      favorableCount,
+      unfavorableCount,
+      comparableMethod,
+      isImprovement: favorableCount > unfavorableCount,
     };
   }, [before, after]);
 
-  const overallVerdict = analysis.improvementScore >= 3 ? 'significant' :
-    analysis.improvementScore > 0 ? 'modest' :
-    analysis.improvementScore === 0 ? 'neutral' : 'regression';
+  const overallVerdict = !analysis.comparableMethod
+    ? 'Embedding method changed; numeric deltas are not directly comparable.'
+    : `${analysis.favorableCount} indicators moved favorably; ${analysis.unfavorableCount} moved unfavorably. Descriptive only—not a significance test.`;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
       {/* Header */}
-      <div className={`px-6 py-4 border-b ${
-        analysis.isImprovement
-          ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
-          : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
-      }`}>
+      <div className="px-6 py-4 border-b bg-gradient-to-r from-slate-50 to-blue-50 border-slate-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-              analysis.isImprovement ? 'bg-green-100' : 'bg-amber-100'
-            }`}>
-              <span className="text-xl">{analysis.isImprovement ? '📈' : '📉'}</span>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100">
+              <span className="text-xl">↔</span>
             </div>
             <div>
-              <h3 className="font-bold text-slate-800">Revision Impact Analysis</h3>
-              <p className={`text-sm ${analysis.isImprovement ? 'text-green-600' : 'text-amber-600'}`}>
-                {overallVerdict === 'significant' && 'Significant improvement in representation'}
-                {overallVerdict === 'modest' && 'Modest improvement overall'}
-                {overallVerdict === 'neutral' && 'Mixed results - trade-offs detected'}
-                {overallVerdict === 'regression' && 'Revision may have reduced representation quality'}
+              <h3 className="font-bold text-slate-800">Descriptive Revision Comparison</h3>
+              <p className="text-sm text-slate-600">
+                {overallVerdict}
               </p>
             </div>
           </div>
@@ -193,6 +194,11 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
 
       {/* Metrics Comparison */}
       <div className="p-6">
+        {!analysis.comparableMethod && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            The two runs used different embedding methods or models. Their score levels are not commensurable; inspect the text and re-run with one stable method before interpreting deltas.
+          </div>
+        )}
         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Key Metrics</h4>
         <div className="space-y-4">
           {analysis.metrics.map((metric) => {
@@ -208,7 +214,7 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
                     declined ? 'bg-red-100 text-red-700' :
                     'bg-slate-200 text-slate-600'
                   }`}>
-                    {improved ? '↑ Improved' : declined ? '↓ Declined' : '→ Same'}
+                    {improved ? '↑ Favored direction' : declined ? '↓ Opposite direction' : '→ Same'}
                   </span>
                 </div>
 
@@ -273,7 +279,7 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
       {analysis.mostImproved.length > 0 && (
         <div className="px-6 pb-6">
           <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-            Most Improved Voices ({analysis.mostImproved.length})
+            Largest Alignment Increases ({analysis.mostImproved.length})
           </h4>
           <div className="space-y-2">
             {analysis.mostImproved.map((p) => (
@@ -329,7 +335,7 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
             ))}
           </div>
           <p className="text-xs text-amber-600 mt-2">
-            Some perspectives may have been inadvertently reduced. Consider keeping elements from the original.
+            Some records have lower semantic alignment after revision. Inspect their exact evidence before adopting the revision.
           </p>
         </div>
       )}
@@ -358,8 +364,8 @@ export const BeforeAfterComparison: React.FC<BeforeAfterComparisonProps> = ({
       {/* Footer */}
       <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
         <p className="text-xs text-slate-500 text-center">
-          Compare how changes to the summary affect representation fairness.
-          Use this to iteratively improve your summaries.
+          These are automated retrieval and distribution indicators, not proof of fairness or statistical improvement.
+          Review the revised text and re-run the evidence audits before adopting it.
         </p>
       </div>
     </div>

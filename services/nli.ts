@@ -65,7 +65,7 @@ export const classifyIntentPreservation = async (
   const userPrompt = getNLIPrompt(participantInput, matchedSummarySentence);
 
   try {
-    const response = await generateCompletion(userPrompt, systemPrompt, config);
+    const response = await generateCompletion(userPrompt, systemPrompt, config, { temperature: 0, responseFormat: 'json' });
     const result = parseNLIResponse(response);
 
     if (result) {
@@ -124,7 +124,7 @@ export const batchClassifyIntentPreservation = async (
  * - Looks for semantic polarity mismatches
  * - More robust than simple antonym lookup
  * 
- * For async version with HuggingFace, use quickContradictionCheckAsync
+ * quickContradictionCheckAsync is a compatibility wrapper around this method.
  */
 export const quickContradictionCheck = (
   participantInput: string,
@@ -217,41 +217,14 @@ const getWordContext = (text: string, word: string, windowSize: number = 4): str
 };
 
 /**
- * Async version with HuggingFace NLI (Tier 2)
+ * Backward-compatible async wrapper around the deterministic review heuristic.
+ * The retired browser-transformer fallback was an English zero-shot instrument
+ * that was not calibrated for deliberative text.
  */
 export const quickContradictionCheckAsync = async (
   participantInput: string,
   summarySentence: string
-): Promise<boolean> => {
-  try {
-    const { checkHuggingFaceAvailable, classifyEntailmentHF } = await import('./huggingface');
-
-    if (await checkHuggingFaceAvailable()) {
-      const result = await classifyEntailmentHF(participantInput, summarySentence);
-      console.log(`[NLI] Tier 2 (HF): ${result.label} (confidence: ${result.confidence.toFixed(2)})`);
-
-      // High confidence contradiction
-      if (result.label === 'contradicts' && result.confidence > 0.6) {
-        return true;
-      }
-
-      // Also check with reversed order (sometimes helps)
-      if (result.label === 'neutral') {
-        const reversed = await classifyEntailmentHF(summarySentence, participantInput);
-        if (reversed.label === 'contradicts' && reversed.confidence > 0.6) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-  } catch (e) {
-    console.warn('[NLI] HuggingFace unavailable, using heuristic fallback');
-  }
-
-  // Fallback to heuristic
-  return quickContradictionCheck(participantInput, summarySentence);
-};
+): Promise<boolean> => quickContradictionCheck(participantInput, summarySentence);
 
 /**
  * Get intent preservation statistics

@@ -86,7 +86,7 @@ export const FacilitationCoPilotPanel: React.FC<FacilitationCoPilotPanelProps> =
             </svg>
           </div>
           <div>
-            <h3 className="text-white font-bold text-sm">Facilitation Co-Pilot</h3>
+            <h3 className="text-white font-bold text-sm">Facilitation Draft</h3>
             <p className="text-emerald-200 text-[10px]">
               {isGenerating
                 ? 'Generating…'
@@ -164,7 +164,7 @@ export const FacilitationCoPilotPanel: React.FC<FacilitationCoPilotPanelProps> =
             </div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
               <p className="text-[11px] text-emerald-700 font-medium">
-                This brief is ready to read aloud at the start of your next facilitation session to set context.
+                Review this automated draft against the cited evidence and participant consent before reading or acting on it. Automated review candidates are not proof that anyone was excluded.
               </p>
             </div>
           </div>
@@ -173,7 +173,7 @@ export const FacilitationCoPilotPanel: React.FC<FacilitationCoPilotPanelProps> =
         {activeTab === 'questions' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-slate-500">Each question targets a specific gap identified in the analysis.</p>
+              <p className="text-xs text-slate-500">Each question is a review prompt derived from provisional automated indicators.</p>
               <CopyButton text={allQuestionsText} label="Copy All" />
             </div>
             <ol className="space-y-2.5">
@@ -195,7 +195,7 @@ export const FacilitationCoPilotPanel: React.FC<FacilitationCoPilotPanelProps> =
         {activeTab === 'exercises' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-slate-500">Evidence-based deliberation exercises addressing identified equity issues.</p>
+              <p className="text-xs text-slate-500">Consent-aware exercise drafts; adapt them to the group and context.</p>
               <CopyButton text={allExercisesText} label="Copy All" />
             </div>
             <div className="space-y-3">

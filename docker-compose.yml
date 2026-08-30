@@ -21,19 +21,22 @@ services:
     working_dir: /app
     volumes:
       - ./embedding_server.py:/app/embedding_server.py:ro
+      - ./requirements-embedding.txt:/app/requirements-embedding.txt:ro
       - bge_model_cache:/root/.cache
     command: >
       bash -c "
-        pip install --quiet --no-cache-dir sentence-transformers flask flask-cors &&
+        pip install --quiet --no-cache-dir -r requirements-embedding.txt &&
         python embedding_server.py
       "
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     environment:
       - TRANSFORMERS_CACHE=/root/.cache
       - SENTENCE_TRANSFORMERS_HOME=/root/.cache/sentence_transformers
+      - BGE_BIND_HOST=0.0.0.0
+      - BGE_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:5001/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -48,11 +51,13 @@ services:
       - ./:/app
       - node_modules_cache:/app/node_modules
     command: >
-      sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+      sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"
     ports:
-      - "5173:5173"
+      # Local development UI; avoid exposing Vite to the surrounding network.
+      - "127.0.0.1:5173:5173"
     environment:
-      - VITE_BGE_M3_URL=http://bge-m3:5001
+      # This value is evaluated by the host browser, not inside Compose DNS.
+      - VITE_BGE_M3_URL=http://localhost:5001
     depends_on:
       bge-m3:
         condition: service_healthy

@@ -73,7 +73,7 @@ echo "▶  [1/3] Starting BGE-M3 embedding server on http://localhost:5001"
 echo "         First run downloads the BGE-M3 model (~2 GB) — please wait."
 echo ""
 
-BGE_CMD="cd '$ROOT' && pip3 install --quiet sentence-transformers flask flask-cors && python3 embedding_server.py"
+BGE_CMD="cd '$ROOT' && pip3 install --quiet -r requirements-embedding.txt && python3 embedding_server.py"
 open_terminal "BGE-M3 Embedding Server" "$BGE_CMD"
 
 sleep 1
@@ -97,7 +97,7 @@ echo ""
 echo "▶  [3/3] Starting frontend dev server on http://localhost:5173"
 echo ""
 
-FRONTEND_CMD="cd '$ROOT' && npm install && npm run dev"
+FRONTEND_CMD="cd '$ROOT' && npm ci && npm run dev"
 open_terminal "Provenance Lab Frontend" "$FRONTEND_CMD"
 
 sleep 1

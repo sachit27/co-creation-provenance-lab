@@ -10,11 +10,12 @@ interface Props {
 const SUPPORT_CONFIG: Record<ClaimSupportLevel, { label: string; color: string; bg: string; icon: string; description: string }> = {
   supported: { label: 'Supported', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Directly stated in source text' },
   inferrable: { label: 'Inferrable', color: '#2563eb', bg: '#dbeafe', icon: '\u2197', description: 'Reasonable derivation from evidence' },
-  unsupported: { label: 'Unsupported', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'No source basis found' },
+  unsupported: { label: 'No support retrieved', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'Automated search/judge did not establish source support; not proof of hallucination' },
   contradicted: { label: 'Contradicted', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'Source evidence says the opposite' },
+  unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Retrieval or evaluation did not establish usable evidence' },
 };
 
-const LEVELS: ClaimSupportLevel[] = ['supported', 'inferrable', 'unsupported', 'contradicted'];
+const LEVELS: ClaimSupportLevel[] = ['supported', 'inferrable', 'unsupported', 'contradicted', 'unassessed'];
 
 export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences }) => {
   const [selectedSentence, setSelectedSentence] = useState<number | null>(null);
@@ -42,8 +43,8 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <div className="text-sm font-semibold text-slate-700">Overall Claim Attribution <InfoIcon metricKey="claims" /></div>
-        <div className="text-sm font-bold" style={{ color: data.attributionScore >= 0.7 ? '#059669' : data.attributionScore >= 0.4 ? '#d97706' : '#dc2626' }}>
-          {(data.attributionScore * 100).toFixed(0)}% grounded
+        <div className="text-sm font-bold text-slate-700">
+          {data.attributionScore === null ? 'Assessment unavailable' : `${(data.attributionScore * 100).toFixed(0)}% directly supported among assessed claims`}
         </div>
       </div>
       <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
@@ -51,7 +52,8 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
           const count = level === 'supported' ? data.supportedCount
             : level === 'inferrable' ? data.inferrableCount
             : level === 'unsupported' ? data.unsupportedCount
-            : data.contradictedCount;
+            : level === 'contradicted' ? data.contradictedCount
+            : data.unassessedCount;
           if (count === 0) return null;
           const pct = (count / totalClaims) * 100;
           return (
@@ -76,7 +78,8 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
           const count = level === 'supported' ? data.supportedCount
             : level === 'inferrable' ? data.inferrableCount
             : level === 'unsupported' ? data.unsupportedCount
-            : data.contradictedCount;
+            : level === 'contradicted' ? data.contradictedCount
+            : data.unassessedCount;
           if (count === 0) return null;
           return (
             <div key={level} className="flex items-center gap-1.5 text-[11px] text-slate-600">
@@ -135,7 +138,7 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
       {/* Legend */}
       <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Attribution Levels</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {LEVELS.map(level => (
             <div key={level} className="flex items-start gap-1.5">
               <span className="w-2 h-2 rounded-sm mt-1 flex-shrink-0" style={{ backgroundColor: SUPPORT_CONFIG[level].color }} />
@@ -201,7 +204,7 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
                       </svg>
-                      No supporting evidence found in any participant input. This claim may be AI-generated or extrapolated.
+                      No supporting passage was retrieved by the configured automated search. This is a review flag, not proof that the claim is AI-generated or absent from every source.
                     </div>
                   ) : (
                     <div className="space-y-2">

@@ -11,6 +11,7 @@
 
 export class LocalVectorizer {
   private termIndex: Map<string, number>;
+  private inverseDocumentFrequency: number[];
   private dimension: number;
 
   constructor(corpus: string[], dimension: number = 150) {
@@ -21,7 +22,9 @@ export class LocalVectorizer {
 
     // 2. Count document frequency (DF)
     const docFreq: Record<string, number> = {};
+    const corpusFreq: Record<string, number> = {};
     docs.forEach(words => {
+      words.forEach(word => { corpusFreq[word] = (corpusFreq[word] || 0) + 1; });
       const uniqueWords = new Set(words);
       uniqueWords.forEach(w => {
         docFreq[w] = (docFreq[w] || 0) + 1;
@@ -32,13 +35,19 @@ export class LocalVectorizer {
     // We filter out extremely common words (stop words proxy by high DF relative to corpus size) if corpus is large
     const stopWordThreshold = corpus.length * 0.9;
 
+    const smoothedIdf = (df: number): number => Math.log((1 + corpus.length) / (1 + df)) + 1;
     const sortedTerms = Object.entries(docFreq)
       .filter(([, count]) => count < stopWordThreshold || corpus.length < 5) // Keep all if small corpus
-      .sort((a, b) => b[1] - a[1]) // Sort by frequency
+      // Balance corpus support with informativeness; sorting only by DF drops
+      // rare/minority terms before IDF can help them.
+      .sort((a, b) =>
+        smoothedIdf(b[1]) * Math.log1p(corpusFreq[b[0]]) -
+        smoothedIdf(a[1]) * Math.log1p(corpusFreq[a[0]]))
       .slice(0, dimension)
       .map(e => e[0]);
 
     this.termIndex = new Map(sortedTerms.map((t, i) => [t, i]));
+    this.inverseDocumentFrequency = sortedTerms.map(term => smoothedIdf(docFreq[term]));
   }
 
   /**
@@ -127,12 +136,14 @@ export class LocalVectorizer {
 
     if (words.length === 0) return vec;
 
-    // Calculate Term Frequency (TF) for this document
+    // Count terms first, then apply sublinear TF × smoothed IDF.
+    const counts = new Map<number, number>();
     words.forEach(w => {
       const idx = this.termIndex.get(w);
-      if (idx !== undefined) {
-        vec[idx] += 1;
-      }
+      if (idx !== undefined) counts.set(idx, (counts.get(idx) ?? 0) + 1);
+    });
+    counts.forEach((count, idx) => {
+      vec[idx] = (1 + Math.log(count)) * this.inverseDocumentFrequency[idx];
     });
 
     // Normalize vector (Cosine normalization) -> allows dot product to equal cosine similarity

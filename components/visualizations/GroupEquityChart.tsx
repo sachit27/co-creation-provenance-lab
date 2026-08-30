@@ -29,10 +29,11 @@ export const GroupEquityChart: React.FC<GroupEquityChartProps> = ({ data }) => {
   });
 
   // Use config thresholds
-  const { representationTarget, matchingThreshold } = ANALYSIS_CONFIG.thresholds;
+  const representationTarget = data.reviewBands?.target ?? ANALYSIS_CONFIG.thresholds.representationTarget;
+  const matchingThreshold = data.reviewBands?.low ?? ANALYSIS_CONFIG.thresholds.matchingThreshold;
   const { low: giniLow, moderate: giniModerate } = ANALYSIS_CONFIG.giniInterpretation;
 
-  // Sort groups by average representation (ascending to show inequity)
+  // Sort groups by mean alignment for descriptive comparison.
   const sortedGroups = useMemo(() =>
     [...data.groupMetrics]
       .filter(g => g.participantCount > 0)
@@ -74,7 +75,7 @@ export const GroupEquityChart: React.FC<GroupEquityChartProps> = ({ data }) => {
             />
             <span className="truncate">{d.fullLabel}</span>
             {isUnderrepresented && (
-              <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-auto">UNDERREP</span>
+              <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-auto">BELOW MARKER</span>
             )}
           </div>
           <div className="grid grid-cols-2 gap-y-1.5 bg-slate-50 p-2 rounded">
@@ -93,7 +94,7 @@ export const GroupEquityChart: React.FC<GroupEquityChartProps> = ({ data }) => {
           </div>
           {isUnderrepresented && (
             <div className="mt-2 pt-2 border-t text-[10px] text-red-600">
-              ⚠️ This group's perspectives may be systematically underrepresented
+              This group mean falls below the provisional tier-specific review marker; inspect source evidence and group composition.
             </div>
           )}
         </div>
@@ -112,16 +113,12 @@ export const GroupEquityChart: React.FC<GroupEquityChartProps> = ({ data }) => {
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center gap-3">
           <div>
             <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center">Inter-Group Gini <InfoIcon metricKey="gini" /></div>
-            <div className={`text-2xl font-bold ${data.interGroupGini > giniLow ? 'text-red-600' : data.interGroupGini > giniLow/2 ? 'text-amber-600' : 'text-green-600'}`}>
+            <div className="text-2xl font-bold text-indigo-700">
               {formatMetric(data.interGroupGini, 3)}
             </div>
           </div>
           <div className="text-[10px] text-slate-500 max-w-[150px]">
-            {data.interGroupGini > giniLow
-              ? '⚠️ High inequality between groups'
-              : data.interGroupGini > giniLow/2
-                ? '⚡ Moderate inequality'
-                : '✓ Groups fairly represented'}
+            Descriptive dispersion among group means; not a fairness test
           </div>
         </div>
 
@@ -133,7 +130,7 @@ export const GroupEquityChart: React.FC<GroupEquityChartProps> = ({ data }) => {
           {underrepresented.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">
               <div className="text-red-600 font-bold text-lg">{underrepresented.length}</div>
-              <div className="text-red-500 text-[10px]">Underrep.</div>
+              <div className="text-red-500 text-[10px]">Below marker</div>
             </div>
           )}
         </div>

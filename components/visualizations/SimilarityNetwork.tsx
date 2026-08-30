@@ -1,11 +1,19 @@
 import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { NetworkGraph, ClusterData, NetworkAnalysis } from '../../types';
+import { NetworkGraph, ClusterData, NetworkAnalysis, ClusteringDiagnostics } from '../../types';
 import { InfoIcon } from '../ui/MetricGlossary';
+
+const escapeTooltipText = (value: unknown): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 interface SimilarityNetworkProps {
   networkGraph: NetworkGraph;
   clusters: ClusterData[];
+  clusteringDiagnostics?: ClusteringDiagnostics;
   onSelect?: (id: string) => void;
   selectedId?: string | null;
 }
@@ -40,6 +48,7 @@ const formatDec = (v: number) => v.toFixed(3);
 export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
   networkGraph,
   clusters,
+  clusteringDiagnostics,
   onSelect,
   selectedId,
 }) => {
@@ -49,12 +58,13 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
   const [showMetrics, setShowMetrics] = useState(false);
 
   const analysis = networkGraph.analysis;
+  const groupingUsable = clusteringDiagnostics?.usableForDownstream === true;
 
   const clusterColorMap = useMemo(() => {
     const map = new Map<number, string>();
-    clusters.forEach(c => map.set(c.id, c.color));
+    if (groupingUsable) clusters.forEach(c => map.set(c.id, c.color));
     return map;
-  }, [clusters]);
+  }, [clusters, groupingUsable]);
 
   const clusterIdToNode = useMemo(() => {
     const map = new Map<string, number>();
@@ -75,7 +85,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
         // Size by degree (connectivity) — well-connected nodes are larger
         val: 2 + Math.min(degree, 8) * 0.8,
         degree,
-        isBridge: analysis?.bridgeNodes.includes(n.id) ?? false,
+        isBridge: groupingUsable && (analysis?.bridgeNodes.includes(n.id) ?? false),
         isHub: analysis?.hubNodes.includes(n.id) ?? false,
         isPeripheral: analysis?.peripheralNodes.includes(n.id) ?? false,
         betweenness: metrics?.betweennessCentrality ?? 0,
@@ -87,11 +97,11 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
       source: e.source,
       target: e.target,
       weight: e.weight,
-      isCrossCluster: clusterIdToNode.get(e.source) !== clusterIdToNode.get(e.target),
+      isCrossCluster: groupingUsable && clusterIdToNode.get(e.source) !== clusterIdToNode.get(e.target),
     }));
 
     return { nodes, links };
-  }, [networkGraph, clusterColorMap, clusterIdToNode, analysis]);
+  }, [networkGraph, clusterColorMap, clusterIdToNode, analysis, groupingUsable]);
 
   // Zoom to fit on initial load
   useEffect(() => {
@@ -221,7 +231,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
     if (node.representationScore < 0.3) roleLabels.push('<span style="color:#ef4444">At Risk</span>');
 
     return `<div style="background: #0f172a; color: white; padding: 10px 14px; border-radius: 8px; font-size: 12px; max-width: 260px; line-height: 1.6;">
-      <div style="font-weight: bold; margin-bottom: 4px; font-size: 13px;">${node.id}</div>
+      <div style="font-weight: bold; margin-bottom: 4px; font-size: 13px;">${escapeTooltipText(node.id)}</div>
       ${roleLabels.length > 0 ? `<div style="margin-bottom: 4px;">${roleLabels.join(' · ')}</div>` : ''}
       <div>Cluster: ${node.clusterId + 1} · Rep: ${(node.representationScore * 100).toFixed(0)}%</div>
       <div>Degree: ${node.degree} · Isolation: ${node.semanticIsolation.toFixed(2)}</div>
@@ -236,7 +246,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
   if (networkGraph.edges.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-sm text-slate-500">
-        No mutual similarity links found — participants' perspectives are highly distinct from each other.
+        No mutual k-nearest-neighbor links were retained under the current construction. This does not prove the source records are substantively unrelated.
       </div>
     );
   }
@@ -255,8 +265,8 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
           {/* Quick stats bar */}
           <div className="flex flex-wrap gap-2">
             <MetricBadge label="Modularity" value={formatDec(analysis.modularity)}
-              color={analysis.modularity > 0.4 ? 'green' : analysis.modularity > 0.2 ? 'blue' : 'amber'}
-              tooltip="How well clusters match network communities. >0.4 = strong community structure."
+              color="slate"
+              tooltip="Newman modularity for this constructed graph; reported descriptively without a universal pass threshold."
             />
             <MetricBadge label="Density" value={formatPct(analysis.density)} color="slate"
               tooltip="Fraction of possible mutual-kNN edges that exist."
@@ -266,14 +276,14 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
             />
             <MetricBadge label="Components" value={String(analysis.connectedComponents)}
               color={analysis.connectedComponents > 1 ? 'amber' : 'green'}
-              tooltip="Disconnected subgraphs. Multiple components mean some groups have zero semantic overlap with others."
+              tooltip="Disconnected subgraphs under the mutual-kNN construction; omitted edges may still have nonzero similarity."
             />
             <MetricBadge label="Bridges" value={String(analysis.bridgeNodes.length)} color="amber"
-              tooltip="Participants connecting different clusters — cross-pollinating perspectives."
+              tooltip="Graph nodes with at least one retained cross-cluster edge."
             />
             <MetricBadge label="Peripheral" value={String(analysis.peripheralNodes.length)}
               color={analysis.peripheralNodes.length > 0 ? 'red' : 'green'}
-              tooltip="Nodes with 0-1 connections — potentially unique or isolated voices."
+              tooltip="Nodes with 0–1 retained mutual-kNN connections."
             />
           </div>
 
@@ -302,15 +312,17 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
           {showMetrics && (
             <div className="bg-slate-50 rounded-lg border border-slate-200 p-3 text-xs text-slate-700 space-y-2">
               <div className="font-semibold text-slate-800">Network Interpretation</div>
-              <InterpretModularity Q={analysis.modularity} />
+              {groupingUsable
+                ? <InterpretModularity Q={analysis.modularity} />
+                : <div className="text-amber-700">Cluster-conditioned modularity and bridge interpretations are unavailable because no validated semantic partition exists.</div>}
               <InterpretComponents count={analysis.connectedComponents} total={networkGraph.nodes.length} />
-              <InterpretBridges bridges={analysis.bridgeNodes} clusters={clusters} nodeMetrics={analysis.nodeMetrics} />
+              {groupingUsable && <InterpretBridges bridges={analysis.bridgeNodes} clusters={clusters} nodeMetrics={analysis.nodeMetrics} />}
               {analysis.peripheralNodes.length > 0 && (
                 <div>
-                  <span className="font-medium text-red-700">Peripheral voices: </span>
+                  <span className="font-medium text-slate-700">Peripheral graph nodes: </span>
                   {analysis.peripheralNodes.slice(0, 8).join(', ')}
                   {analysis.peripheralNodes.length > 8 && ` (+${analysis.peripheralNodes.length - 8} more)`}
-                  {' — these participants have minimal semantic overlap with anyone else. Their perspectives are likely unique or under-sampled.'}
+                  {' — these records have few retained mutual-kNN edges; inspect them before inferring uniqueness or undersampling.'}
                 </div>
               )}
               {crossClusterEdgeCount > 0 && (
@@ -319,8 +331,8 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
                   {crossClusterEdgeCount} of {networkGraph.edges.length} edges ({formatPct(crossClusterEdgeCount / networkGraph.edges.length)}) connect different clusters
                   {' — '}
                   {crossClusterEdgeCount / networkGraph.edges.length > 0.3
-                    ? 'significant cross-pollination between topic groups.'
-                    : 'clusters are largely self-contained, suggesting distinct topic silos.'
+                    ? 'a comparatively large share of retained edges cross the automated cluster labels.'
+                    : 'a comparatively small share of retained edges cross the automated cluster labels.'
                   }
                 </div>
               )}
@@ -364,7 +376,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
             <div className="text-red-600">{isolatedCount} unconnected (no mutual neighbors)</div>
           )}
           <div className="flex flex-wrap gap-2 mt-1.5 pt-1.5 border-t border-slate-200">
-            {clusters.map(c => (
+            {(groupingUsable ? clusters : [{ id: 0, label: 'Unpartitioned records', color: '#94a3b8' }]).map(c => (
               <div key={c.id} className="flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} />
                 <span className="text-slate-600">{c.label}</span>
@@ -376,13 +388,13 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
               <span className="w-2.5 h-2.5 rounded-full border-2 border-red-500 bg-transparent" />
               <span className="text-slate-600">At risk (rep &lt; 30%)</span>
             </div>
-            <div className="flex items-center gap-1">
+            {groupingUsable && <div className="flex items-center gap-1">
               <span className="w-4 h-0 border-t-2 border-dashed border-amber-500" />
-              <span className="text-slate-600">Cross-cluster edge</span>
-            </div>
+              <span className="text-slate-600">Cross-group edge</span>
+            </div>}
             <div className="flex items-center gap-1">
               <span className="w-4 h-0 border-t border-slate-400" />
-              <span className="text-slate-600">Intra-cluster edge</span>
+              <span className="text-slate-600">Similarity edge</span>
             </div>
           </div>
         </div>
@@ -411,15 +423,10 @@ const MetricBadge: React.FC<{ label: string; value: string; color: string; toolt
 };
 
 const InterpretModularity: React.FC<{ Q: number }> = ({ Q }) => {
-  let interpretation: string;
-  if (Q > 0.6) interpretation = 'Very strong community structure — clusters are well-separated semantic communities with few cross-group links.';
-  else if (Q > 0.4) interpretation = 'Strong community structure — K-means clusters align well with the network topology. Participants within clusters share strong mutual similarity.';
-  else if (Q > 0.2) interpretation = 'Moderate community structure — some cross-cluster similarity exists. Topic boundaries are porous.';
-  else interpretation = 'Weak community structure — participants are not neatly separated into distinct topic silos. The conversation may be more convergent than the cluster count suggests.';
-
   return (
     <div>
-      <span className="font-medium">Modularity Q = {Q.toFixed(3)}: </span>{interpretation}
+      <span className="font-medium">Modularity Q = {Q.toFixed(3)}: </span>
+      descriptive separation of supplied cluster labels on this mutual-kNN graph. No universal social or thematic interpretation is assumed.
     </div>
   );
 };
@@ -429,8 +436,7 @@ const InterpretComponents: React.FC<{ count: number; total: number }> = ({ count
   return (
     <div>
       <span className="font-medium text-amber-700">{count} disconnected components: </span>
-      The network has {count} separate subgraphs with zero mutual similarity between them.
-      This suggests {count} genuinely distinct topic clusters with no semantic overlap in mutual k-NN space.
+      The graph has {count} disconnected subgraphs after mutual-kNN sparsification. This means no retained path connects them, not that every cross-component similarity is zero.
     </div>
   );
 };
@@ -444,7 +450,7 @@ const InterpretBridges: React.FC<{
     return (
       <div>
         <span className="font-medium">No bridge nodes found — </span>
-        all connections are within clusters. The topic groups are semantically isolated from each other.
+        all retained edges are within automated clusters. This is graph structure, not proof that the themes are isolated.
       </div>
     );
   }
@@ -456,7 +462,7 @@ const InterpretBridges: React.FC<{
       <span className="font-medium text-amber-700">Key bridges: </span>
       {top.map(id => `${id} (betw: ${nodeMetrics[id]?.betweennessCentrality.toFixed(3)}, ${nodeMetrics[id]?.crossClusterEdges} cross-edges)`).join('; ')}
       {bridges.length > 5 && ` (+${bridges.length - 5} more)`}
-      {' — these voices span topic boundaries and could serve as natural mediators.'}
+      {' — these records occupy cross-cluster graph positions; mediation capacity requires separate social evidence.'}
     </div>
   );
 };

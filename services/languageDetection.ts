@@ -4,14 +4,15 @@
  * Lightweight, dependency-free language detection using Unicode script ranges
  * and common-word heuristics. This is not a full NLP pipeline — the goal is
  * to flag when participant inputs may be in a non-English language so the tool
- * can alert facilitators to potential multilingual equity issues (since most
- * LLMs have known biases favouring English-language inputs).
+ * can surface coarse script-group differences for review. It does not identify
+ * a causal language effect, and it abstains on non-English Latin-script text.
  *
- * Supports detection of: English, Arabic, Chinese/Japanese/Korean, Cyrillic,
- * Devanagari (Hindi/Nepali/etc.), Thai, and other Latin-script languages.
+ * Supports coarse script detection plus a conservative English marker. It does
+ * not claim to distinguish languages that share the Latin script.
  */
 
 import { ParticipantAnalysis, LanguageEquityReport } from '../types';
+import { SeededRNG } from './mathUtils';
 
 // ─── Unicode script range checks ─────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ type ScriptTag =
   | 'he'   // Hebrew
   | 'el'   // Greek
   | 'en'   // English (Latin + common EN words)
-  | 'la'   // Other Latin-script language (French, German, Spanish, etc.)
+  | 'la'   // Legacy undetermined Latin-script tag
   | 'un';  // Unknown / mixed
 
 // ─── English common-word heuristic ───────────────────────────────────────────
@@ -99,8 +100,10 @@ export const detectLanguage = (text: string): string => {
     return 'en';
   }
 
-  // If all Latin but no English markers, flag as other-Latin
-  if (counts.la > 0) return 'la';
+  // Latin script without enough English evidence is unknown. Script alone
+  // cannot distinguish English from Spanish, French, German, or many others;
+  // calling it non-English created false language-equity findings.
+  if (counts.la > 0) return 'un';
 
   return 'un';
 };
@@ -116,7 +119,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   th: 'Thai',
   he: 'Hebrew',
   el: 'Greek',
-  la: 'Other Latin-script',
+  la: 'Undetermined Latin-script (legacy)',
   un: 'Unknown',
 };
 
@@ -124,7 +127,7 @@ export const getLanguageLabel = (code: string): string =>
   LANGUAGE_LABELS[code] ?? code;
 
 export const isNonEnglish = (code: string): boolean =>
-  code !== 'en' && code !== 'un';
+  code !== 'en' && code !== 'un' && code !== 'la';
 
 // ─── Permutation test ─────────────────────────────────────────────────────────
 
@@ -161,11 +164,18 @@ const permutationTestOneSided = (
 
   let countGreaterOrEqual = 0;
 
+  // Seeded from the data so the reported p-value is reproducible: an audit that
+  // returns a different exploratory comparison p-value on each identical run
+  // cannot support a defensible finding.
+  const rng = new SeededRNG(
+    Math.round(combined.reduce((a, v, i) => a + v * (i + 1), 0) * 1000) + n * 7919 + nA
+  );
+
   for (let p = 0; p < nPermutations; p++) {
     // Fisher–Yates shuffle of combined array
     const shuffled = [...combined];
     for (let i = n - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rng.next() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
@@ -177,33 +187,37 @@ const permutationTestOneSided = (
     }
   }
 
-  return countGreaterOrEqual / nPermutations;
+  // (count + 1) / (nPermutations + 1) rather than count / nPermutations.
+  // The observed arrangement is itself a valid permutation under H0, so the
+  // unadjusted form can report p = 0, which is impossible for a permutation
+  // test and overstates significance (Phipson & Smyth 2010).
+  return (countGreaterOrEqual + 1) / (nPermutations + 1);
 };
 
-// ─── Equity analysis ──────────────────────────────────────────────────────────
+// ─── Script-label alignment comparison ───────────────────────────────────────
 
 /**
- * Analyse language equity across participants.
+ * Compare automated script/language labels with semantic-alignment scores.
+ * This is an exploratory review screen: label error, topic, sampling, and the
+ * embedding model are confounded, so it cannot establish language bias.
  *
- * Returns a report that flags if non-English inputs have meaningfully lower
- * average representation than English inputs — which would indicate a
- * language-related bias in the summarisation or embedding pipeline.
- *
- * An equity issue is flagged only when BOTH conditions are met:
- * 1. The observed gap exceeds 10 percentage points (practical significance)
- * 2. A permutation test rejects H₀ at α = 0.05 (statistical significance)
- *
- * When group sizes are too small for a meaningful test (< 3 per group),
- * the practical-significance criterion alone is used, and pValue is null.
+ * Review flags require a >0.10 mean gap. When both groups have at least three
+ * valid records, one-sided permutation p-values receive a Holm family-wise
+ * correction across the comparisons made in the run. Smaller groups may still
+ * receive a descriptive flag, but pValue remains null.
  */
 export const analyzeLanguageEquity = (
   participants: ParticipantAnalysis[]
 ): LanguageEquityReport => {
-  // Count participants by language
+  const validParticipants = participants.filter(participant =>
+    !participant.embeddingFailed && !participant.alignmentUnavailableReason
+  );
+
+  // Count valid records by automated language/script label.
   const languageCounts: Record<string, number> = {};
   const languageScores: Record<string, number[]> = {};
 
-  for (const p of participants) {
+  for (const p of validParticipants) {
     const lang = p.detectedLanguage ?? 'un';
     languageCounts[lang] = (languageCounts[lang] ?? 0) + 1;
     if (!languageScores[lang]) languageScores[lang] = [];
@@ -215,7 +229,7 @@ export const analyzeLanguageEquity = (
     languageRepresentation[lang] = scores.reduce((a, b) => a + b, 0) / scores.length;
   }
 
-  const hasMultipleLanguages = Object.keys(languageCounts).filter(l => l !== 'un').length > 1;
+  const hasMultipleLanguages = Object.keys(languageCounts).filter(l => l !== 'un' && l !== 'la').length > 1;
 
   const englishScores = languageScores['en'] ?? [];
   const englishAvg = englishScores.length > 0
@@ -226,34 +240,48 @@ export const analyzeLanguageEquity = (
   let reportedPValue: number | null = null;
 
   if (englishAvg !== null) {
-    for (const [lang, scores] of Object.entries(languageScores)) {
-      if (lang === 'en' || lang === 'un') continue;
+    const candidates = Object.entries(languageScores)
+      .filter(([lang]) => lang !== 'en' && lang !== 'un' && lang !== 'la')
+      .map(([lang, scores]) => ({
+        lang,
+        scores,
+        gap: englishAvg - scores.reduce((a, b) => a + b, 0) / scores.length,
+      }))
+      .filter(item => item.gap > 0.1);
 
-      const langAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      const gap = englishAvg - langAvg;
+    const tested = candidates
+      .filter(item => englishScores.length >= 3 && item.scores.length >= 3)
+      .map(item => ({
+        ...item,
+        rawP: permutationTestOneSided(englishScores, item.scores),
+      }))
+      .sort((a, b) => a.rawP - b.rawP);
 
-      // Practical significance gate: gap must exceed 10pp
-      if (gap <= 0.1) continue;
+    // Holm step-down adjusted p-values, monotone in sorted order.
+    const adjustedByLanguage = new Map<string, number>();
+    let previousAdjusted = 0;
+    tested.forEach((item, rank) => {
+      const adjusted = Math.max(previousAdjusted, Math.min(1, item.rawP * (tested.length - rank)));
+      adjustedByLanguage.set(item.lang, adjusted);
+      previousAdjusted = adjusted;
+    });
 
-      // Statistical significance: permutation test when both groups have ≥ 3 members
-      if (englishScores.length >= 3 && scores.length >= 3) {
-        const pValue = permutationTestOneSided(englishScores, scores);
-        // Keep the most significant (lowest) p-value across all language comparisons
-        // so the reported p-value reflects the strongest evidence of inequity.
-        if (reportedPValue === null || pValue < reportedPValue) {
-          reportedPValue = pValue;
-        }
-
-        if (pValue < 0.05) {
-          underrepresentedLanguages.push(lang);
-        }
-        // If p ≥ 0.05, the gap is not statistically significant — do not flag
-      } else {
-        // Insufficient sample for permutation test — flag on practical significance
-        // alone but set pValue to null to signal low confidence
-        reportedPValue = null;
-        underrepresentedLanguages.push(lang);
+    let containsSmallSampleFlag = false;
+    for (const item of candidates) {
+      if (englishScores.length < 3 || item.scores.length < 3) {
+        underrepresentedLanguages.push(item.lang);
+        containsSmallSampleFlag = true;
+        continue;
       }
+      const adjusted = adjustedByLanguage.get(item.lang) ?? 1;
+      if (adjusted < 0.05) underrepresentedLanguages.push(item.lang);
+    }
+
+    if (underrepresentedLanguages.length > 0 && !containsSmallSampleFlag) {
+      const flaggedAdjusted = underrepresentedLanguages
+        .map(lang => adjustedByLanguage.get(lang))
+        .filter((value): value is number => value !== undefined);
+      reportedPValue = flaggedAdjusted.length > 0 ? Math.min(...flaggedAdjusted) : null;
     }
   }
 

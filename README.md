@@ -7,11 +7,11 @@
 # Provenance Lab
 
 **Open-source visual analytics for auditing AI-generated summaries.**<br/>
-Trace whose voice was captured, whose was lost, and why.
+Inspect execution provenance, semantic associations, and automated evidence-review flags in source-to-summary workflows.
 
 <br/>
 
-[![Try it live](https://img.shields.io/badge/Try_it_live-Provenance_Lab-2563eb?style=for-the-badge&logo=vercel&logoColor=white)](https://co-creation-provenance-lab.vercel.app)
+[![Try it live](https://img.shields.io/badge/Try_it_live-Provenance_Lab-2563eb?style=for-the-badge&logo=github&logoColor=white)](https://sachit27.github.io/apps/provenance-lab/)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -26,7 +26,7 @@ Trace whose voice was captured, whose was lost, and why.
 
 <img src="public/dashboard.png" alt="Provenance Lab Dashboard" width="100%" style="border-radius: 12px;" />
 
-<sub>Representation Audit dashboard showing per-participant scoring, equity metrics, and actionable recommendations.</sub>
+<sub>Audit dashboard showing model-dependent alignment indicators, evidence checks, and explicit limitations.</sub>
 
 </div>
 
@@ -36,12 +36,12 @@ Trace whose voice was captured, whose was lost, and why.
 
 Large Language Models are increasingly used to synthesize complex inputs — stakeholder consultations, survey responses, research literature, community feedback. But **synthesis is inherently reductive**:
 
-- Majority viewpoints get amplified; minority perspectives get flattened
-- Nuances in interpretation are smoothed over without disclosure
+- Summaries can omit, merge, or reframe source material
+- Nuance and affective expression can change without an explicit record
 - The distance between original evidence and final summary is invisible
-- There is no way to verify *whose voice* shaped *which claim*
+- It is difficult to inspect which source passages are semantically aligned with, or absent from, each summary claim
 
-**Provenance Lab makes this visible.** It is an auditing engine that produces a complete, mathematically grounded provenance trail between source documents and any AI-generated summary — making representation equity quantifiable, interpretive leaps explicit, and the entire synthesis process transparent.
+**Provenance Lab makes this inspectable.** It records execution provenance and adds semantic-association and automated evidence audits between source documents and a summary. Similarity is not causal influence, and automated judgments remain review aids rather than proof.
 
 <br/>
 
@@ -57,7 +57,7 @@ Large Language Models are increasingly used to synthesize complex inputs — sta
 
 1. **Upload** participant responses as CSV (auto-detects columns, handles messy data)
 2. **Summarize** using any AI provider — or paste an existing summary
-3. **Audit** — the engine computes representation scores, detects blind spots, traces claim provenance
+3. **Audit** — the engine computes semantic-alignment scores, highlights review candidates, and checks claim evidence
 4. **Explore** — 16 interactive visualizations reveal exactly what happened during synthesis
 
 > **Privacy-first**: All analysis can run entirely in-browser. No data leaves your machine unless you opt into a cloud LLM provider.
@@ -74,11 +74,11 @@ Provenance Lab provides **16 analytical views** organized into four layers:
 <tr>
 <td width="50%">
 
-**Discussion Map** — 2D semantic projection (PCA) of all participant inputs, colored by representation score. Reveals clustering, isolation, and which regions of the opinion space the summary covers.
+**Discussion Map** — 2D semantic projection (PCA) of all participant inputs. Colors show semantic groups only when a cosine-space spherical K-Means partition passes projection-fidelity, full-space separation, minimum-size, resampling-stability, neighborhood-coherence, and method-sensitivity gates; otherwise the map remains explicitly unpartitioned.
 
 **Blind Spot Analysis** — Quadrant scatterplot (Centrality vs. Representation) that identifies voices the summary ignored despite being topically relevant.
 
-**Equity Distribution** — Lorenz curves, Gini coefficient, and bootstrap confidence intervals measuring how fairly representation is distributed.
+**Alignment Distribution** — Lorenz curves, Gini coefficient, and participant-resampling stability intervals describing inequality in model-dependent alignment scores. These do not prove fairness or population bias.
 
 </td>
 <td width="50%">
@@ -94,13 +94,13 @@ Provenance Lab provides **16 analytical views** organized into four layers:
 <tr>
 <td width="50%">
 <img src="public/lineage.png" alt="Contribution Lineage" width="100%" style="border-radius: 8px;" />
-<sub>Contribution Lineage: tracing each participant's semantic influence on specific summary sentences.</sub>
+<sub>Source–summary associations: reviewing sentence-level semantic matches without claiming causal influence.</sub>
 </td>
 <td width="50%">
 
-**Contribution Lineage** — Interactive flow diagram showing which participants influenced which summary sentences, with line thickness proportional to semantic similarity.
+**Source–Summary Associations** — Interactive flow diagram showing participant-to-summary semantic matches. It does not claim observed influence or derivation.
 
-**Provenance Sankey** — Sankey diagram tracing the flow of concepts from raw input through semantic themes to final summary sentences.
+**Semantic Association Sankey** — Theme-to-summary similarity map with explicit unmatched residuals.
 
 **Knowledge Graph** — Entity-relationship graph extracted from participant texts using Louvain community detection, revealing the conceptual structure of the discussion.
 
@@ -114,18 +114,20 @@ Provenance Lab provides **16 analytical views** organized into four layers:
 <tr>
 <td width="50%">
 
-**Language Fidelity** — Tracks how the original language was transformed: preserved, softened, sanitized, abstracted, or dropped. Includes an emotion smoothing matrix showing where the AI neutralized strong sentiment.
+**Source-unit Transformation** — Inventories every sentence-like answer unit and records preserved, softened, sanitized, abstracted, target-shifted, target-uncertain, dropped, or unassessed outcomes with exact summary spans and explicit output completeness.
+
+**Affective-expression Audit** — Compares target-aware pointwise profiles of verified source and summary spans across valence magnitude, expressed intensity, urgency, broad emotion families, and stance. It does not infer internal emotion or report a generic emotion-smoothing score.
 
 **Claim Attribution** — FActScore-inspired analysis mapping each summary claim to supporting, inferrable, or unsupported evidence in the source texts.
 
 **Tension Network** — Detects conflicting viewpoints in the source data and tracks whether the AI acknowledged, suppressed, merged, or distorted those contradictions.
 
-**Rhetorical Influence** — Spearman correlation test between communication style (assertiveness, register, evidentiality) and representation score, detecting systematic bias in how the summarizer treats different voices.
+**Rhetoric–Alignment Association** — Exploratory Spearman association between an English-oriented marker composite and semantic-alignment scores. It does not control confounders or diagnose systematic bias.
 
 </td>
 <td width="50%">
 <img src="public/loo.png" alt="Semantic Leverage LOO" width="100%" style="border-radius: 8px;" />
-<sub>Semantic Leverage (LOO): measuring each participant's influence on the conversation's semantic center.</sub>
+<sub>Semantic-centroid sensitivity (LOO): measuring how much the source-space centroid shifts when one record is removed.</sub>
 </td>
 </tr>
 </table>
@@ -134,11 +136,11 @@ Provenance Lab provides **16 analytical views** organized into four layers:
 
 | View | What it measures |
 |:---|:---|
-| **Sensitivity (LOO)** | Leave-one-out analysis identifying which single input has the most leverage over the summary's semantic centroid |
-| **Uncertainty Quantification** | Bootstrap confidence intervals (1000 samples) for all key metrics, with Monte Carlo stability analysis |
+| **Sensitivity (LOO)** | Leave-one-out source geometry showing which record most shifts the source-space centroid; not causal leverage over the summary |
+| **Resampling Stability** | Deterministic participant-resampling intervals for selected aggregates; not population confidence intervals without defensible IID sampling |
 | **Group Equity** | Between-group representation gaps when stakeholder categories (e.g., community, government, business) are present |
 | **Strategy Comparison** | Side-by-side comparison of different summarization strategies on the same data |
-| **PROV-O Export** | W3C PROV-O JSON-LD audit certificate for reproducibility and formal provenance documentation |
+| **PROV-O Export** | Unsigned W3C PROV-aligned JSON-LD audit record with digests, actual/requested methods, fallbacks, assessments, and limitations |
 
 <br/>
 
@@ -155,7 +157,13 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The tool works immediately with built-in demo datasets and local TF-IDF embeddings — **no API key required**.
+Open `http://localhost:5173`. The tool works immediately with built-in demo datasets and local TF-IDF embeddings — **no API key required**.
+
+The hosted read-only demo is available at [sachit27.github.io/apps/provenance-lab](https://sachit27.github.io/apps/provenance-lab/). Its bundled result is a full production-pipeline run over the 30 public sample contributions using local Ollama models. To reproduce that artifact:
+
+```bash
+OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
+```
 
 <details>
 <summary><b>Run with Docker</b></summary>
@@ -169,10 +177,10 @@ docker compose up
 <details>
 <summary><b>High-fidelity multilingual embeddings (optional)</b></summary>
 
-For state-of-the-art multilingual analysis, run the local BGE-M3 embedding server:
+For an optional published multilingual dense-embedding method, run the local BGE-M3 embedding server:
 
 ```bash
-pip install sentence-transformers flask flask-cors
+pip install -r requirements-embedding.txt
 python embedding_server.py
 ```
 
@@ -188,16 +196,16 @@ Provenance Lab is **model-agnostic**. Bring your own API key or run fully offlin
 
 | Provider | Summary Generation | Embeddings | Privacy |
 |:---|:---:|:---:|:---|
-| **Ollama** (local) | Yes | Yes | Fully private — nothing leaves your machine |
-| **BGE-M3** (local Python) | — | Yes | Fully private |
-| **TF-IDF** (built-in) | — | Yes | Fully private |
+| **Ollama** (configured host) | Yes | Yes | Local only when the configured host is local or organization-controlled |
+| **BGE-M3** (local Python) | — | Yes | Local by default; depends on how the server is deployed |
+| **TF-IDF** (built-in) | — | Yes | Computed in the browser |
 | **Google Gemini** | Yes | Yes | Cloud API |
 | **OpenAI** | Yes | Yes | Cloud API |
 | **Anthropic Claude** | Yes | — | Cloud API |
-| **Groq** (free tier) | Yes | — | Cloud API |
+| **Groq** | Yes | — | Cloud API; availability and pricing depend on the account |
 | **Apertus** (Swiss National AI) | Yes | — | Cloud API |
 
-> API keys are stored in `sessionStorage` only — never persisted to disk or transmitted to our servers.
+> Browser-entered keys are kept in `sessionStorage`, not local persistent storage. Cloud providers receive participant text. Apertus sends the PublicAI key and text through the deployment's same-origin BYOK relay; opt-in Gemini server-key relays require authentication and quota controls. Review server logging, provider retention, and organizational policy before uploading sensitive data.
 
 <br/>
 
@@ -208,26 +216,16 @@ Provenance Lab is **model-agnostic**. Bring your own API key or run fully offlin
 
 <br/>
 
-Each participant's representation score combines two signals:
-
-**Embedding similarity** — Cosine similarity between the participant's text embedding and each summary sentence embedding. The best-matching sentence provides the primary score; secondary matches are decay-weighted (gamma = 0.3) to penalize redundant coverage and reward unique representation.
-
-**Concept overlap** — Porter-stemmed keyword intersection between participant text (extracted via RAKE) and summary text, normalized by the participant's total keyword count.
-
-The final score is a weighted combination, normalized by geometric series sum to avoid ceiling effects.
+For participant vector $p_i$ and summary-sentence vectors $s_k$, the representation score is $R_i = \max_k \max(0, \cos(p_i,s_k))$. It is strongest sentence-level semantic alignment—not entailment, authorship, agreement, causal influence, or affective preservation. Failed vectors and unavailable extractive leave-self-out cases are excluded from aggregates. Dense and TF-IDF scores use different provisional interpretation bands because their cosine distributions are not comparable.
 
 </details>
 
 <details>
-<summary><b>Sentiment Analysis</b></summary>
+<summary><b>Automated affective-expression audit</b></summary>
 
 <br/>
 
-Three-tier fallback for robust sentiment scoring regardless of API availability:
-
-1. **LLM-based** (Tier 1) — Context-aware scoring via the selected AI provider
-2. **HuggingFace Transformers** (Tier 2) — SOTA models running in-browser via ONNX/WASM
-3. **AFINN lexicon** (Tier 3) — VADER-inspired rule-based scoring with negation handling (3-token window) and intensifier support
+Legacy ternary sentiment and the mixed LLM/English-classifier/lexicon fallback have been retired. Current runs use a source-first, exact-span, target-aware, multidimensional model-coded audit with explicit missingness and conditional participant-balanced denominators. It is exploratory and requires human-coded multilingual/domain validation before consequential use.
 
 </details>
 
@@ -236,11 +234,11 @@ Three-tier fallback for robust sentiment scoring regardless of API availability:
 
 <br/>
 
-- **Bootstrap confidence intervals**: 1000 resamples per Efron & Tibshirani for all key metrics
-- **Spearman rank correlation**: With permutation test (999 permutations, Fisher-Yates shuffle) for small samples (n <= 30), t-distribution approximation for larger samples
+- **Participant-resampling stability intervals**: 1000 seeded resamples of observed valid records for selected aggregates
+- **Spearman rank correlation**: Seeded Monte Carlo permutation screen (1,999 permutations) for the exploratory rhetoric–alignment association
 - **Louvain community detection**: Modularity-optimized clustering with proper null-model penalty for non-edges
 - **MinHash/LSH**: Near-duplicate detection with integer-safe hashing (prime = 104729)
-- **Gini coefficient**: Representation inequality measurement with trapezoidal integration
+- **Gini coefficient**: Descriptive inequality of valid semantic-alignment scores
 
 </details>
 
@@ -249,13 +247,13 @@ Three-tier fallback for robust sentiment scoring regardless of API availability:
 
 <br/>
 
-The tool automatically selects the best available embedding method:
+The tool selects from available embedding methods using a documented fallback order; “available” does not imply best for the user's language or domain:
 
-| Tier | Method | Dimensions | Quality |
+| Tier | Method | Dimensions | Intended role |
 |:---:|:---|:---:|:---|
-| 1 | BGE-M3 (local Python server) | 1024 | Research-grade multilingual |
-| 2 | Gemini / OpenAI API embeddings | 768–3072 | High quality |
-| 3 | TF-IDF (built-in, no setup) | 150 | Baseline — always available |
+| 1 | BGE-M3 (local Python server) | 1024 | Published multilingual dense retriever; validate for the target domain |
+| 2 | Gemini / OpenAI API embeddings | Model-dependent | Cloud dense retrieval; capabilities and dimensions depend on the selected model |
+| 3 | TF-IDF (built-in, no setup) | Corpus-dependent | Lexical baseline — always available |
 
 </details>
 
@@ -274,7 +272,7 @@ P3,"Mixed-use development could address both concerns",business
 
 - **id** — Participant identifier (optional, auto-generated if missing)
 - **text** — The participant's response (required)
-- **group** — Stakeholder category for group equity analysis (optional)
+- **group** — Stakeholder category for descriptive group comparison (optional)
 
 Works with or without headers. Handles messy data, encoding issues, and varied delimiters.
 
@@ -290,8 +288,9 @@ co-creation-provenance-lab/
   services/
     analysis.ts            # Core analysis pipeline
     completionRouter.ts    # Multi-provider LLM routing with timeout
-    sentiment.ts           # 3-tier sentiment analysis
-    rhetoricalAnalysis.ts  # Rhetorical influence & bias detection
+    affectiveFidelity.ts   # Pointwise affective-expression profiles and deterministic comparisons
+    languageFidelity.ts    # Source-census transformation aggregation
+    rhetoricalAnalysis.ts  # Exploratory marker/alignment association
     claimAttribution.ts    # FActScore-inspired claim tracing
     graphRAG.ts            # Knowledge graph & Louvain clustering
     mathUtils.ts           # Statistical primitives (Gini, PCA, bootstrap)

@@ -1,4 +1,5 @@
 import { ANALYSIS_CONFIG } from '../constants';
+import type { ClusteringCandidateDiagnostic, ClusteringDiagnostics } from '../types';
 
 // ── Seeded PRNG (xorshift128+ variant) ──────────────────────────────────────────
 // Adapted from Marsaglia (2003) xorshift family. This 32-bit JavaScript
@@ -61,6 +62,7 @@ export { SeededRNG };
 
 // Vector Operations
 export const dotProduct = (vecA: number[], vecB: number[]): number => {
+    if (vecA.length === 0 || vecA.length !== vecB.length) return 0;
     return vecA.reduce((sum, val, i) => sum + val * vecB[i], 0);
 };
 
@@ -69,10 +71,23 @@ export const magnitude = (vec: number[]): number => {
 };
 
 export const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
+    if (vecA.length === 0 || vecA.length !== vecB.length ||
+        vecA.some(value => !Number.isFinite(value)) || vecB.some(value => !Number.isFinite(value))) return 0;
     const magA = magnitude(vecA);
     const magB = magnitude(vecB);
     if (magA === 0 || magB === 0) return 0;
     return dotProduct(vecA, vecB) / (magA * magB);
+};
+
+/**
+ * Retrieval indicator used by the core audit: best finite source-to-summary
+ * sentence cosine, clamped to the display range. Multiple correlated matches
+ * are not combined as though they were independent probabilities.
+ */
+export const maxSentenceCosineScore = (similarities: number[]): number => {
+    const finite = similarities.filter(Number.isFinite);
+    if (finite.length === 0) return 0;
+    return Math.max(0, Math.min(1, Math.max(...finite)));
 };
 
 export const computeGlobalCentroid = (vectors: number[][]): number[] => {
@@ -120,9 +135,9 @@ export const computeAveragePairwiseDistance = (vectors: number[][]): number => {
  * PCA Implementation using Power Iteration method
  *
  * Statistical Justification:
- * - Power iteration converges to the dominant eigenvector in O(log(1/ε)) iterations
- * - For embedding spaces, 10 iterations typically achieve machine precision convergence
- * - We use deflation to extract subsequent principal components
+ * - Power iteration is stopped at the configured ceiling
+ * - Deflation extracts subsequent display components
+ * - This approximate PCA is used only for visualization, never clustering
  *
  * @param vectors - Input data matrix (n x d)
  * @param k - Number of principal components to extract (default: 2)
@@ -185,73 +200,586 @@ export const computePCA = (vectors: number[][], k: number = 2): number[][] => {
 };
 
 /**
- * Automatic K-Means Clustering with Elbow Method
+ * Mean silhouette score for a clustering (Rousseeuw, 1987).
  *
- * Statistical Justification:
- * - PCA preprocessing addresses the curse of dimensionality in high-d embeddings
- * - Elbow method uses within-cluster variance (WCSS) to find optimal k
- * - 15% improvement threshold balances model complexity vs. fit (parsimony principle)
- * - Max k=5 ensures interpretability while allowing meaningful segmentation
+ *   s(i) = (b(i) - a(i)) / max(a(i), b(i))
  *
- * Stability note:
- * - K-Means++ initialization (Arthur & Vassilvitskii, 2007) gives O(log k)
- *   approximation guarantee vs. optimal and dramatically reduces sensitivity to
- *   initial centroid placement.
- * - Uses data-seeded xorshift128+ PRNG (Marsaglia 2003) for full reproducibility:
- *   the same input data always produces the same clusters across runs.
- *
- * References:
- * - Thorndike (1953) for elbow method
- * - Rule of thumb: k << sqrt(n/2) for meaningful clusters
- *
- * @param vectors - Input embedding vectors
- * @returns Cluster assignments and optimal k
+ * where a(i) is the mean distance to points in i's own cluster and b(i) the
+ * mean distance to the nearest other cluster. Ranges [-1, 1]; higher is better.
+ * O(n^2) per evaluation, so points are subsampled above SILHOUETTE_MAX_N.
  */
-export const computeAutoKMeans = (vectors: number[][]): { assignments: number[], k: number } => {
-    const { maxClusters, elbowThreshold, kmeansIterations } = ANALYSIS_CONFIG.algorithms;
+const normalizeVector = (vector: number[]): number[] => {
+    const mag = magnitude(vector);
+    return mag > 0 && Number.isFinite(mag) ? vector.map(value => value / mag) : [];
+};
 
-    // PCA preprocessing to address curse of dimensionality
-    // 5 components typically capture >80% variance in embedding spaces
-    const pcaVectors = computePCA(vectors, 5);
+const squaredEuclidean = (a: number[], b: number[]): number => {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) {
+        const delta = a[i] - b[i];
+        sum += delta * delta;
+    }
+    return sum;
+};
 
-    // Minimum viable cluster size
-    if (pcaVectors.length < 5) return { assignments: new Array(pcaVectors.length).fill(0), k: 1 };
+const cosineDistanceUnit = (a: number[], b: number[]): number =>
+    1 - Math.max(-1, Math.min(1, dotProduct(a, b)));
 
-    const maxK = Math.min(maxClusters, Math.floor(pcaVectors.length / 2));
-    let bestK = 2;
-    let bestAssignments: number[] = [];
+/** Two independent 32-bit hashes give a stable, order-independent sort key. */
+const vectorSignature = (vector: number[]): string => {
+    let h1 = 2166136261;
+    let h2 = 0x9e3779b9;
+    for (let i = 0; i < vector.length; i++) {
+        const quantized = Math.round(vector[i] * 1e8);
+        h1 = Math.imul(h1 ^ quantized, 16777619);
+        h2 = Math.imul(h2 ^ (quantized + i), 2246822519);
+    }
+    return `${h1 >>> 0}:${h2 >>> 0}`;
+};
 
-    // Shared seeded PRNG for all k-means runs (reproducibility)
-    const kmeansRng = new SeededRNG(createDataSeed(pcaVectors) + 7919);
+const orderInvariantSeed = (vectors: number[][]): number => {
+    const signatures = vectors.map(vectorSignature).sort();
+    let hash = 2166136261;
+    for (const signature of signatures) {
+        for (let i = 0; i < signature.length; i++) hash = Math.imul(hash ^ signature.charCodeAt(i), 16777619);
+    }
+    return hash >>> 0;
+};
 
-    // Elbow method: track within-cluster sum of squares (WCSS)
-    let previousVariance = Infinity;
+const pearsonCorrelation = (left: number[], right: number[]): number => {
+    if (left.length !== right.length || left.length < 2) return 1;
+    const leftMean = mean(left);
+    const rightMean = mean(right);
+    let numerator = 0;
+    let leftVariance = 0;
+    let rightVariance = 0;
+    for (let i = 0; i < left.length; i++) {
+        const a = left[i] - leftMean;
+        const b = right[i] - rightMean;
+        numerator += a * b;
+        leftVariance += a * a;
+        rightVariance += b * b;
+    }
+    const denominator = Math.sqrt(leftVariance * rightVariance);
+    return denominator > 1e-12 ? numerator / denominator : 1;
+};
 
-    for (let k = 1; k <= maxK; k++) {
-        const { assignments, centroids } = runKMeansStep(pcaVectors, k, kmeansIterations, kmeansRng);
+/** O(nd) signed feature hashing used only to make repeated clustering practical. */
+const projectForClustering = (
+    vectors: number[][],
+    targetDimensions: number,
+    seed: number,
+): { vectors: number[][]; method: 'none' | 'deterministic-signed-feature-hash'; distanceCorrelation: number } => {
+    const dimensions = vectors[0]?.length ?? 0;
+    if (dimensions <= targetDimensions) return { vectors, method: 'none', distanceCorrelation: 1 };
+    const projected = vectors.map(vector => {
+        const output = new Array(targetDimensions).fill(0);
+        for (let dimension = 0; dimension < vector.length; dimension++) {
+            let hash = Math.imul((dimension + 1) ^ seed, 0x45d9f3b);
+            hash ^= hash >>> 16;
+            const bucket = (hash >>> 1) % targetDimensions;
+            output[bucket] += (hash & 1) === 0 ? vector[dimension] : -vector[dimension];
+        }
+        return normalizeVector(output);
+    });
+    const sample = deterministicSilhouetteSample(vectors, Math.min(40, vectors.length));
+    const fullDistances: number[] = [];
+    const projectedDistances: number[] = [];
+    for (let i = 0; i < sample.length; i++) {
+        for (let j = i + 1; j < sample.length; j++) {
+            fullDistances.push(cosineDistanceUnit(vectors[sample[i]], vectors[sample[j]]));
+            projectedDistances.push(cosineDistanceUnit(projected[sample[i]], projected[sample[j]]));
+        }
+    }
+    return {
+        vectors: projected,
+        method: 'deterministic-signed-feature-hash',
+        distanceCorrelation: pearsonCorrelation(fullDistances, projectedDistances),
+    };
+};
 
-        // Compute WCSS (within-cluster sum of squares)
-        let totalVariance = 0;
-        pcaVectors.forEach((vec, i) => {
-            const c = centroids[assignments[i]];
-            const distSq = vec.reduce((sum, v, j) => sum + (v - c[j]) ** 2, 0);
-            totalVariance += distSq;
-        });
+const deterministicSilhouetteSample = (vectors: number[][], maxN: number): number[] => {
+    const indices = vectors.map((_, index) => index);
+    if (indices.length <= maxN) return indices;
+    return indices
+        .map(index => ({ index, signature: vectorSignature(vectors[index]) }))
+        .sort((a, b) => a.signature.localeCompare(b.signature) || a.index - b.index)
+        .slice(0, maxN)
+        .map(item => item.index);
+};
 
-        if (k > 1) {
-            const improvement = (previousVariance - totalVariance) / previousVariance;
-            // Elbow criterion: stop when marginal improvement drops below threshold
-            if (improvement < elbowThreshold) {
-                break;
+export const meanSilhouette = (
+    vectors: number[][],
+    assignments: number[],
+    maxN: number = 400
+): number => {
+    const n = vectors.length;
+    if (n < 3 || assignments.length !== n) return -1;
+    const clusters = new Set(assignments);
+    if (clusters.size < 2 || clusters.size >= n) return -1;
+    const normalized = vectors.map(normalizeVector);
+    if (normalized.some(vector => vector.length === 0)) return -1;
+
+    const sample = deterministicSilhouetteSample(normalized, maxN);
+    let total = 0;
+    let counted = 0;
+    for (const i of sample) {
+        const own = assignments[i];
+        const sums = new Map<number, { sum: number; count: number }>();
+        for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            const cluster = assignments[j];
+            const entry = sums.get(cluster) ?? { sum: 0, count: 0 };
+            entry.sum += cosineDistanceUnit(normalized[i], normalized[j]);
+            entry.count++;
+            sums.set(cluster, entry);
+        }
+        const ownEntry = sums.get(own);
+        if (!ownEntry || ownEntry.count === 0) {
+            // Rousseeuw's singleton convention: s(i)=0, and it remains in the mean.
+            counted++;
+            continue;
+        }
+        const a = ownEntry.sum / ownEntry.count;
+        let b = Infinity;
+        for (const [cluster, entry] of sums) {
+            if (cluster !== own && entry.count > 0) b = Math.min(b, entry.sum / entry.count);
+        }
+        if (!Number.isFinite(b)) return -1;
+        const denominator = Math.max(a, b);
+        total += denominator > 0 ? (b - a) / denominator : 0;
+        counted++;
+    }
+    return counted > 0 ? total / counted : -1;
+};
+
+const choose2 = (value: number): number => value < 2 ? 0 : value * (value - 1) / 2;
+
+/** Label-invariant adjusted Rand index. */
+export const adjustedRandIndex = (a: number[], b: number[]): number => {
+    if (a.length !== b.length || a.length < 2) return 0;
+    const contingency = new Map<string, number>();
+    const rows = new Map<number, number>();
+    const columns = new Map<number, number>();
+    for (let i = 0; i < a.length; i++) {
+        const key = `${a[i]}:${b[i]}`;
+        contingency.set(key, (contingency.get(key) ?? 0) + 1);
+        rows.set(a[i], (rows.get(a[i]) ?? 0) + 1);
+        columns.set(b[i], (columns.get(b[i]) ?? 0) + 1);
+    }
+    const totalPairs = choose2(a.length);
+    if (totalPairs === 0) return 0;
+    const cellPairs = [...contingency.values()].reduce((sum, count) => sum + choose2(count), 0);
+    const rowPairs = [...rows.values()].reduce((sum, count) => sum + choose2(count), 0);
+    const columnPairs = [...columns.values()].reduce((sum, count) => sum + choose2(count), 0);
+    const expected = rowPairs * columnPairs / totalPairs;
+    const maximum = 0.5 * (rowPairs + columnPairs);
+    const denominator = maximum - expected;
+    if (Math.abs(denominator) < 1e-12) return Math.abs(cellPairs - expected) < 1e-12 ? 1 : 0;
+    return Math.max(-1, Math.min(1, (cellPairs - expected) / denominator));
+};
+
+/**
+ * Automatic k-selection by silhouette score.
+ *
+ * v3 change: the previous implementation used an elbow rule — stop as soon as
+ * the marginal WCSS improvement fell below 15%. WCSS decreases monotonically
+ * with k, so the rule is scale-dependent and fires early on gradually
+ * structured data: on the Deliberative Provenance Benchmark it selected k = 2
+ * where five themes were planted. Silhouette instead measures how well separated
+ * the clusters actually are, and has a defined optimum rather than an arbitrary
+ * cut-off.
+ *
+ * If no k >= 2 achieves MIN_SILHOUETTE, the data is reported as a single
+ * cluster rather than being split arbitrarily.
+ */
+interface KMeansFit {
+    assignments: number[];
+    centroids: number[][];
+    inertia: number;
+    iterations: number;
+}
+
+const mean = (values: number[]): number =>
+    values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+
+const canonicalizeFit = (fit: KMeansFit): KMeansFit => {
+    const order = fit.centroids
+        .map((centroid, index) => ({ centroid, index, signature: vectorSignature(centroid) }))
+        .sort((a, b) => a.signature.localeCompare(b.signature) || a.index - b.index);
+    const remap = new Map(order.map((item, canonical) => [item.index, canonical]));
+    return {
+        ...fit,
+        assignments: fit.assignments.map(cluster => remap.get(cluster) ?? cluster),
+        centroids: order.map(item => item.centroid),
+    };
+};
+
+const fitWithRestarts = (
+    vectors: number[][],
+    k: number,
+    restarts: number,
+    iterations: number,
+    seed: number,
+): { best: KMeansFit; fits: KMeansFit[] } => {
+    const fits = Array.from({ length: restarts }, (_, restart) => canonicalizeFit(runKMeansStep(
+        vectors,
+        k,
+        iterations,
+        new SeededRNG((seed + Math.imul(k + 1, 104729) + Math.imul(restart + 1, 7919)) >>> 0),
+    )));
+    const best = [...fits].sort((a, b) => a.inertia - b.inertia || a.iterations - b.iterations)[0];
+    return { best, fits };
+};
+
+const clusterSizesFor = (assignments: number[], k: number): number[] => {
+    const sizes = new Array(k).fill(0);
+    for (const assignment of assignments) if (assignment >= 0 && assignment < k) sizes[assignment]++;
+    return sizes;
+};
+
+const withoutReplacementSample = (n: number, size: number, rng: SeededRNG): number[] => {
+    const indices = Array.from({ length: n }, (_, index) => index);
+    for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(rng.next() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices.slice(0, size).sort((a, b) => a - b);
+};
+
+const estimateSubsampleStability = (
+    vectors: number[][],
+    fullAssignments: number[],
+    k: number,
+    runs: number,
+    fraction: number,
+    minClusterSize: number,
+    iterations: number,
+    seed: number,
+): number => {
+    const sampleSize = Math.min(vectors.length, Math.max(k * minClusterSize, Math.round(vectors.length * fraction)));
+    const scores: number[] = [];
+    for (let run = 0; run < runs; run++) {
+        const sample = withoutReplacementSample(vectors.length, sampleSize, new SeededRNG((seed + Math.imul(run + 1, 65537)) >>> 0));
+        const subset = sample.map(index => vectors[index]);
+        const { best } = fitWithRestarts(subset, k, 4, iterations, (seed + Math.imul(run + 1, 99991)) >>> 0);
+        const sizes = clusterSizesFor(best.assignments, k);
+        scores.push(sizes.every(size => size > 0)
+            ? adjustedRandIndex(sample.map(index => fullAssignments[index]), best.assignments)
+            : 0);
+    }
+    return mean(scores);
+};
+
+/**
+ * Measures the fraction of local-neighbour relations that remain inside the
+ * assigned group. Non-convex method dependence is screened separately against
+ * the single-linkage sensitivity partition below.
+ */
+const neighborhoodCoherence = (vectors: number[][], assignments: number[]): number => {
+    const n = vectors.length;
+    if (n < 3) return 0;
+    const neighborCount = Math.min(5, Math.max(1, Math.floor(Math.sqrt(n)) - 1));
+    let same = 0;
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+        const nearest = Array.from({ length: n }, (_, j) => j)
+            .filter(j => j !== i)
+            .map(j => ({ j, distance: cosineDistanceUnit(vectors[i], vectors[j]) }))
+            .sort((a, b) => a.distance - b.distance || a.j - b.j)
+            .slice(0, neighborCount);
+        for (const { j } of nearest) {
+            if (assignments[i] === assignments[j]) same++;
+            total++;
+        }
+    }
+    const localAgreement = total > 0 ? same / total : 0;
+    return localAgreement;
+};
+
+/**
+ * Same-k single-linkage sensitivity partition obtained by cutting the k-1
+ * longest edges of the cosine-distance minimum spanning tree. This deliberately
+ * makes a different compactness assumption from K-Means and can follow curved
+ * connected structure. Strong disagreement makes the K-Means result method-
+ * dependent and therefore unsuitable for downstream group-conditioned claims.
+ */
+const singleLinkageAssignments = (vectors: number[][], k: number): number[] => {
+    const n = vectors.length;
+    const visited = new Array(n).fill(false);
+    const bestDistance = new Array(n).fill(Infinity);
+    const parent = new Array(n).fill(-1);
+    bestDistance[0] = 0;
+    const edges: Array<{ a: number; b: number; distance: number }> = [];
+    for (let step = 0; step < n; step++) {
+        let next = -1;
+        for (let i = 0; i < n; i++) {
+            if (!visited[i] && (next < 0 || bestDistance[i] < bestDistance[next])) next = i;
+        }
+        if (next < 0) break;
+        visited[next] = true;
+        if (parent[next] >= 0) edges.push({ a: parent[next], b: next, distance: bestDistance[next] });
+        for (let candidate = 0; candidate < n; candidate++) {
+            if (visited[candidate]) continue;
+            const distance = cosineDistanceUnit(vectors[next], vectors[candidate]);
+            if (distance < bestDistance[candidate]) {
+                bestDistance[candidate] = distance;
+                parent[candidate] = next;
             }
         }
+    }
+    const removed = new Set(
+        [...edges]
+            .sort((left, right) => right.distance - left.distance || left.a - right.a || left.b - right.b)
+            .slice(0, Math.max(0, k - 1))
+            .map(edge => `${Math.min(edge.a, edge.b)}:${Math.max(edge.a, edge.b)}`),
+    );
+    const adjacency = Array.from({ length: n }, () => [] as number[]);
+    for (const edge of edges) {
+        const key = `${Math.min(edge.a, edge.b)}:${Math.max(edge.a, edge.b)}`;
+        if (removed.has(key)) continue;
+        adjacency[edge.a].push(edge.b);
+        adjacency[edge.b].push(edge.a);
+    }
+    const assignments = new Array(n).fill(-1);
+    let cluster = 0;
+    for (let start = 0; start < n; start++) {
+        if (assignments[start] >= 0) continue;
+        const stack = [start];
+        assignments[start] = cluster;
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            for (const neighbor of adjacency[current]) {
+                if (assignments[neighbor] < 0) {
+                    assignments[neighbor] = cluster;
+                    stack.push(neighbor);
+                }
+            }
+        }
+        cluster++;
+    }
+    return assignments;
+};
 
-        bestK = k;
-        bestAssignments = assignments;
-        previousVariance = totalVariance;
+const unavailableClustering = (
+    originalLength: number,
+    validLength: number,
+    dimensions: number,
+    reason: string,
+    candidates: ClusteringCandidateDiagnostic[] = [],
+    analysisDimensions: number = dimensions,
+    projectionMethod: ClusteringDiagnostics['projectionMethod'] = 'none',
+    projectionDistanceCorrelation: number = 1,
+): { assignments: number[]; k: number; diagnostics: ClusteringDiagnostics } => {
+    const algorithms = ANALYSIS_CONFIG.algorithms;
+    return {
+        assignments: new Array(originalLength).fill(0),
+        k: 1,
+        diagnostics: {
+            methodVersion: 'spherical-kmeans-stability-v1',
+            status: 'unavailable',
+            usableForDownstream: false,
+            reason,
+            sampleSize: validLength,
+            inputDimensions: dimensions,
+            analysisDimensions,
+            projectionMethod,
+            projectionDistanceCorrelation,
+            selectedK: 1,
+            silhouette: null,
+            stability: null,
+            neighborhoodAgreement: null,
+            methodAgreement: null,
+            clusterSizes: validLength > 0 ? [validLength] : [],
+            candidateDiagnostics: candidates,
+            distanceMetric: 'cosine',
+            normalized: true,
+            restarts: algorithms.kmeansRestarts,
+            stabilityRuns: algorithms.clusterStabilityRuns,
+            thresholds: {
+                minimumSampleSize: algorithms.minClusteringSampleSize,
+                minimumClusterSize: algorithms.minClusterSize,
+                minimumSilhouette: algorithms.minSilhouette,
+                minimumStability: algorithms.minClusterStability,
+                minimumNeighborhoodAgreement: algorithms.minNeighborhoodAgreement,
+                minimumMethodAgreement: algorithms.minClusteringMethodAgreement,
+                minimumProjectionDistanceCorrelation: algorithms.minProjectionDistanceCorrelation,
+            },
+            limitations: [
+                'Semantic groups are exploratory geometric partitions, not validated topics, stakeholder categories, or causal strata.',
+                'Passing internal separation and stability checks does not establish external construct validity.',
+            ],
+        },
+    };
+};
+
+/**
+ * Validated deterministic spherical K-Means.
+ *
+ * The method uses full, unit-normalized source embeddings (cosine geometry),
+ * repeated K-Means++ starts, convergence stopping, silhouette with singleton
+ * zeroes, and without-replacement resampling stability. If no candidate passes
+ * every diagnostic gate, the result is deliberately unpartitioned and cluster-
+ * conditioned downstream modules must remain unavailable.
+ */
+export const computeAutoKMeans = (
+    vectors: number[][],
+): { assignments: number[]; k: number; diagnostics: ClusteringDiagnostics } => {
+    const algorithms = ANALYSIS_CONFIG.algorithms;
+    const dimensions = vectors[0]?.length ?? 0;
+    const validEntries = vectors
+        .map((vector, originalIndex) => ({ vector: normalizeVector(vector), originalIndex }))
+        .filter(entry => entry.vector.length === dimensions && dimensions > 0 && entry.vector.every(Number.isFinite))
+        .map(entry => ({ ...entry, signature: vectorSignature(entry.vector) }))
+        .sort((a, b) => a.signature.localeCompare(b.signature) || a.originalIndex - b.originalIndex);
+
+    if (validEntries.length !== vectors.length) {
+        return unavailableClustering(
+            vectors.length,
+            validEntries.length,
+            dimensions,
+            `Semantic grouping requires a complete common embedding space; ${vectors.length - validEntries.length} record(s) had invalid or zero embeddings.`,
+        );
     }
 
-    return { assignments: bestAssignments, k: bestK };
+    if (validEntries.length < algorithms.minClusteringSampleSize) {
+        return unavailableClustering(
+            vectors.length,
+            validEntries.length,
+            dimensions,
+            `Semantic grouping requires at least ${algorithms.minClusteringSampleSize} valid source embeddings; ${validEntries.length} were available.`,
+        );
+    }
+
+    const normalized = validEntries.map(entry => entry.vector);
+    const seed = orderInvariantSeed(normalized);
+    let workingVectors = normalized;
+    let projectionMethod: ClusteringDiagnostics['projectionMethod'] = 'none';
+    let projectionDistanceCorrelation = 1;
+
+    if (dimensions > algorithms.maxClusteringDimensions) {
+        const projection = projectForClustering(normalized, algorithms.maxClusteringDimensions, seed);
+        if (projection.distanceCorrelation >= algorithms.minProjectionDistanceCorrelation) {
+            workingVectors = projection.vectors;
+            projectionMethod = projection.method;
+            projectionDistanceCorrelation = projection.distanceCorrelation;
+        } else {
+            // When hashing projection loses too much geometric fidelity, retain exact unprojected space
+            workingVectors = normalized;
+            projectionMethod = 'none';
+            projectionDistanceCorrelation = 1;
+        }
+    }
+    const maxK = Math.min(algorithms.maxClusters, Math.floor(workingVectors.length / algorithms.minClusterSize));
+    const candidates: Array<ClusteringCandidateDiagnostic & { assignments: number[] }> = [];
+
+    for (let k = 2; k <= maxK; k++) {
+        const { best, fits } = fitWithRestarts(workingVectors, k, algorithms.kmeansRestarts, algorithms.kmeansIterations, seed);
+        const sizes = clusterSizesFor(best.assignments, k);
+        const silhouette = meanSilhouette(workingVectors, best.assignments);
+        const restartStability = mean(fits.map(fit => adjustedRandIndex(best.assignments, fit.assignments)));
+        const subsampleStability = estimateSubsampleStability(
+            workingVectors,
+            best.assignments,
+            k,
+            algorithms.clusterStabilityRuns,
+            algorithms.clusterSubsampleFraction,
+            algorithms.minClusterSize,
+            algorithms.kmeansIterations,
+            seed,
+        );
+        const neighborhoodAgreement = neighborhoodCoherence(workingVectors, best.assignments);
+        const methodAgreement = adjustedRandIndex(best.assignments, singleLinkageAssignments(workingVectors, k));
+        const rejectionReasons: string[] = [];
+        if (Math.min(...sizes) < algorithms.minClusterSize) rejectionReasons.push('minimum-cluster-size');
+        if (silhouette < algorithms.minSilhouette) rejectionReasons.push('silhouette');
+        if (subsampleStability < algorithms.minClusterStability) rejectionReasons.push('subsample-stability');
+        if (neighborhoodAgreement < algorithms.minNeighborhoodAgreement) rejectionReasons.push('neighborhood-coherence');
+        if (methodAgreement < algorithms.minClusteringMethodAgreement) rejectionReasons.push('method-sensitivity');
+        candidates.push({
+            k,
+            silhouette,
+            fullSpaceSilhouette: null,
+            restartStability,
+            subsampleStability,
+            neighborhoodAgreement,
+            methodAgreement,
+            minimumClusterSize: Math.min(...sizes),
+            clusterSizes: sizes,
+            inertia: best.inertia,
+            eligible: rejectionReasons.length === 0,
+            rejectionReasons,
+            assignments: best.assignments,
+        });
+    }
+
+    const eligibleByWorkingSpace = [...candidates]
+        .filter(candidate => candidate.eligible)
+        .sort((a, b) => b.silhouette - a.silhouette || b.subsampleStability - a.subsampleStability || a.k - b.k);
+    let selected: typeof eligibleByWorkingSpace[number] | undefined;
+    for (const candidate of eligibleByWorkingSpace) {
+        candidate.fullSpaceSilhouette = meanSilhouette(normalized, candidate.assignments, 120);
+        if (candidate.fullSpaceSilhouette >= algorithms.minSilhouette) {
+            selected = candidate;
+            break;
+        }
+        candidate.eligible = false;
+        candidate.rejectionReasons.push('full-space-silhouette');
+    }
+    const publicCandidates = candidates.map(({ assignments: _assignments, ...candidate }) => candidate);
+    if (!selected) {
+        return unavailableClustering(
+            vectors.length,
+            validEntries.length,
+            dimensions,
+            'No candidate partition passed the separation, minimum-size, resampling-stability, neighborhood-coherence, and method-sensitivity gates.',
+            publicCandidates,
+            workingVectors[0]?.length ?? dimensions,
+            projectionMethod,
+            projectionDistanceCorrelation,
+        );
+    }
+
+    const assignments = new Array(vectors.length).fill(-1);
+    validEntries.forEach((entry, sortedIndex) => { assignments[entry.originalIndex] = selected.assignments[sortedIndex]; });
+    const diagnostics: ClusteringDiagnostics = {
+        methodVersion: 'spherical-kmeans-stability-v1',
+        status: 'available',
+        usableForDownstream: true,
+        reason: 'Partition passed all configured internal diagnostic gates.',
+        sampleSize: validEntries.length,
+        inputDimensions: dimensions,
+        analysisDimensions: workingVectors[0]?.length ?? dimensions,
+        projectionMethod: projectionMethod,
+        projectionDistanceCorrelation: projectionDistanceCorrelation,
+        selectedK: selected.k,
+        silhouette: selected.fullSpaceSilhouette,
+        stability: selected.subsampleStability,
+        neighborhoodAgreement: selected.neighborhoodAgreement,
+        methodAgreement: selected.methodAgreement,
+        clusterSizes: selected.clusterSizes,
+        candidateDiagnostics: publicCandidates,
+        distanceMetric: 'cosine',
+        normalized: true,
+        restarts: algorithms.kmeansRestarts,
+        stabilityRuns: algorithms.clusterStabilityRuns,
+        thresholds: {
+            minimumSampleSize: algorithms.minClusteringSampleSize,
+            minimumClusterSize: algorithms.minClusterSize,
+            minimumSilhouette: algorithms.minSilhouette,
+            minimumStability: algorithms.minClusterStability,
+            minimumNeighborhoodAgreement: algorithms.minNeighborhoodAgreement,
+            minimumMethodAgreement: algorithms.minClusteringMethodAgreement,
+            minimumProjectionDistanceCorrelation: algorithms.minProjectionDistanceCorrelation,
+        },
+        limitations: [
+            'Semantic groups are exploratory geometric partitions, not validated topics, stakeholder categories, or causal strata.',
+            'The diagnostics measure internal run stability and geometry; they do not establish external construct validity.',
+            'K-Means favors compact cosine-space partitions. Irregular or varying-density structure may remain unavailable.',
+            'Strong disagreement with a same-k single-linkage sensitivity partition disables downstream cluster-conditioned claims.',
+        ],
+    };
+    return { assignments, k: selected.k, diagnostics };
 };
 
 /**
@@ -356,8 +884,8 @@ const kMeansPlusPlusInit = (vectors: number[][], k: number, rng: SeededRNG): num
  * - K-Means++ initialisation (Arthur & Vassilvitskii, 2007) gives O(log k)
  *   approximation guarantee vs. optimal, avoiding poor local minima
  * - Lloyd's algorithm converges to local minimum in O(k * n * d * i) time
- * - 15 iterations typically sufficient for convergence in most practical cases
- * - Random centroid reinitialization handles empty cluster edge case
+ * - Assignment convergence stops the algorithm before its iteration ceiling
+ * - Empty clusters are deterministically re-seeded from the worst-fit point
  *
  * @param vectors - Input data points
  * @param k - Number of clusters
@@ -369,18 +897,20 @@ const runKMeansStep = (
     k: number,
     maxIterations: number = ANALYSIS_CONFIG.algorithms.kmeansIterations,
     rng?: SeededRNG
-): { assignments: number[], centroids: number[][] } => {
+): KMeansFit => {
     const localRng = rng || new SeededRNG(createDataSeed(vectors));
     let centroids = kMeansPlusPlusInit(vectors, k, localRng);
-    let assignments = new Array(vectors.length).fill(0);
+    let assignments = new Array(vectors.length).fill(-1);
+    let iterations = 0;
 
     for (let iter = 0; iter < maxIterations; iter++) {
+        iterations = iter + 1;
         // Assignment step: assign each point to nearest centroid
-        assignments = vectors.map(vec => {
+        const nextAssignments = vectors.map(vec => {
             let minDist = Infinity;
             let cluster = 0;
             centroids.forEach((c, i) => {
-                const dist = vec.reduce((sum, v, j) => sum + (v - c[j]) ** 2, 0);
+                const dist = squaredEuclidean(vec, c);
                 if (dist < minDist) {
                     minDist = dist;
                     cluster = i;
@@ -394,7 +924,7 @@ const runKMeansStep = (
         const counts = Array(k).fill(0);
 
         vectors.forEach((vec, i) => {
-            const cluster = assignments[i];
+            const cluster = nextAssignments[i];
             counts[cluster]++;
             for (let j = 0; j < vec.length; j++) {
                 newCentroids[cluster][j] += vec[j];
@@ -406,14 +936,45 @@ const runKMeansStep = (
                 for (let j = 0; j < vectors[0].length; j++) {
                     newCentroids[i][j] /= counts[i];
                 }
+                newCentroids[i] = normalizeVector(newCentroids[i]);
             } else {
-                // Handle empty cluster: reinitialize with random point (seeded)
-                newCentroids[i] = vectors[Math.floor(localRng.next() * vectors.length)];
+                // Deterministically split off the currently worst represented point.
+                let worstIndex = 0;
+                let worstDistance = -Infinity;
+                for (let point = 0; point < vectors.length; point++) {
+                    const assigned = nextAssignments[point];
+                    const distance = squaredEuclidean(vectors[point], centroids[assigned]);
+                    if (distance > worstDistance) {
+                        worstDistance = distance;
+                        worstIndex = point;
+                    }
+                }
+                newCentroids[i] = [...vectors[worstIndex]];
             }
         }
+        const converged = assignments.every((assignment, index) => assignment === nextAssignments[index]);
+        assignments = nextAssignments;
         centroids = newCentroids;
+        if (converged) break;
     }
-    return { assignments, centroids };
+    // Ensure assignments and objective correspond to the final centroids.
+    assignments = vectors.map(vec => {
+        let bestCluster = 0;
+        let bestDistance = Infinity;
+        centroids.forEach((centroid, index) => {
+            const distance = squaredEuclidean(vec, centroid);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestCluster = index;
+            }
+        });
+        return bestCluster;
+    });
+    const inertia = vectors.reduce(
+        (sum, vector, index) => sum + squaredEuclidean(vector, centroids[assignments[index]]),
+        0,
+    );
+    return { assignments, centroids, inertia, iterations };
 };
 
 /**
@@ -421,8 +982,9 @@ const runKMeansStep = (
  *
  * An edge between participants i and j exists iff both rank each other
  * among their k most similar neighbors. This mutual requirement produces
- * sparse, high-confidence edges — standard in spectral clustering and
- * manifold learning (von Luxburg, 2007).
+ * a sparse graph often used in spectral clustering and manifold learning
+ * (von Luxburg, 2007). Mutual inclusion is a construction rule, not a
+ * confidence guarantee about any substantive relationship.
  *
  * @param embeddings - Per-participant embedding vectors
  * @param participantIds - Matching participant ID strings
@@ -614,20 +1176,33 @@ export const analyzeNetworkGraph = (
   }
 
   // ── Global: modularity (Newman, 2004) ──────────────────────────────────
-  // Q = (1/2m) * Σ_{i<j} 2 * [A_ij - (k_i * k_j)/(2m)] * δ(c_i, c_j)
-  // Must sum over ALL intra-community pairs (i,j), not just edges.
-  // The null-model term k_i*k_j/(2m) penalizes dense communities even for
-  // non-edge pairs, which is essential for correct modularity values.
+  // Q = (1/2m) * Σ_{i,j} [A_ij - (k_i * k_j)/(2m)] * δ(c_i, c_j)
+  //
+  // The sum runs over ALL ordered intra-community pairs, including the
+  // diagonal i == j. Since the graph has no self-loops (A_ii = 0) and
+  // δ(c_i, c_i) = 1, the diagonal contributes the strictly negative term
+  //     -(1/2m) * Σ_i k_i² / (2m)
+  //
+  // v2 fix: a previous implementation iterated only i < j and doubled the
+  // result, which silently dropped that diagonal term and inflated Q by
+  // Σ k_i² / (2m)². On sparse graphs this is large — on a two-triangle test
+  // graph it reported Q = 0.531 against a true Q = 0.357 — making poorly
+  // separated clusters appear well partitioned.
   const m = edges.length; // number of undirected edges
   let Q = 0;
   if (m > 0) {
     const m2 = 2 * m;
+    // Off-diagonal intra-community pairs (each unordered pair counted twice).
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
         if (clusterOf.get(nodeIds[i]) !== clusterOf.get(nodeIds[j])) continue;
         const A_ij = adj[i].has(j) ? 1 : 0;
         Q += 2 * (A_ij - (degrees[i] * degrees[j]) / m2);
       }
+    }
+    // Diagonal term (i == j): A_ii = 0, so only the null model contributes.
+    for (let i = 0; i < n; i++) {
+      Q -= (degrees[i] * degrees[i]) / m2;
     }
     Q /= m2;
   }

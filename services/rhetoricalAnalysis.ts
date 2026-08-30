@@ -1,12 +1,12 @@
 /**
- * Rhetorical Influence Analysis
+ * Exploratory Rhetorical-marker Association
  *
  * Scores each participant's linguistic style on four dimensions:
  *   assertiveness, register, evidentiality, emotional intensity
  *
- * Then tests whether rhetorical style correlates with representation —
- * if it does, that's evidence of systematic bias in how the summarizer
- * treats different communication styles.
+ * Then describes rank association with semantic-alignment scores. Marker
+ * coverage is English-oriented and the analysis does not control topic,
+ * language, group, model, or other confounders, so it cannot establish bias.
  *
  * Two scoring modes:
  *   1. Lexicon-based (Phase 1, deterministic, fast) — uses marker word counts
@@ -15,12 +15,11 @@
  *      This resolves ambiguities the lexicon can't handle (e.g. "like" as filler
  *      vs preference, "actually" in formal vs informal contexts).
  *
- * Statistical test: Spearman rank correlation between composite rhetorical score
- * and representation score, with permutation test for small samples (n ≤ 30).
+ * Statistical screen: Spearman rank correlation with a seeded permutation test.
  */
 
-import { ParticipantAnalysis, RhetoricalProfile, RhetoricalBiasAnalysis, AnalysisConfig } from '../types';
-import { generateCompletion } from './completionRouter';
+import { ParticipantAnalysis, RhetoricalProfile, RhetoricalBiasAnalysis } from '../types';
+import { SeededRNG } from './mathUtils';
 
 // ── Lexicons ────────────────────────────────────────────────────────────────────
 
@@ -160,129 +159,6 @@ export const scoreRhetoricalMarkers = (text: string): RhetoricalProfile => {
   return { assertiveness, register, evidentiality, emotionalIntensity, compositeScore };
 };
 
-// ── LLM-Enhanced Scoring (Phase 2) ──────────────────────────────────────────────
-
-/**
- * Batch LLM scoring for rhetorical dimensions. Runs in Phase 2 (background
- * enrichment) since it requires async LLM calls.
- *
- * The LLM provides context-aware scores that handle ambiguities lexicons miss:
- * - "like" as filler ("I, like, think") vs preference ("I like this approach")
- * - "actually" in formal vs informal registers
- * - Sarcasm and rhetorical questions as assertiveness rather than hedging
- * - Cultural register differences in multilingual inputs
- *
- * Returns a Map from participantId → LLM-scored RhetoricalProfile.
- * The caller blends these with lexicon scores (70% LLM / 30% lexicon).
- */
-export const scoreRhetoricalWithLLM = async (
-  participants: Array<{ id: string; text: string }>,
-  config: AnalysisConfig,
-  onProgress?: (msg: string) => void
-): Promise<Map<string, RhetoricalProfile>> => {
-  const results = new Map<string, RhetoricalProfile>();
-  const BATCH = 6;
-
-  for (let i = 0; i < participants.length; i += BATCH) {
-    const batch = participants.slice(i, i + BATCH);
-    onProgress?.(`Rhetorical analysis: scoring participants ${i + 1}-${Math.min(i + BATCH, participants.length)}/${participants.length}`);
-
-    const prompt = `You are a discourse analyst. Score each text below on four rhetorical dimensions.
-
-${batch.map((p, j) => `[${p.id}] "${p.text.slice(0, 500)}"`).join('\n\n')}
-
-Score each on these dimensions (0.00 to 1.00):
-
-1. **assertiveness**: How directive or commanding is the language?
-   0.0 = entirely hedged, uncertain, deferential ("maybe we could consider...")
-   0.5 = balanced, states positions but with qualifiers
-   1.0 = imperative, demanding, absolute ("we must immediately...")
-
-2. **register**: The formality level of the language.
-   Return exactly one of: "formal", "colloquial", or "mixed"
-   - formal = professional jargon, complex sentences, passive voice, academic style
-   - colloquial = conversational, slang, fragments, first-person anecdotes
-   - mixed = elements of both
-
-3. **evidentiality**: How data-driven and referenced is the content?
-   0.0 = pure personal opinion, no evidence cited
-   0.5 = references general facts or common knowledge
-   1.0 = cites specific statistics, studies, named sources, quantitative data
-
-4. **emotionalIntensity**: How emotionally charged is the language?
-   0.0 = neutral, factual, dispassionate
-   0.5 = engaged but measured
-   1.0 = highly charged, urgent, dramatic, uses strong emotional words
-
-Return ONLY a JSON array with one object per text:
-[{"id": "...", "assertiveness": 0.XX, "register": "formal|colloquial|mixed", "evidentiality": 0.XX, "emotionalIntensity": 0.XX}]`;
-
-    try {
-      const response = await generateCompletion(
-        prompt,
-        'You are a discourse analysis expert. Return only valid JSON.',
-        config
-      );
-      const match = response.match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]) as any[];
-        for (const entry of parsed) {
-          const id = entry.id || entry.participantId;
-          if (!id) continue;
-          const assertiveness = clampScore(entry.assertiveness);
-          const evidentiality = clampScore(entry.evidentiality);
-          const emotionalIntensity = clampScore(entry.emotionalIntensity);
-          const register = (['formal', 'colloquial', 'mixed'].includes(entry.register))
-            ? entry.register as 'formal' | 'colloquial' | 'mixed'
-            : 'mixed';
-          const registerScore = register === 'formal' ? 0.8 : register === 'colloquial' ? 0.2 : 0.5;
-          const compositeScore = Math.min(1, Math.max(0,
-            assertiveness * 0.35 + registerScore * 0.25 +
-            evidentiality * 0.20 + emotionalIntensity * 0.20
-          ));
-          results.set(id, { assertiveness, register, evidentiality, emotionalIntensity, compositeScore });
-        }
-      }
-    } catch (e) {
-      console.warn(`[RhetoricalAnalysis] LLM batch ${i}-${i + BATCH} failed:`, e);
-    }
-  }
-
-  return results;
-};
-
-const clampScore = (v: any): number => {
-  const n = Number(v);
-  if (isNaN(n)) return 0.5;
-  return Math.min(1, Math.max(0, n));
-};
-
-/**
- * Merge LLM-scored profiles with lexicon-scored profiles.
- * Weighted blend: 70% LLM (context-aware) + 30% lexicon (deterministic baseline).
- * If no LLM score exists for a participant, the lexicon score stands as-is.
- */
-export const mergeRhetoricalProfiles = (
-  participants: ParticipantAnalysis[],
-  llmScores: Map<string, RhetoricalProfile>
-): void => {
-  for (const p of participants) {
-    const lexicon = p.rhetoricalProfile;
-    const llm = llmScores.get(p.id);
-    if (!lexicon || !llm) continue;
-
-    const blend = (lex: number, llmVal: number) => lex * 0.3 + llmVal * 0.7;
-
-    p.rhetoricalProfile = {
-      assertiveness: blend(lexicon.assertiveness, llm.assertiveness),
-      register: llm.register, // LLM is far better at register detection
-      evidentiality: blend(lexicon.evidentiality, llm.evidentiality),
-      emotionalIntensity: blend(lexicon.emotionalIntensity, llm.emotionalIntensity),
-      compositeScore: blend(lexicon.compositeScore, llm.compositeScore),
-    };
-  }
-};
-
 // ── Spearman Rank Correlation ───────────────────────────────────────────────────
 
 const rankArray = (arr: number[]): number[] => {
@@ -319,19 +195,24 @@ const spearmanCorrelation = (x: number[], y: number[]): { rho: number; pValue: n
   }
   const rho = denX === 0 || denY === 0 ? 0 : num / Math.sqrt(denX * denY);
 
-  // P-value: permutation test for n ≤ 30 (exact, no distributional assumptions),
-  // t-distribution approximation via normal CDF for larger samples.
+  // Monte Carlo permutation p-value for every supported n. This avoids the
+  // former large-n normal approximation being mislabeled as a t test.
   let pValue: number;
-  if (n <= 30) {
-    // Permutation test: shuffle y 999 times, compute rho each time,
-    // count how often |rho_perm| >= |rho_observed|.
-    const NUM_PERMS = 999;
+  {
+    const NUM_PERMS = 1999;
     let extremeCount = 0;
     const yPerm = [...ry];
+    // Seeded from the data itself: an audit tool must return the same p-value for
+    // the same input. With Math.random() two runs on identical data could land on
+    // opposite sides of the p < 0.05 gate and report contradictory bias verdicts.
+    const permRng = new SeededRNG(
+      Math.round(rx.reduce((a, b, i) => a + b * (i + 1), 0) * 1000) +
+      Math.round(ry.reduce((a, b, i) => a + b * (i + 1), 0) * 7919) + n
+    );
     for (let p = 0; p < NUM_PERMS; p++) {
       // Fisher-Yates shuffle
       for (let k = yPerm.length - 1; k > 0; k--) {
-        const j = Math.floor(Math.random() * (k + 1));
+        const j = Math.floor(permRng.next() * (k + 1));
         [yPerm[k], yPerm[j]] = [yPerm[j], yPerm[k]];
       }
       let numP = 0, denXP = 0, denYP = 0;
@@ -346,24 +227,9 @@ const spearmanCorrelation = (x: number[], y: number[]): { rho: number; pValue: n
       if (Math.abs(rhoPerm) >= Math.abs(rho)) extremeCount++;
     }
     pValue = (extremeCount + 1) / (NUM_PERMS + 1); // +1 for the observed value itself
-  } else {
-    // t-distribution approximation (reliable for n > 30, use normal CDF)
-    const t = rho * Math.sqrt((n - 2) / (1 - rho * rho + 1e-10));
-    pValue = 2 * (1 - normalCDF(Math.abs(t)));
   }
 
   return { rho, pValue };
-};
-
-const normalCDF = (x: number): number => {
-  // Abramowitz & Stegun approximation
-  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
-  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-  const sign = x < 0 ? -1 : 1;
-  x = Math.abs(x) / Math.SQRT2;
-  const t = 1.0 / (1.0 + p * x);
-  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-  return 0.5 * (1.0 + sign * y);
 };
 
 // ── Regression ──────────────────────────────────────────────────────────────────
@@ -389,7 +255,8 @@ export const analyzeRhetoricalBias = (
   participants: ParticipantAnalysis[]
 ): RhetoricalBiasAnalysis => {
   const valid = participants.filter(p =>
-    !p.embeddingFailed && p.rhetoricalProfile && p.representationScore != null && !isNaN(p.representationScore)
+    !p.embeddingFailed && !p.alignmentUnavailableReason && p.rhetoricalProfile &&
+    p.representationScore != null && Number.isFinite(p.representationScore)
   );
 
   const profiles = valid.map(p => ({
@@ -408,13 +275,8 @@ export const analyzeRhetoricalBias = (
     profiles,
     correlation: rho,
     pValue,
-    // Two-sided bias detection: either positive correlation (rhetorically dominant
-    // voices favored) or negative (formal/assertive speakers under-represented).
-    // Dual threshold: |ρ| > 0.25 (weak-to-moderate effect size per Cohen 1988;
-    // conservative for typical n=10–30 where weak correlations may be real) AND
-    // p < 0.05 (standard significance level). The effect-size gate prevents
-    // declaring bias on trivially small correlations that happen to reach
-    // significance with larger samples.
+    // Legacy field name: this is only a two-part exploratory review rule, not a
+    // bias diagnosis. The |rho| marker is an interface convention.
     hasBias: Math.abs(rho) > 0.25 && pValue < 0.05,
     regressionLine: regression,
   };

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Label } from 'recharts';
 import { ParticipantAnalysis } from '../../types';
 import { useResponsiveChart, formatMetric } from '../../hooks/useResponsiveChart';
-import { ANALYSIS_CONFIG } from '../../constants';
+import { getRepresentationBands } from '../../constants';
 import { InfoIcon } from '../ui/MetricGlossary';
 
 interface RepresentationBarProps {
@@ -10,7 +10,8 @@ interface RepresentationBarProps {
 }
 
 export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) => {
-  const isLargeDataset = data.length > 200;
+  const validData = data.filter(d => !d.embeddingFailed && !d.alignmentUnavailableReason);
+  const isLargeDataset = validData.length > 200;
   const [viewMode, setViewMode] = useState<'auto' | 'bars' | 'histogram'>(isLargeDataset ? 'histogram' : 'bars');
   const showHistogram = viewMode === 'histogram' || (viewMode === 'auto' && isLargeDataset);
 
@@ -21,22 +22,23 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
   });
 
   // Sort by score ascending for the Lorenz-style curve
-  const sortedData = [...data].sort((a, b) => a.representationScore - b.representationScore);
+  const sortedData = [...validData].sort((a, b) => a.representationScore - b.representationScore);
 
   // Calculate "Perfect Equity" line (Average)
-  const avgScore = data.reduce((a, b) => a + b.representationScore, 0) / data.length;
+  const avgScore = validData.reduce((a, b) => a + b.representationScore, 0) / Math.max(1, validData.length);
 
   // Use config thresholds for interpretation — 3-state model consistent with ExecutiveSummary:
   //   Well Represented: >= representationTarget (0.6)
   //   Underrepresented: atRisk (0.3) – representationTarget (0.6)
   //   At Risk:          < atRisk (0.3)
-  const { atRisk } = ANALYSIS_CONFIG.representationInterpretation;
-  const { representationTarget } = ANALYSIS_CONFIG.thresholds;
+  const bands = getRepresentationBands(validData[0]?.embeddingTier);
+  const atRisk = bands.atRisk;
+  const representationTarget = bands.target;
 
   // Calculate counts matching ExecutiveSummary's 3-state bands
-  const atRiskCount = data.filter(d => d.representationScore < atRisk).length;
-  const underrepresentedCount = data.filter(d => d.representationScore >= atRisk && d.representationScore < representationTarget).length;
-  const wellRepresentedCount = data.filter(d => d.representationScore >= representationTarget).length;
+  const belowMarkerCount = validData.filter(d => d.representationScore < atRisk).length;
+  const middleBandCount = validData.filter(d => d.representationScore >= atRisk && d.representationScore < representationTarget).length;
+  const aboveReferenceCount = validData.filter(d => d.representationScore >= representationTarget).length;
 
   const chartData = sortedData.map((d, i) => ({
     ...d,
@@ -56,21 +58,22 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
       isAtRisk: (i + 1) / NUM_BINS <= atRisk,
       isWellRepresented: i / NUM_BINS >= representationTarget,
     }));
-    for (const d of data) {
+    for (const d of validData) {
       const binIdx = Math.min(NUM_BINS - 1, Math.floor(d.representationScore * NUM_BINS));
       bins[binIdx].count++;
     }
     return bins;
-  }, [data, atRisk, representationTarget]);
+  }, [validData, atRisk, representationTarget]);
 
   // Dynamic bar size based on data length and container width
-  const barSize = Math.max(4, Math.min(24, Math.floor(Math.min(400, width * 0.6) / data.length)));
+  const barSize = Math.max(4, Math.min(24, Math.floor(Math.min(400, width * 0.6) / Math.max(1, validData.length))));
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const d = payload[0].payload;
       const gap = d.representationScore - avgScore;
       const isAtRisk = d.representationScore < atRisk;
+
       return (
         <div
           className="bg-slate-800 text-white text-xs p-3 rounded-lg shadow-lg border border-slate-700 z-50"
@@ -111,6 +114,10 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
     left: isCompact ? 50 : 60
   };
 
+  // recharts' ChartData generic rejects a union of the two row shapes, so widen
+  // once here and hand the chart a single array type.
+  const activeChartData = (showHistogram ? histogramData : chartData) as Array<Record<string, unknown>>;
+
   return (
     <div ref={containerRef} className="w-full flex flex-col" style={{ minHeight: '380px' }}>
       {/* Header with stats */}
@@ -121,11 +128,11 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
             <div>
               <strong>Equity Distribution</strong> <InfoIcon metricKey="representation" />
               {isCompact ? (
-                <span className="block text-xs mt-0.5">Sorted representation scores</span>
+                <span className="block text-xs mt-0.5">Sorted semantic-alignment scores</span>
               ) : (
                 <span className="block text-xs mt-0.5">
-                  Participants sorted from least to most represented.
-                  A flat line indicates equal coverage.
+                  Valid records sorted by strongest source-to-summary sentence similarity.
+                  A flat line indicates equal scores, not complete coverage.
                 </span>
               )}
             </div>
@@ -138,17 +145,17 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
             <div className="text-blue-600 font-bold text-lg">{formatMetric(avgScore)}</div>
             <div className="text-blue-700 text-[10px] font-medium">Avg Score</div>
           </div>
-          {atRiskCount > 0 && (
+          {belowMarkerCount > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">
-              <div className="text-red-600 font-bold text-lg">{atRiskCount}</div>
-              <div className="text-red-700 text-[10px] font-medium">At Risk</div>
+              <div className="text-red-600 font-bold text-lg">{belowMarkerCount}</div>
+              <div className="text-red-700 text-[10px] font-medium">Below Marker</div>
             </div>
           )}
         </div>
       </div>
 
       {/* View mode toggle for large datasets */}
-      {data.length > 100 && (
+      {validData.length > 100 && (
         <div className="mb-2 flex items-center gap-2">
           <span className="text-[10px] text-slate-400">View:</span>
           <button
@@ -171,7 +178,7 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
       {/* Chart */}
       <div className="relative bg-white rounded-lg border border-slate-200 shadow-sm p-1" style={{ height: '250px' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={showHistogram ? histogramData : chartData} margin={margins}>
+          <ComposedChart data={activeChartData} margin={margins}>
             <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
 
             {showHistogram ? (
@@ -291,11 +298,11 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-0.5 bg-green-500" style={{ borderTop: '2px dashed #10b981' }}></div>
-              <span className="text-slate-600">Well Rep. ({representationTarget})</span>
+              <span className="text-slate-600">Upper reference ({representationTarget})</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-0.5 bg-red-500" style={{ borderTop: '2px dashed #ef4444' }}></div>
-              <span className="text-slate-600">At Risk ({atRisk})</span>
+              <span className="text-slate-600">Review marker ({atRisk})</span>
             </div>
           </div>
         )}
@@ -305,15 +312,15 @@ export const RepresentationBar: React.FC<RepresentationBarProps> = ({ data }) =>
       <div className="mt-3 flex flex-wrap gap-3 justify-center text-[10px]">
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-green-500"></span>
-          <span className="text-slate-600">Well Represented ({wellRepresentedCount}) — score &ge; {representationTarget}</span>
+          <span className="text-slate-600">Above reference ({aboveReferenceCount}) — score &ge; {representationTarget}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-amber-400"></span>
-          <span className="text-slate-600">Underrepresented ({underrepresentedCount}) — score {atRisk}–{representationTarget}</span>
+          <span className="text-slate-600">Middle band ({middleBandCount}) — score {atRisk}–{representationTarget}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-red-500"></span>
-          <span className="text-slate-600">At Risk ({atRiskCount}) — score &lt; {atRisk}</span>
+          <span className="text-slate-600">Below review marker ({belowMarkerCount}) — score &lt; {atRisk}</span>
         </div>
       </div>
     </div>
