@@ -773,7 +773,7 @@ export interface ClusteringCandidateDiagnostic {
  * score-simulation paths. It does not make groups causal, social, or validated topics.
  */
 export interface ClusteringDiagnostics {
-  methodVersion: 'spherical-kmeans-stability-v1';
+  methodVersion: 'spherical-kmeans-stability-v1' | 'spherical-kmeans-stability-v2';
   status: 'available' | 'unavailable';
   usableForDownstream: boolean;
   reason: string;
@@ -786,7 +786,8 @@ export interface ClusteringDiagnostics {
   silhouette: number | null;
   stability: number | null;
   neighborhoodAgreement: number | null;
-  /** ARI agreement with a same-k single-linkage sensitivity partition. */
+  /** ARI agreement with a same-k hierarchical sensitivity partition. Version
+   * 2 uses deterministic cosine average linkage; version 1 used single linkage. */
   methodAgreement: number | null;
   clusterSizes: number[];
   candidateDiagnostics: ClusteringCandidateDiagnostic[];

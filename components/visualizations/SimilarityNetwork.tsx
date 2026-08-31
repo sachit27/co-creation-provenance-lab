@@ -264,9 +264,11 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
         <div className="space-y-2">
           {/* Quick stats bar */}
           <div className="flex flex-wrap gap-2">
-            <MetricBadge label="Modularity" value={formatDec(analysis.modularity)}
+            <MetricBadge label="Modularity" value={groupingUsable ? formatDec(analysis.modularity) : '—'}
               color="slate"
-              tooltip="Newman modularity for this constructed graph; reported descriptively without a universal pass threshold."
+              tooltip={groupingUsable
+                ? "Newman modularity for this constructed graph; reported descriptively without a universal pass threshold."
+                : "Unavailable because no semantic partition passed the clustering validity gates."}
             />
             <MetricBadge label="Density" value={formatPct(analysis.density)} color="slate"
               tooltip="Fraction of possible mutual-kNN edges that exist."
@@ -278,8 +280,10 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
               color={analysis.connectedComponents > 1 ? 'amber' : 'green'}
               tooltip="Disconnected subgraphs under the mutual-kNN construction; omitted edges may still have nonzero similarity."
             />
-            <MetricBadge label="Bridges" value={String(analysis.bridgeNodes.length)} color="amber"
-              tooltip="Graph nodes with at least one retained cross-cluster edge."
+            <MetricBadge label="Connectors" value={groupingUsable ? String(analysis.bridgeNodes.length) : '—'} color="amber"
+              tooltip={groupingUsable
+                ? "Records with at least one retained cross-group edge. These are connector candidates, not graph-theoretic bridge edges or evidence of social mediation."
+                : "Unavailable because cross-group connectors require a validated semantic partition."}
             />
             <MetricBadge label="Peripheral" value={String(analysis.peripheralNodes.length)}
               color={analysis.peripheralNodes.length > 0 ? 'red' : 'green'}
@@ -290,17 +294,21 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
           {/* Highlight controls + expandable metrics */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold text-slate-500 uppercase">Highlight:</span>
-            {(['none', 'bridges', 'hubs', 'peripheral'] as HighlightMode[]).map(mode => (
-              <button key={mode} onClick={() => setHighlightMode(mode)}
+            {(['none', 'bridges', 'hubs', 'peripheral'] as HighlightMode[]).map(mode => {
+              const disabled = mode === 'bridges' && !groupingUsable;
+              return <button key={mode} onClick={() => !disabled && setHighlightMode(mode)} disabled={disabled}
                 className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                  disabled
+                    ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                    :
                   highlightMode === mode
                     ? 'bg-slate-800 text-white border-slate-800'
                     : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
                 }`}
               >
-                {mode === 'none' ? 'All' : mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </button>
-            ))}
+                {mode === 'none' ? 'All' : mode === 'bridges' ? 'Connectors' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>;
+            })}
             <button onClick={() => setShowMetrics(!showMetrics)}
               className="ml-auto text-[11px] text-indigo-600 hover:text-indigo-800 underline"
             >
@@ -314,7 +322,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
               <div className="font-semibold text-slate-800">Network Interpretation</div>
               {groupingUsable
                 ? <InterpretModularity Q={analysis.modularity} />
-                : <div className="text-amber-700">Cluster-conditioned modularity and bridge interpretations are unavailable because no validated semantic partition exists.</div>}
+                : <div className="text-amber-700">Cluster-conditioned modularity and cross-group connector interpretations are unavailable because no validated semantic partition exists.</div>}
               <InterpretComponents count={analysis.connectedComponents} total={networkGraph.nodes.length} />
               {groupingUsable && <InterpretBridges bridges={analysis.bridgeNodes} clusters={clusters} nodeMetrics={analysis.nodeMetrics} />}
               {analysis.peripheralNodes.length > 0 && (
@@ -449,7 +457,7 @@ const InterpretBridges: React.FC<{
   if (bridges.length === 0) {
     return (
       <div>
-        <span className="font-medium">No bridge nodes found — </span>
+        <span className="font-medium">No cross-group connectors found — </span>
         all retained edges are within automated clusters. This is graph structure, not proof that the themes are isolated.
       </div>
     );
@@ -459,7 +467,7 @@ const InterpretBridges: React.FC<{
   const top = sorted.slice(0, 5);
   return (
     <div>
-      <span className="font-medium text-amber-700">Key bridges: </span>
+      <span className="font-medium text-amber-700">Cross-group connector candidates: </span>
       {top.map(id => `${id} (betw: ${nodeMetrics[id]?.betweennessCentrality.toFixed(3)}, ${nodeMetrics[id]?.crossClusterEdges} cross-edges)`).join('; ')}
       {bridges.length > 5 && ` (+${bridges.length - 5} more)`}
       {' — these records occupy cross-cluster graph positions; mediation capacity requires separate social evidence.'}

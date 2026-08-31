@@ -2,6 +2,7 @@
 import {
   adjustedRandIndex,
   computeAutoKMeans,
+  computeMutualKNN,
   meanSilhouette,
 } from '../tests/.modules/services/mathUtils.ts';
 import { runWhatIfSimulation } from '../tests/.modules/services/whatIfSimulation.ts';
@@ -82,9 +83,16 @@ for (let index = 0; index < 60; index++) {
   moons.push([1 - Math.cos(angle), 0.5 - Math.sin(angle), 0.1]);
 }
 const moonResult = computeAutoKMeans(moons);
-check('strong convex/non-convex method disagreement disables the partition',
-  !moonResult.diagnostics.usableForDownstream &&
-  moonResult.diagnostics.candidateDiagnostics.some(candidate => candidate.rejectionReasons.includes('method-sensitivity')));
+check('strong shape sensitivity rejects the planted two-group K-Means candidate',
+  moonResult.diagnostics.candidateDiagnostics.some(candidate =>
+    candidate.k === 2 && candidate.rejectionReasons.includes('method-sensitivity')),
+  JSON.stringify(moonResult.diagnostics.candidateDiagnostics.map(candidate => ({
+    k: candidate.k,
+    eligible: candidate.eligible,
+    silhouette: candidate.silhouette,
+    methodAgreement: candidate.methodAgreement,
+    reasons: candidate.rejectionReasons,
+  }))));
 
 const imbalanced = [
   ...Array.from({ length: 50 }, (_, index) => [1, ((index % 7) - 3) * 0.003, 0.01]),
@@ -135,6 +143,27 @@ check('large-N utility attribution is gated on validated clustering',
   appSource.includes("data.clusteringDiagnostics?.usableForDownstream === true"));
 check('facilitation group-gap claims are gated on validated clustering',
   facilitationSource.includes("data.clusteringDiagnostics?.usableForDownstream === true"));
+
+console.log('\n[7] Similarity-network construction guards');
+const guardedEdges = computeMutualKNN(
+  [[1, 0], [0, 1], [0, 0], [Number.NaN, 1]],
+  ['valid-a', 'valid-b', 'zero', 'invalid'],
+  3,
+);
+check('zero, invalid, and non-positive similarity vectors cannot create forced links', guardedEdges.length === 0);
+const tiedOriginal = computeMutualKNN(
+  [[1, 0], [1, 0], [1, 0], [1, 0]],
+  ['d', 'b', 'a', 'c'],
+  1,
+).map(edge => [edge.source, edge.target].sort().join(':')).sort();
+const tiedReordered = computeMutualKNN(
+  [[1, 0], [1, 0], [1, 0], [1, 0]],
+  ['a', 'b', 'c', 'd'],
+  1,
+).map(edge => [edge.source, edge.target].sort().join(':')).sort();
+check('equal-similarity neighbor ties resolve by participant ID rather than row order',
+  JSON.stringify(tiedOriginal) === JSON.stringify(tiedReordered),
+  `${JSON.stringify(tiedOriginal)} vs ${JSON.stringify(tiedReordered)}`);
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} — passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

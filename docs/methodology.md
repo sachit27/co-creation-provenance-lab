@@ -96,9 +96,11 @@ transparent internal gates pass:
 - mean adjusted-Rand agreement with deterministic 80% participant subsamples is
   at least 0.75;
 - at least 75% of local-neighbour relations remain inside the proposed groups.
-- adjusted-Rand agreement with a same-`k` cosine single-linkage sensitivity
-  partition is at least 0.75. This rejects compact K-Means partitions that are
-  strongly dependent on its convex-shape assumption.
+- adjusted-Rand agreement with a same-`k` cosine average-linkage sensitivity
+  partition is at least 0.75. Average linkage uses all cross-group distances and
+  avoids the single-edge chaining failure of the earlier single-linkage check.
+  For more than 160 records, the sensitivity hierarchy uses a deterministic
+  160-record subsample and the sample size is recorded with the diagnostics.
 
 The eligible candidate with the highest silhouette is reported. If none passes,
 the map is explicitly **unpartitioned**. Cluster-conditioned counterfactual

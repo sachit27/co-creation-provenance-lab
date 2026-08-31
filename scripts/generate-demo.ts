@@ -49,7 +49,7 @@ const [{ SAMPLE_DATA, ANALYSIS_CONFIG }, { runAnalysis }] = await Promise.all([
 const result = await runAnalysis(
   SAMPLE_DATA,
   {
-    datasetName: 'Citizen Feedback Project',
+    datasetName: 'Synthetic Citizen Science Deliberation',
     strategy: 'balanced',
     aiProvider: 'ollama',
     model: generatorModel,
@@ -88,6 +88,12 @@ if (result.config.summaryMethod !== 'ai') {
 }
 if (result.embeddingTierUsed !== 'ollama') {
   throw new Error(`Demo embeddings fell back to ${result.embeddingTierUsed}; refusing to keep the artifact.`);
+}
+if (result.clusteringDiagnostics?.usableForDownstream !== true) {
+  throw new Error(`Demo has no validated semantic partition: ${result.clusteringDiagnostics?.reason ?? 'missing diagnostics'}`);
+}
+if ((result.networkGraph?.analysis.bridgeNodes.length ?? 0) === 0) {
+  throw new Error('Demo has no cross-group connector in the participant similarity network.');
 }
 if (result.enrichmentStatus !== 'complete' || failedStages.length > 0) {
   throw new Error(`Demo enrichment was ${result.enrichmentStatus}; failed stages: ${failedStages.join(', ') || 'none'}.`);

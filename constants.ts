@@ -73,8 +73,12 @@ export const ANALYSIS_CONFIG = {
     minClusterStability: 0.75,
     /** Minimum fraction of local-neighbour edges retained inside groups. */
     minNeighborhoodAgreement: 0.75,
-    /** Agreement with a non-convex single-linkage sensitivity partition. */
+    /** Minimum adjusted-Rand agreement with a same-k cosine average-linkage
+     * sensitivity partition. */
     minClusteringMethodAgreement: 0.75,
+    /** Maximum deterministic subsample used for the average-linkage
+     * method-sensitivity hierarchy, whose exact implementation is cubic. */
+    clusterMethodSensitivityMaxSampleSize: 160,
     /** Maximum working dimensions for deterministic signed feature hashing. */
     maxClusteringDimensions: 128,
     /** Minimum Pearson agreement between sampled full/projection cosine distances. */
@@ -200,39 +204,57 @@ export const getRepresentationBands = (tier?: string | null): RepresentationBand
     : ANALYSIS_CONFIG.representationInterpretationByTier.dense;
 
 export const SAMPLE_DATA: ParticipantInput[] = [
-  { id: "Citizen_001", text: "We need more accessible reporting tools. Current forms are too technical for non-scientists." },
-  { id: "Citizen_002", text: "Local knowledge about bird migration patterns is being ignored by researchers." },
-  { id: "Citizen_003", text: "The mobile app crashes frequently when trying to upload observations in areas with poor connectivity." },
-  { id: "Citizen_004", text: "Indigenous community members have valuable ecological knowledge but feel excluded from the process." },
-  { id: "Citizen_005", text: "Data validation is too strict - my observations keep getting rejected even though they're accurate." },
-  { id: "Citizen_006", text: "More training sessions needed. I don't understand how to identify species correctly." },
-  { id: "Citizen_007", text: "The project focuses too much on data quantity over quality of engagement." },
-  { id: "Citizen_008", text: "We should have more say in research questions. Scientists decide everything unilaterally." },
-  { id: "Citizen_009", text: "Young people are interested but the platform isn't mobile-friendly enough." },
-  { id: "Citizen_010", text: "Language barriers prevent non-English speakers from participating fully." },
-  { id: "Citizen_011", text: "Recognition for contributors is important. We volunteer our time and expertise." },
-  { id: "Citizen_012", text: "The feedback loop is broken - I submit data but never hear if it was useful." },
-  { id: "Citizen_013", text: "Privacy concerns about sharing exact locations of sensitive species." },
-  { id: "Citizen_014", text: "More diverse participants needed. Current group doesn't represent our community demographics." },
-  { id: "Citizen_015", text: "Scientific jargon makes results inaccessible to those who collected the data." },
-  { id: "Citizen_016", text: "Seasonal observations are valuable but the project only runs during summer months." },
-  { id: "Citizen_017", text: "Local environmental knowledge spans generations but isn't considered 'scientific' enough." },
-  { id: "Citizen_018", text: "The project should compensate participants for their time, especially from low-income communities." },
-  { id: "Citizen_019", text: "Co-creation means shared decision-making, not just data collection by volunteers." },
-  { id: "Citizen_020", text: "Traditional ecological calendars should be integrated with scientific observation protocols." },
-  { id: "Citizen_021", text: "I cannot read the small font on the map interface, please add accessibility settings for visually impaired users." },
-  { id: "Citizen_022", text: "There is no way to report pollution incidents alongside species data, which misses the context." },
-  { id: "Citizen_023", text: "We need an offline mode. I do my best work in the mountains where there is zero signal." },
-  { id: "Citizen_024", text: "Why is the data not open source? We collect it, but we have to pay to access the final reports." },
-  { id: "Citizen_025", text: "The gamification elements are distracting. I want to contribute to science, not earn badges." },
-  { id: "Citizen_026", text: "Local schools want to get involved but the curriculum materials are too complex for children." },
-  { id: "Citizen_027", text: "Researchers drop in for a week and leave. We need long-term relationship building with the town." },
-  { id: "Citizen_028", text: "Can we track invasive species? That is the biggest issue destroying our local crops right now." },
-  { id: "Citizen_029", text: "The automated image recognition AI is biased towards common species and mislabels rare ones." },
-  { id: "Citizen_030", text: "Funding should be allocated for local community leaders to organize the fieldwork, not just for university staff." }
+  // Synthetic demonstration fixture with four planted themes. The repeated
+  // concerns make semantic grouping inspectable; the mixed-theme records at
+  // the end of each theme create plausible cross-group connector candidates.
+  // ID prefixes preserve the planted answer key for regression tests. They are
+  // never supplied to the unsupervised clustering algorithm.
+  { id: "Digital_01", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. The field app needs offline data collection so observations can be saved without mobile coverage and synchronized later." },
+  { id: "Digital_02", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. Photo uploads fail whenever the signal is weak. The mobile app should queue every observation and upload it after connectivity returns." },
+  { id: "Digital_03", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. The map interface needs larger text, screen-reader labels, and high-contrast controls so visually impaired volunteers can report observations." },
+  { id: "Digital_04", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. GPS tracking drains the phone battery during long surveys. A battery-efficient field mode would make mobile monitoring practical." },
+  { id: "Digital_05", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. Automated image recognition often mislabels rare species. The app should let contributors correct a prediction before submitting it." },
+  { id: "Digital_06", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. The reporting form has too many technical fields. A simple mobile workflow with clear prompts would reduce incomplete records." },
+  { id: "Digital_07", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. The app loses draft observations after a crash. Local recovery and automatic saving are essential for reliable fieldwork." },
+  { id: "Digital_08", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. Sensitive species locations should be blurred automatically on the public map while authorized researchers retain precise coordinates." },
+  { id: "Digital_09", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. A contributor dashboard should show whether each mobile submission passed validation and how the observation was used." },
+  { id: "Digital_10", text: "Mobile field tools topic: mobile app, offline reporting, digital accessibility, and field technology. This contribution also concerns community governance and data rights. The offline contributor portal should combine queued mobile uploads with clear feedback and consent controls for every submitted record." },
+
+  { id: "Governance_01", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Community members should share authority over research questions instead of only collecting data chosen by university scientists." },
+  { id: "Governance_02", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Every contributor needs a transparent feedback loop explaining which observations informed the study and why some records were rejected." },
+  { id: "Governance_03", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Volunteer expertise should be credited in publications and reports through an agreed contributor recognition policy." },
+  { id: "Governance_04", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. The project budget should compensate community organizers and low-income participants for the time they contribute." },
+  { id: "Governance_05", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Consent must remain reversible. Contributors need a clear process for withdrawing records and sensitive location data." },
+  { id: "Governance_06", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Data collected by residents should be available under an open community license instead of being locked behind paid reports." },
+  { id: "Governance_07", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. A community steering committee should approve research priorities, data access rules, and decisions about publication." },
+  { id: "Governance_08", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Researchers need long-term relationships with the town, including regular meetings after a field campaign ends." },
+  { id: "Governance_09", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. Benefits from the project should return to participating communities through shared funding, useful reports, and local decision power." },
+  { id: "Governance_10", text: "Community governance topic: consent, shared decisions, participant feedback, and community data rights. This contribution also concerns mobile field technology. A participant portal should provide project feedback, record-level consent settings, and transparent controls over mobile submissions." },
+
+  { id: "Knowledge_01", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Indigenous indicators of ecosystem health should guide monitoring alongside laboratory measurements and scientific sampling protocols." },
+  { id: "Knowledge_02", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Traditional seasonal calendars record flowering, rainfall, and animal movement patterns that short research projects miss." },
+  { id: "Knowledge_03", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Residents have tracked bird migration routes for decades, and their place-based observations should inform the ecological baseline." },
+  { id: "Knowledge_04", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Farmers can identify the arrival of invasive species through crop damage long before a formal regional survey is published." },
+  { id: "Knowledge_05", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Elders' oral histories describe changes in wetlands and wildlife across generations and should be treated as ecological evidence." },
+  { id: "Knowledge_06", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Fishers understand spawning grounds, currents, and seasonal habitat changes through daily experience on the water." },
+  { id: "Knowledge_07", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Knowledge holders should control how culturally sensitive ecological knowledge is interpreted, stored, and shared." },
+  { id: "Knowledge_08", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Local species names and classifications contain ecological distinctions that are lost when the database accepts only scientific taxonomy." },
+  { id: "Knowledge_09", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. Place-based monitoring across many seasons can reveal environmental change that a short scientific visit cannot detect." },
+  { id: "Knowledge_10", text: "Local ecological knowledge topic: seasonal evidence, Indigenous expertise, and place-based monitoring. This contribution also concerns inclusive training. Elders could teach young volunteers species identification by combining local names, seasonal calendars, and field observations." },
+
+  { id: "Learning_01", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Hands-on field workshops are needed so new volunteers can practise species identification before collecting research data." },
+  { id: "Learning_02", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Training guides and onboarding sessions should be translated so non-English speakers can participate confidently." },
+  { id: "Learning_03", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Local schools need age-appropriate curriculum materials that let children contribute observations to the science project." },
+  { id: "Learning_04", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Accessible onboarding should use plain language, captions, large print, and demonstrations instead of scientific jargon." },
+  { id: "Learning_05", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Experienced volunteers could mentor new participants during their first surveys and answer identification questions in the field." },
+  { id: "Learning_06", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Practice sessions with reference specimens would help volunteers calibrate observations and understand data-quality checks." },
+  { id: "Learning_07", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Travel reimbursement, childcare, and flexible workshop times would include residents who cannot attend unpaid daytime training." },
+  { id: "Learning_08", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Bilingual facilitators should lead community training so language differences do not exclude interested participants." },
+  { id: "Learning_09", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. Participants need constructive coaching when a record fails validation rather than receiving a technical error message." },
+  { id: "Learning_10", text: "Inclusive training topic: education, workshops, volunteer learning, and accessible participation. This contribution also concerns local ecological knowledge. Youth training should pair elders and students so local species names and seasonal knowledge are learned alongside scientific identification." }
 ];
 
-export const MOCK_SUMMARY = "The community emphasizes the need for more accessible and inclusive tools, noting that technical jargon and strict validation hinder participation. There is a strong call to respect and integrate local and Indigenous ecological knowledge, rather than relying solely on traditional scientific protocols. Participants urge for better feedback loops, mobile-friendly platforms, and recognition of their time. Furthermore, equity concerns regarding language barriers, privacy, and compensation are highlighted as critical for true co-creation.";
+export const MOCK_SUMMARY = "Participants want reliable mobile field tools with offline reporting, accessible interfaces, recoverable drafts, transparent validation feedback, and privacy controls for sensitive locations. Community governance proposals call for shared decisions, reversible consent, open community data rights, contributor recognition, compensation, and long-term participant feedback. Local ecological knowledge, including Indigenous expertise, seasonal calendars, local species names, and place-based monitoring, should be respected alongside scientific protocols. Inclusive training should provide multilingual and accessible education, hands-on workshops, mentoring, school materials, childcare, travel support, and opportunities for elders and young volunteers to learn together.";
 
 // ── Benchmark datasets for calibration ────────────────────────────────────────
 
@@ -277,7 +299,7 @@ export const BENCHMARK_UNFAIR: ParticipantInput[] = [
 
 /** Map of sample dataset IDs to their data and descriptions */
 export const SAMPLE_DATASETS: Record<string, { data: ParticipantInput[]; label: string; description: string; expectedGini: string }> = {
-  citizen: { data: SAMPLE_DATA, label: 'Citizen Science Feedback', description: '30 diverse citizen science perspectives', expectedGini: '~0.30' },
+  citizen: { data: SAMPLE_DATA, label: 'Citizen Science Deliberation', description: '40 synthetic contributions with four planted themes and mixed-theme connectors', expectedGini: 'summary/model dependent' },
   fair: { data: BENCHMARK_FAIR, label: 'Diverse-topic fixture', description: '15 synthetic urban-planning contributions spanning distinct topics', expectedGini: 'summary/model dependent' },
   unfair: { data: BENCHMARK_UNFAIR, label: 'Dominant-topic fixture', description: '12 tax-focused and 3 deliberately distinct synthetic contributions', expectedGini: 'summary/model dependent' },
 };

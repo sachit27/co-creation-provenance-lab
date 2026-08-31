@@ -29,7 +29,7 @@ Publish the contents of `dist/` at `/apps/provenance-lab/` in the academic websi
 OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
 ```
 
-The default configuration uses `qwen2.5:14b` for generation, `phi4:14b` for automated review, and `qwen3-embedding:8b` for embeddings. The script refuses to replace `public/demo-result.json` if required stages fail or the run silently falls back.
+The default configuration uses `qwen2.5:14b` for generation, `phi4:14b` for automated review, and `qwen3-embedding:8b` for embeddings. The script refuses to replace `public/demo-result.json` if the semantic partition is unavailable, no cross-group connector candidate is present, required stages fail, or the run silently falls back. The existing tracked artifact is otherwise left untouched.
 
 ## Verify before publishing
 

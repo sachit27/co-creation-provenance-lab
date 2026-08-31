@@ -473,8 +473,8 @@ const estimateSubsampleStability = (
 
 /**
  * Measures the fraction of local-neighbour relations that remain inside the
- * assigned group. Non-convex method dependence is screened separately against
- * the single-linkage sensitivity partition below.
+ * assigned group. Method dependence is screened separately against the
+ * average-linkage sensitivity partition below.
  */
 const neighborhoodCoherence = (vectors: number[][], assignments: number[]): number => {
     const n = vectors.length;
@@ -498,67 +498,103 @@ const neighborhoodCoherence = (vectors: number[][], assignments: number[]): numb
 };
 
 /**
- * Same-k single-linkage sensitivity partition obtained by cutting the k-1
- * longest edges of the cosine-distance minimum spanning tree. This deliberately
- * makes a different compactness assumption from K-Means and can follow curved
- * connected structure. Strong disagreement makes the K-Means result method-
- * dependent and therefore unsuitable for downstream group-conditioned claims.
+ * Deterministic average-linkage hierarchy under cosine distance.
+ *
+ * Single linkage was previously used as the method-sensitivity check. Its
+ * chaining behaviour allowed one locally close pair to join otherwise compact
+ * groups and rejected stable spherical partitions for the wrong reason.
+ * Average linkage still makes a meaningfully different hierarchical assumption
+ * from K-Means, but bases each merge on all cross-cluster pairs rather than a
+ * single edge. One hierarchy supplies every requested k.
  */
-const singleLinkageAssignments = (vectors: number[][], k: number): number[] => {
-    const n = vectors.length;
-    const visited = new Array(n).fill(false);
-    const bestDistance = new Array(n).fill(Infinity);
-    const parent = new Array(n).fill(-1);
-    bestDistance[0] = 0;
-    const edges: Array<{ a: number; b: number; distance: number }> = [];
-    for (let step = 0; step < n; step++) {
-        let next = -1;
-        for (let i = 0; i < n; i++) {
-            if (!visited[i] && (next < 0 || bestDistance[i] < bestDistance[next])) next = i;
-        }
-        if (next < 0) break;
-        visited[next] = true;
-        if (parent[next] >= 0) edges.push({ a: parent[next], b: next, distance: bestDistance[next] });
-        for (let candidate = 0; candidate < n; candidate++) {
-            if (visited[candidate]) continue;
-            const distance = cosineDistanceUnit(vectors[next], vectors[candidate]);
-            if (distance < bestDistance[candidate]) {
-                bestDistance[candidate] = distance;
-                parent[candidate] = next;
-            }
+const averageLinkageHierarchy = (
+    vectors: number[][],
+    maximumReportedK: number,
+): Map<number, number[]> => {
+    type Cluster = { id: number; members: number[]; size: number };
+    const active = new Map<number, Cluster>();
+    vectors.forEach((_, index) => active.set(index, { id: index, members: [index], size: 1 }));
+    let nextClusterId = vectors.length;
+    const distances = new Map<string, number>();
+    const key = (left: number, right: number): string =>
+        left < right ? `${left}:${right}` : `${right}:${left}`;
+    const getDistance = (left: number, right: number): number =>
+        distances.get(key(left, right)) ?? Infinity;
+
+    for (let left = 0; left < vectors.length; left++) {
+        for (let right = left + 1; right < vectors.length; right++) {
+            distances.set(key(left, right), cosineDistanceUnit(vectors[left], vectors[right]));
         }
     }
-    const removed = new Set(
-        [...edges]
-            .sort((left, right) => right.distance - left.distance || left.a - right.a || left.b - right.b)
-            .slice(0, Math.max(0, k - 1))
-            .map(edge => `${Math.min(edge.a, edge.b)}:${Math.max(edge.a, edge.b)}`),
-    );
-    const adjacency = Array.from({ length: n }, () => [] as number[]);
-    for (const edge of edges) {
-        const key = `${Math.min(edge.a, edge.b)}:${Math.max(edge.a, edge.b)}`;
-        if (removed.has(key)) continue;
-        adjacency[edge.a].push(edge.b);
-        adjacency[edge.b].push(edge.a);
-    }
-    const assignments = new Array(n).fill(-1);
-    let cluster = 0;
-    for (let start = 0; start < n; start++) {
-        if (assignments[start] >= 0) continue;
-        const stack = [start];
-        assignments[start] = cluster;
-        while (stack.length > 0) {
-            const current = stack.pop()!;
-            for (const neighbor of adjacency[current]) {
-                if (assignments[neighbor] < 0) {
-                    assignments[neighbor] = cluster;
-                    stack.push(neighbor);
+
+    const cuts = new Map<number, number[]>();
+    const recordCut = (): void => {
+        if (active.size < 2 || active.size > maximumReportedK) return;
+        const assignments = new Array(vectors.length).fill(-1);
+        [...active.values()]
+            .sort((left, right) => left.members[0] - right.members[0])
+            .forEach((cluster, label) => {
+                cluster.members.forEach(member => { assignments[member] = label; });
+            });
+        cuts.set(active.size, assignments);
+    };
+
+    recordCut();
+    while (active.size > 2) {
+        const ids = [...active.keys()].sort((a, b) => a - b);
+        let selectedLeft = ids[0];
+        let selectedRight = ids[1];
+        let selectedDistance = getDistance(selectedLeft, selectedRight);
+        for (let leftIndex = 0; leftIndex < ids.length; leftIndex++) {
+            for (let rightIndex = leftIndex + 1; rightIndex < ids.length; rightIndex++) {
+                const left = ids[leftIndex];
+                const right = ids[rightIndex];
+                const distance = getDistance(left, right);
+                if (
+                    distance < selectedDistance - 1e-12 ||
+                    (Math.abs(distance - selectedDistance) <= 1e-12 &&
+                        (left < selectedLeft || (left === selectedLeft && right < selectedRight)))
+                ) {
+                    selectedLeft = left;
+                    selectedRight = right;
+                    selectedDistance = distance;
                 }
             }
         }
-        cluster++;
+
+        const leftCluster = active.get(selectedLeft)!;
+        const rightCluster = active.get(selectedRight)!;
+        const mergedId = nextClusterId++;
+        const pendingDistances: Array<[number, number]> = [];
+        for (const otherId of ids) {
+            if (otherId === selectedLeft || otherId === selectedRight) continue;
+            const weightedDistance = (
+                leftCluster.size * getDistance(selectedLeft, otherId) +
+                rightCluster.size * getDistance(selectedRight, otherId)
+            ) / (leftCluster.size + rightCluster.size);
+            pendingDistances.push([otherId, weightedDistance]);
+        }
+
+        for (const distanceKey of [...distances.keys()]) {
+            const [left, right] = distanceKey.split(':').map(Number);
+            if (
+                left === selectedLeft || right === selectedLeft ||
+                left === selectedRight || right === selectedRight
+            ) distances.delete(distanceKey);
+        }
+        active.delete(selectedLeft);
+        active.delete(selectedRight);
+        active.set(mergedId, {
+            id: mergedId,
+            members: [...leftCluster.members, ...rightCluster.members].sort((a, b) => a - b),
+            size: leftCluster.size + rightCluster.size,
+        });
+        pendingDistances.forEach(([otherId, distance]) => {
+            distances.set(key(mergedId, otherId), distance);
+        });
+        recordCut();
     }
-    return assignments;
+    return cuts;
 };
 
 const unavailableClustering = (
@@ -576,7 +612,7 @@ const unavailableClustering = (
         assignments: new Array(originalLength).fill(0),
         k: 1,
         diagnostics: {
-            methodVersion: 'spherical-kmeans-stability-v1',
+            methodVersion: 'spherical-kmeans-stability-v2',
             status: 'unavailable',
             usableForDownstream: false,
             reason,
@@ -671,6 +707,21 @@ export const computeAutoKMeans = (
         }
     }
     const maxK = Math.min(algorithms.maxClusters, Math.floor(workingVectors.length / algorithms.minClusterSize));
+    const methodSampleSize = Math.min(
+        workingVectors.length,
+        Math.max(maxK * algorithms.minClusterSize, algorithms.clusterMethodSensitivityMaxSampleSize),
+    );
+    const methodSampleIndices = methodSampleSize === workingVectors.length
+        ? Array.from({ length: workingVectors.length }, (_, index) => index)
+        : withoutReplacementSample(
+            workingVectors.length,
+            methodSampleSize,
+            new SeededRNG((seed ^ 0x6d2b79f5) >>> 0),
+        ).sort((a, b) => a - b);
+    const methodHierarchy = averageLinkageHierarchy(
+        methodSampleIndices.map(index => workingVectors[index]),
+        maxK,
+    );
     const candidates: Array<ClusteringCandidateDiagnostic & { assignments: number[] }> = [];
 
     for (let k = 2; k <= maxK; k++) {
@@ -689,7 +740,13 @@ export const computeAutoKMeans = (
             seed,
         );
         const neighborhoodAgreement = neighborhoodCoherence(workingVectors, best.assignments);
-        const methodAgreement = adjustedRandIndex(best.assignments, singleLinkageAssignments(workingVectors, k));
+        const methodAssignments = methodHierarchy.get(k);
+        const methodAgreement = methodAssignments
+            ? adjustedRandIndex(
+                methodSampleIndices.map(index => best.assignments[index]),
+                methodAssignments,
+            )
+            : 0;
         const rejectionReasons: string[] = [];
         if (Math.min(...sizes) < algorithms.minClusterSize) rejectionReasons.push('minimum-cluster-size');
         if (silhouette < algorithms.minSilhouette) rejectionReasons.push('silhouette');
@@ -743,7 +800,7 @@ export const computeAutoKMeans = (
     const assignments = new Array(vectors.length).fill(-1);
     validEntries.forEach((entry, sortedIndex) => { assignments[entry.originalIndex] = selected.assignments[sortedIndex]; });
     const diagnostics: ClusteringDiagnostics = {
-        methodVersion: 'spherical-kmeans-stability-v1',
+            methodVersion: 'spherical-kmeans-stability-v2',
         status: 'available',
         usableForDownstream: true,
         reason: 'Partition passed all configured internal diagnostic gates.',
@@ -776,7 +833,7 @@ export const computeAutoKMeans = (
             'Semantic groups are exploratory geometric partitions, not validated topics, stakeholder categories, or causal strata.',
             'The diagnostics measure internal run stability and geometry; they do not establish external construct validity.',
             'K-Means favors compact cosine-space partitions. Irregular or varying-density structure may remain unavailable.',
-            'Strong disagreement with a same-k single-linkage sensitivity partition disables downstream cluster-conditioned claims.',
+            `Strong disagreement with a same-k cosine average-linkage sensitivity partition disables downstream cluster-conditioned claims (method-sensitivity n=${methodSampleSize}).`,
         ],
     };
     return { assignments, k: selected.k, diagnostics };
@@ -1000,6 +1057,13 @@ export const computeMutualKNN = (
   if (n < 2) return [];
 
   const effectiveK = Math.min(k, n - 1);
+  const dimensions = embeddings[0]?.length ?? 0;
+  const valid = embeddings.map(vector =>
+    dimensions > 0 &&
+    vector.length === dimensions &&
+    vector.every(Number.isFinite) &&
+    vector.some(value => value !== 0),
+  );
 
   // Compute pairwise similarities and cache them (symmetric, so store once)
   const simCache = new Float64Array(n * n);
@@ -1014,20 +1078,30 @@ export const computeMutualKNN = (
   // For each node, find its top-k neighbors
   const knnSets: Set<number>[] = new Array(n);
   for (let i = 0; i < n; i++) {
+    if (!valid[i]) {
+      knnSets[i] = new Set();
+      continue;
+    }
     const sims: { idx: number; sim: number }[] = [];
     for (let j = 0; j < n; j++) {
-      if (i === j) continue;
+      if (i === j || !valid[j]) continue;
       sims.push({ idx: j, sim: simCache[i * n + j] });
     }
-    sims.sort((a, b) => b.sim - a.sim);
-    knnSets[i] = new Set(sims.slice(0, effectiveK).map(s => s.idx));
+    sims.sort((a, b) =>
+      b.sim - a.sim ||
+      participantIds[a.idx].localeCompare(participantIds[b.idx]) ||
+      a.idx - b.idx,
+    );
+    // Zero/negative cosine links have no positive semantic overlap and should
+    // not be manufactured merely because every node is forced to choose k.
+    knnSets[i] = new Set(sims.filter(item => item.sim > 0).slice(0, effectiveK).map(s => s.idx));
   }
 
   // Mutual kNN: edge exists iff both nodes rank each other in top-k
   const edges: { source: string; target: string; weight: number }[] = [];
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      if (knnSets[i].has(j) && knnSets[j].has(i)) {
+      if (valid[i] && valid[j] && knnSets[i].has(j) && knnSets[j].has(i)) {
         edges.push({
           source: participantIds[i],
           target: participantIds[j],

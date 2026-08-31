@@ -23,13 +23,13 @@ The application does **not** establish authorship, causal influence, factual ent
 
 ## Hosted demonstration
 
-The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) loads a precomputed audit of 30 bundled sample contributions. That artifact was produced through the application pipeline with:
+The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) retains the existing precomputed audit of 30 bundled contributions. That artifact was produced through the application pipeline with:
 
 - `qwen2.5:14b` for summary generation
 - `phi4:14b` for automated model-coded review
 - `qwen3-embedding:8b` for semantic embeddings
 
-The sample did not pass the application's clustering validity gates. It is therefore displayed without a validated semantic partition, and cluster-dependent tension and attribution claims remain unavailable. This behavior is intentional.
+That archived run did not pass the current clustering validity gates, so its cluster-dependent views remain unavailable. Starting a **New Analysis** loads a separate 40-record synthetic tutorial fixture with four planted themes and four mixed-theme records. It is designed to exercise validated grouping and cross-group connector workflows with the user's configured models; it is not evaluation evidence.
 
 The hosted site has no Vercel backend and no shared server-side API keys. Running a new analysis requires a compatible browser-direct provider, a safely configured Ollama endpoint, or a local installation. Browser-entered credentials are stored only in the current tab's `sessionStorage`, but they remain accessible to the page's JavaScript and browser extensions.
 
@@ -109,7 +109,7 @@ With the documented Ollama models installed:
 OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
 ```
 
-The command refuses to replace the existing artifact if required stages fail or silently fall back.
+The command refuses to replace the existing artifact if the semantic partition is unavailable, the connector set is empty, required stages fail, or a configured model silently falls back. It is optional; the tracked archived demo remains unchanged until this command completes successfully.
 
 ## Input format
 
