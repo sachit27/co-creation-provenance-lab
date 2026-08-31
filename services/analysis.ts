@@ -6,9 +6,9 @@ import { checkOpenAIConnection, generateOpenAIEmbedding } from './openai';
 import { checkClaudeConnection } from './claude';
 import { checkApertusConnection } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
-import { cosineSimilarity, maxSentenceCosineScore, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN, analyzeNetworkGraph } from './mathUtils';
+import { cosineSimilarity, maxSentenceCosineScore, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN, chooseMutualKnnK, analyzeNetworkGraph } from './mathUtils';
 import { LocalVectorizer } from './vectorizer';
-import { extractKeywords } from './textUtils';
+import { extractContrastiveClusterLabel, extractKeywords } from './textUtils';
 import { computeUncertaintyMetrics } from './uncertainty';
 import { analyzeGroups } from './groupAnalysis';
 import { generateThresholdSensitivityData } from '../components/visualizations/ThresholdSensitivityMini';
@@ -649,18 +649,8 @@ export const runCoreAnalysis = async (
       .filter((_, idx) => clusterAssignments[idx] === i)
       .map(inp => inp.text);
 
-    const clusterCorpus = memberTexts.join('. ');
-    const clusterKeywords = extractKeywords(clusterCorpus, 5)
-      .filter(kw => kw.length >= 3);
-
-    let label = `Semantic group ${i + 1}`;
-    if (clusterKeywords.length > 0) {
-      const formatted = clusterKeywords
-        .slice(0, 2)
-        .map(kw => kw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
-        .join(' & ');
-      label = `${formatted} (Group ${i + 1})`;
-    }
+    const contrastiveLabel = extractContrastiveClusterLabel(memberTexts, inputs.map(input => input.text));
+    const label = contrastiveLabel ? `${contrastiveLabel} (Group ${i + 1})` : `Semantic group ${i + 1}`;
 
     return {
       id: i,
@@ -674,7 +664,7 @@ export const runCoreAnalysis = async (
   // an edge exists iff both nodes rank each other in their top-k. This is a
   // construction rule, not a substantive confidence guarantee.
   onProgress?.("Building similarity network...");
-  const knnK = Math.min(5, Math.ceil(Math.sqrt(inputs.length)));
+  const knnK = chooseMutualKnnK(inputs.length);
   const networkEdges = computeMutualKNN(
     inputEmbeddings,
     inputs.map(inp => inp.id),

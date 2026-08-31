@@ -128,6 +128,20 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
     return !isHighlighted(node);
   }, [highlightMode, isHighlighted]);
 
+  const highlightCounts = useMemo<Record<Exclude<HighlightMode, 'none'>, number>>(() => ({
+    bridges: groupingUsable ? (analysis?.bridgeNodes.length ?? 0) : 0,
+    hubs: analysis?.hubNodes.length ?? 0,
+    peripheral: analysis?.peripheralNodes.length ?? 0,
+  }), [analysis, groupingUsable]);
+
+  // A data refresh can remove the role currently being highlighted. Return to
+  // the complete graph rather than presenting an apparently mislabeled node.
+  useEffect(() => {
+    if (highlightMode !== 'none' && highlightCounts[highlightMode] === 0) {
+      setHighlightMode('none');
+    }
+  }, [highlightCounts, highlightMode]);
+
   // Custom node rendering
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D) => {
     const size = node.val || 3;
@@ -167,8 +181,10 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
       ctx.stroke();
     }
 
-    // At-risk indicator ring (rep < 0.3)
-    if (node.representationScore < 0.3) {
+    // The at-risk ring is a separate summary-retrieval indicator, not a graph
+    // role. Hide it while a graph-role filter is active so it cannot be
+    // mistaken for a connector, hub, or peripheral marker.
+    if (highlightMode === 'none' && node.representationScore < 0.3) {
       ctx.beginPath();
       ctx.arc(node.x, node.y, size + 1, 0, 2 * Math.PI);
       ctx.strokeStyle = '#ef4444';
@@ -225,7 +241,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
   const nodeTooltip = useCallback((node: any) => {
     const metrics = analysis?.nodeMetrics[node.id];
     const roleLabels: string[] = [];
-    if (node.isBridge) roleLabels.push('<span style="color:#f59e0b">Bridge</span>');
+    if (node.isBridge) roleLabels.push('<span style="color:#f59e0b">Connector candidate</span>');
     if (node.isHub) roleLabels.push('<span style="color:#8b5cf6">Hub</span>');
     if (node.isPeripheral) roleLabels.push('<span style="color:#94a3b8">Peripheral</span>');
     if (node.representationScore < 0.3) roleLabels.push('<span style="color:#ef4444">At Risk</span>');
@@ -282,7 +298,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
             />
             <MetricBadge label="Connectors" value={groupingUsable ? String(analysis.bridgeNodes.length) : '—'} color="amber"
               tooltip={groupingUsable
-                ? "Records with at least one retained cross-group edge. These are connector candidates, not graph-theoretic bridge edges or evidence of social mediation."
+                ? "Records with at least one retained within-group edge and one retained cross-group edge. These are connector candidates, not graph-theoretic bridge edges or evidence of social mediation."
                 : "Unavailable because cross-group connectors require a validated semantic partition."}
             />
             <MetricBadge label="Peripheral" value={String(analysis.peripheralNodes.length)}
@@ -295,8 +311,13 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold text-slate-500 uppercase">Highlight:</span>
             {(['none', 'bridges', 'hubs', 'peripheral'] as HighlightMode[]).map(mode => {
-              const disabled = mode === 'bridges' && !groupingUsable;
+              const disabled = mode !== 'none' && highlightCounts[mode] === 0;
               return <button key={mode} onClick={() => !disabled && setHighlightMode(mode)} disabled={disabled}
+                title={disabled
+                  ? mode === 'bridges' && !groupingUsable
+                    ? 'Unavailable because no semantic partition passed the validity gates.'
+                    : `No ${mode === 'bridges' ? 'connector candidates' : mode} were found in this graph.`
+                  : undefined}
                 className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                   disabled
                     ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
@@ -309,6 +330,12 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
                 {mode === 'none' ? 'All' : mode === 'bridges' ? 'Connectors' : mode.charAt(0).toUpperCase() + mode.slice(1)}
               </button>;
             })}
+            {highlightMode !== 'none' && (
+              <span className="text-[10px] text-slate-500">
+                Showing {highlightCounts[highlightMode]} {highlightMode === 'bridges' ? 'connector candidate' : highlightMode}
+                {highlightCounts[highlightMode] === 1 ? '' : 's'}; at-risk rings are hidden in role views.
+              </span>
+            )}
             <button onClick={() => setShowMetrics(!showMetrics)}
               className="ml-auto text-[11px] text-indigo-600 hover:text-indigo-800 underline"
             >
@@ -392,10 +419,10 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
             ))}
           </div>
           <div className="space-y-1 pt-1 border-t border-slate-200 mt-1">
-            <div className="flex items-center gap-1">
+            {highlightMode === 'none' && <div className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-full border-2 border-red-500 bg-transparent" />
-              <span className="text-slate-600">At risk (rep &lt; 30%)</span>
-            </div>
+              <span className="text-slate-600">At risk (summary retrieval &lt; 30%)</span>
+            </div>}
             {groupingUsable && <div className="flex items-center gap-1">
               <span className="w-4 h-0 border-t-2 border-dashed border-amber-500" />
               <span className="text-slate-600">Cross-group edge</span>

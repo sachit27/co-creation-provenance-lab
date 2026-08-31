@@ -60,6 +60,29 @@ interface RawRelationship {
 }
 
 /**
+ * Normalize the two common shapes returned by JSON-capable model APIs.
+ * Prompts request a comma-separated string, but some models correctly infer
+ * that `keywords` is plural and return a JSON array. Treat all other shapes as
+ * unavailable rather than coercing objects into "[object Object]" evidence.
+ */
+export const normalizeRelationshipKeywords = (value: unknown): string => {
+  const candidates = typeof value === 'string'
+    ? value.split(',')
+    : Array.isArray(value)
+      ? value.flatMap(item => typeof item === 'string' ? item.split(',') : [])
+      : [];
+
+  const unique = new Map<string, string>();
+  for (const candidate of candidates) {
+    const keyword = candidate.trim();
+    if (!keyword) continue;
+    const key = keyword.toLocaleLowerCase('en-US');
+    if (!unique.has(key)) unique.set(key, keyword.slice(0, 60));
+  }
+  return [...unique.values()].slice(0, 5).join(', ');
+};
+
+/**
  * Extract entities and relationships from a batch of participant inputs.
  * Uses a single-pass prompt that extracts both entities and relationships
  * together (more efficient than 2-stage for short texts).
@@ -144,7 +167,7 @@ Return ONLY the JSON object.`;
           relationshipType: (r.relationshipType || 'relates to').slice(0, 50),
           description: (r.description || '').slice(0, 200),
           strength: Math.max(1, Math.min(10, Number(r.strength) || 5)),
-          keywords: (r.keywords || '').slice(0, 100),
+          keywords: normalizeRelationshipKeywords(r.keywords),
           participantId: opaqueToParticipant.get(r.sourceId)!,
         }));
 
@@ -232,7 +255,7 @@ Return ONLY the JSON object. If nothing was missed, return {"entities": [], "rel
           relationshipType: (r.relationshipType || 'relates to').slice(0, 50),
           description: (r.description || '').slice(0, 200),
           strength: Math.max(1, Math.min(10, Number(r.strength) || 5)),
-          keywords: (r.keywords || '').slice(0, 100),
+          keywords: normalizeRelationshipKeywords(r.keywords),
           participantId: opaqueToParticipant.get(r.sourceId)!,
         }));
 
@@ -436,8 +459,8 @@ const aggregateRelationships = (
         existing.relationshipType = raw.relationshipType;
         existing.description = raw.description;
       }
-      const existingKws = new Set(existing.keywords.split(',').map(k => k.trim()).filter(Boolean));
-      for (const kw of raw.keywords.split(',').map(k => k.trim()).filter(Boolean)) {
+      const existingKws = new Set(normalizeRelationshipKeywords(existing.keywords).split(',').map(k => k.trim()).filter(Boolean));
+      for (const kw of normalizeRelationshipKeywords(raw.keywords).split(',').map(k => k.trim()).filter(Boolean)) {
         existingKws.add(kw);
       }
       existing.keywords = Array.from(existingKws).slice(0, 5).join(', ');
@@ -448,7 +471,7 @@ const aggregateRelationships = (
         relationshipType: raw.relationshipType,
         description: raw.description,
         strength: raw.strength,
-        keywords: raw.keywords,
+        keywords: normalizeRelationshipKeywords(raw.keywords),
         sourceParticipantId: raw.participantId,
       });
     }

@@ -1,6 +1,7 @@
 /** Validated semantic-grouping regression tests. */
 import {
   adjustedRandIndex,
+  analyzeNetworkGraph,
   computeAutoKMeans,
   computeMutualKNN,
   meanSilhouette,
@@ -164,6 +165,21 @@ const tiedReordered = computeMutualKNN(
 check('equal-similarity neighbor ties resolve by participant ID rather than row order',
   JSON.stringify(tiedOriginal) === JSON.stringify(tiedReordered),
   `${JSON.stringify(tiedOriginal)} vs ${JSON.stringify(tiedReordered)}`);
+const roleAnalysis = analyzeNetworkGraph(
+  [
+    { id: 'a-core', clusterId: 0 },
+    { id: 'a-mixed', clusterId: 0 },
+    { id: 'b-leaf', clusterId: 1 },
+  ] as any,
+  [
+    { source: 'a-core', target: 'a-mixed', weight: 0.8 },
+    { source: 'a-mixed', target: 'b-leaf', weight: 0.7 },
+  ],
+);
+check('connector candidates require both within-group and cross-group retained edges',
+  roleAnalysis.bridgeNodes.join(',') === 'a-mixed');
+check('a degree-one cross-group endpoint remains peripheral, not a connector candidate',
+  roleAnalysis.peripheralNodes.includes('b-leaf') && !roleAnalysis.bridgeNodes.includes('b-leaf'));
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} — passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

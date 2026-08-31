@@ -410,6 +410,74 @@ export const extractKeywords = (text: string, max: number = 8): string[] => {
 };
 
 /**
+ * Produce a short descriptive label for a validated semantic cluster.
+ *
+ * The score is a contrastive document-frequency score: terms must recur across
+ * records inside the cluster and are rewarded when they are uncommon outside
+ * it. Contiguous bigrams receive a small readability boost, while an early-term
+ * tie-breaker favours phrases participants use to introduce their topic. This
+ * labels an existing partition; it never influences cluster assignment.
+ */
+export const extractContrastiveClusterLabel = (
+  memberTexts: string[],
+  allTexts: string[],
+): string | null => {
+  if (memberTexts.length === 0 || allTexts.length === 0) return null;
+
+  type TermStats = { documentFrequency: number; firstPositions: number[] };
+  const termsByDocument = (text: string): Map<string, number> => {
+    const rawTokens = text.toLocaleLowerCase('en-US').match(/[\p{L}\p{N}]+/gu) ?? [];
+    const eligible = (token: string) => token.length >= 3 &&
+      !STOP_WORDS.has(token) && !GENERIC_WORDS.has(token) &&
+      token !== 'topic' && token !== 'concerns' && token !== 'contribution';
+    const terms = new Map<string, number>();
+    rawTokens.forEach((token, index) => {
+      if (eligible(token) && !terms.has(token)) terms.set(token, index);
+      if (index + 1 < rawTokens.length && eligible(token) && eligible(rawTokens[index + 1])) {
+        const bigram = `${token} ${rawTokens[index + 1]}`;
+        if (!terms.has(bigram)) terms.set(bigram, index);
+      }
+    });
+    return terms;
+  };
+
+  const collect = (texts: string[]): Map<string, TermStats> => {
+    const stats = new Map<string, TermStats>();
+    for (const text of texts) {
+      for (const [term, firstPosition] of termsByDocument(text)) {
+        const current = stats.get(term) ?? { documentFrequency: 0, firstPositions: [] };
+        current.documentFrequency++;
+        current.firstPositions.push(firstPosition);
+        stats.set(term, current);
+      }
+    }
+    return stats;
+  };
+
+  const memberStats = collect(memberTexts);
+  const globalStats = collect(allTexts);
+  const minimumDocuments = Math.max(2, Math.ceil(memberTexts.length * 0.3));
+  const ranked = [...memberStats.entries()]
+    .filter(([, stats]) => stats.documentFrequency >= minimumDocuments)
+    .map(([term, stats]) => {
+      const prevalence = stats.documentFrequency / memberTexts.length;
+      const globalDf = globalStats.get(term)?.documentFrequency ?? stats.documentFrequency;
+      const specificity = Math.log((allTexts.length + 1) / (globalDf + 1)) + 1;
+      const meanFirstPosition = stats.firstPositions.reduce((sum, value) => sum + value, 0) / stats.firstPositions.length;
+      const readabilityBoost = term.includes(' ') ? 1.35 : 1;
+      const earlyUseBoost = 1 / (1 + meanFirstPosition * 0.025);
+      return { term, score: prevalence * specificity * readabilityBoost * earlyUseBoost };
+    })
+    .sort((a, b) => b.score - a.score || a.term.localeCompare(b.term));
+
+  if (ranked.length === 0) return null;
+  return ranked[0].term
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+/**
  * Legacy TF-IDF keyword extractor — kept as fallback for computeConceptOverlapScore
  * which relies on unigram stem matching against the summary.
  */

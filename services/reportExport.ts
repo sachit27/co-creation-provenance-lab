@@ -77,9 +77,11 @@ export interface ReportData {
     acknowledged: number;
     suppressed: number;
     merged: number;
+    absent: number;
     distorted: number;
     unassessed: number;
     conditionalScore: number | null;
+    samplingCoverage?: AnalysisResult['tensionAnalysis'] extends infer T ? T extends { samplingCoverage?: infer S } ? S : never : never;
   };
   limitations: string[];
 }
@@ -209,9 +211,11 @@ export const generateReportData = (data: AnalysisResult): ReportData => {
       acknowledged: data.tensionAnalysis.acknowledgedCount,
       suppressed: data.tensionAnalysis.suppressedCount,
       merged: data.tensionAnalysis.mergedCount,
+      absent: data.tensionAnalysis.absentCount ?? 0,
       distorted: data.tensionAnalysis.distortedCount,
       unassessed: data.tensionAnalysis.unassessedCount,
       conditionalScore: data.tensionAnalysis.tensionFidelityScore,
+      samplingCoverage: data.tensionAnalysis.samplingCoverage,
     } : undefined,
     limitations: [
       'This is an unsigned automated audit record, not a certificate, fairness verdict, causal proof, or statistical validation.',
@@ -271,7 +275,7 @@ ${report.affective ? `<h2>Exploratory automated affective fidelity</h2><div clas
 ${report.languageTransformation ? `<h2>Automated source-unit transformation assessment</h2><div class="grid"><div class="card"><div class="value">${pct(report.languageTransformation.preservationRate)}</div><div class="note">Participant-balanced preservation among eligible units · ${unit(report.languageTransformation.preservedParticipantEquivalent)}/${unit(report.languageTransformation.assessedParticipantEquivalent)} participant-equivalent units</div></div><div class="card"><div class="value">${pct(report.languageTransformation.assessmentCoverageRate)}</div><div class="note">Evaluator output completeness · ${report.languageTransformation.completedUnits}/${report.languageTransformation.totalUnits} source units; ${report.languageTransformation.preservationEligibleUnits} preservation-eligible</div></div></div><p class="note">Method ${esc(report.languageTransformation.methodVersion)} · Evaluator ${esc(report.languageTransformation.evaluator)}</p><ul>${report.languageTransformation.limitations.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
 
 ${report.claims ? `<h2>Automated summary-claim evidence assessment</h2><p>Supported ${report.claims.supported} · Inferrable ${report.claims.inferrable} · Unsupported ${report.claims.unsupported} · Contradicted ${report.claims.contradicted} · Unassessed ${report.claims.unassessed} · Conditional score ${pct(report.claims.conditionalScore)}</p>` : ''}
-${report.tensions ? `<h2>Automated sampled tension scan</h2>${report.tensions.basis === 'stable-semantic-groups' ? `<p>Detected ${report.tensions.detected} · Acknowledged ${report.tensions.acknowledged} · Suppressed ${report.tensions.suppressed} · Merged ${report.tensions.merged} · Distorted ${report.tensions.distorted} · Unassessed ${report.tensions.unassessed} · Conditional score ${pct(report.tensions.conditionalScore)}</p>` : `<p class="warning">Unavailable: ${esc(report.tensions.unavailableReason || 'no validated semantic partition was available.')}</p>`}` : ''}
+${report.tensions ? `<h2>Automated sampled tension scan</h2>${report.tensions.basis === 'stable-semantic-groups' ? `<p>${report.tensions.samplingCoverage ? `Screened ${report.tensions.samplingCoverage.screenedRecords}/${report.tensions.samplingCoverage.totalRecords} source records · ` : ''}Detected ${report.tensions.detected} · Acknowledged ${report.tensions.acknowledged} · One-sided ${report.tensions.suppressed} · Flattened ${report.tensions.merged} · Absent ${report.tensions.absent} · Distorted ${report.tensions.distorted} · Unassessed ${report.tensions.unassessed} · Conditional score ${pct(report.tensions.conditionalScore)}</p>` : `<p class="warning">Unavailable: ${esc(report.tensions.unavailableReason || 'no validated semantic partition was available.')}</p>`}` : ''}
 
 <h2>${esc(labelForOrigin(report.summaryOrigin))}</h2><div class="summary">${esc(report.summary)}</div>
 <h2>Limitations that travel with this report</h2><ul>${report.limitations.map(item => `<li>${esc(item)}</li>`).join('')}</ul>

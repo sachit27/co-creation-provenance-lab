@@ -866,25 +866,40 @@ export interface ClaimAttribution {
 
 // ── Tension & Contradiction Mapping ───────────────────────────────────────────
 
-export type TensionHandling = 'acknowledged' | 'suppressed' | 'merged' | 'distorted' | 'unassessed';
+export type TensionHandling = 'acknowledged' | 'suppressed' | 'merged' | 'absent' | 'distorted' | 'unassessed';
+export type TensionType = 'direct_contradiction' | 'incompatible_policy' | 'explicit_tradeoff';
 
 export interface TensionPair {
   claimA: { participantId: string; text: string; clusterId: number };
   claimB: { participantId: string; text: string; clusterId: number };
+  tensionType?: TensionType;
   tensionDescription: string;
   summaryHandling: TensionHandling;
   summaryEvidence: string | null;
 }
 
 export interface TensionAnalysis {
+  methodVersion?: 'conservative-exact-span-v2';
   /** Whether candidate sampling used a validated semantic partition. */
   basis?: 'stable-semantic-groups' | 'unavailable';
   unavailableReason?: string;
+  /** Records presented to the tension evaluator. A capped subset is not a census. */
+  samplingCoverage?: {
+    maximumRecordsPerCluster: number;
+    totalRecords: number;
+    screenedRecords: number;
+    clusters: Array<{
+      clusterId: number;
+      totalRecords: number;
+      screenedRecords: number;
+    }>;
+  };
   pairs: TensionPair[];
   tensionFidelityScore: number | null;  // fraction acknowledged among assessed pairs
   suppressedCount: number;
   acknowledgedCount: number;
   mergedCount: number;
+  absentCount: number;
   distortedCount: number;
   unassessedCount: number;
   clusterTensions: Array<{

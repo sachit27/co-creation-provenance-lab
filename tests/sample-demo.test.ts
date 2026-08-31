@@ -6,7 +6,9 @@ import {
   analyzeNetworkGraph,
   computeAutoKMeans,
   computeMutualKNN,
+  chooseMutualKnnK,
 } from './.modules/services/mathUtils.ts';
+import { extractContrastiveClusterLabel } from './.modules/services/textUtils.ts';
 
 let pass = 0;
 let fail = 0;
@@ -34,7 +36,7 @@ check('unsupervised partition agrees strongly with the planted tutorial labels',
   adjustedRandIndex(plantedAssignments, clustering.assignments) >= 0.85,
   `ARI=${adjustedRandIndex(plantedAssignments, clustering.assignments).toFixed(3)}`);
 
-const networkK = Math.min(5, Math.ceil(Math.sqrt(SAMPLE_DATA.length)));
+const networkK = chooseMutualKnnK(SAMPLE_DATA.length);
 const edges = computeMutualKNN(vectors, SAMPLE_DATA.map(item => item.id), networkK);
 const analysis = analyzeNetworkGraph(
   SAMPLE_DATA.map((item, index) => ({
@@ -50,6 +52,14 @@ const analysis = analyzeNetworkGraph(
 check('tutorial graph contains cross-group connector candidates',
   analysis.bridgeNodes.length > 0,
   `connectors=${analysis.bridgeNodes.join(',') || 'none'}`);
+
+const expectedLabelTerms = ['Mobile Field', 'Community Governance', 'Local Ecological', 'Inclusive Training'];
+for (const [prefix, plantedId] of plantedGroups) {
+  const members = SAMPLE_DATA.filter(item => item.id.startsWith(`${prefix}_`)).map(item => item.text);
+  const label = extractContrastiveClusterLabel(members, SAMPLE_DATA.map(item => item.text));
+  check(`cluster label for planted group ${plantedId + 1} is concise and topic-bearing`,
+    label === expectedLabelTerms[plantedId], `label=${label}`);
+}
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} — passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

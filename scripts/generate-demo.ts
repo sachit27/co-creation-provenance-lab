@@ -2,10 +2,12 @@
  * Reproduce the bundled application demo with the same production analysis
  * pipeline used by the browser UI.
  *
- * The Ollama host and model choices are explicit environment inputs so a demo
- * artifact never depends on hidden browser state:
+ * Provider and model choices are explicit environment inputs so a demo
+ * artifact never depends on hidden browser state. For example:
  *
  *   OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
+ *   DEMO_PROVIDER=openai DEMO_EVALUATOR_PROVIDER=openai \
+ *     DEMO_EMBEDDING_PROVIDER=openai npm run demo:generate
  */
 
 import { writeFile } from 'node:fs/promises';
@@ -34,27 +36,60 @@ const session = installStorage('sessionStorage');
 installStorage('localStorage');
 
 const ollamaHost = (process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434').replace(/\/$/, '');
-const generatorModel = process.env.DEMO_GENERATOR_MODEL ?? 'qwen2.5:14b';
-const evaluatorModel = process.env.DEMO_EVALUATOR_MODEL ?? 'phi4:14b';
-const embeddingModel = process.env.DEMO_EMBEDDING_MODEL ?? 'qwen3-embedding:8b';
+const provider = process.env.DEMO_PROVIDER === 'openai' ? 'openai' : 'ollama';
+const evaluatorProvider = process.env.DEMO_EVALUATOR_PROVIDER === 'openai' ? 'openai' : provider;
+const embeddingProvider = process.env.DEMO_EMBEDDING_PROVIDER === 'openai' ? 'openai' : provider;
+const generatorModel = process.env.DEMO_GENERATOR_MODEL ?? (provider === 'openai' ? 'gpt-4o-mini' : 'qwen2.5:14b');
+const evaluatorModel = process.env.DEMO_EVALUATOR_MODEL ?? (evaluatorProvider === 'openai' ? 'gpt-4o-mini' : 'phi4:14b');
+const embeddingModel = process.env.DEMO_EMBEDDING_MODEL ?? (embeddingProvider === 'openai' ? 'text-embedding-3-small' : 'qwen3-embedding:8b');
 const outputPath = resolve(process.env.DEMO_OUTPUT ?? 'public/demo-result.json');
 
 session.setItem('cprov_ollama_host', ollamaHost);
 
-const [{ SAMPLE_DATA, ANALYSIS_CONFIG }, { runAnalysis }] = await Promise.all([
+const [{ SAMPLE_DATA, ANALYSIS_CONFIG }, { runAnalysis }, ollama, openai] = await Promise.all([
   import('../constants.ts'),
   import('../services/analysis.ts'),
+  import('../services/ollama.ts'),
+  import('../services/openai.ts'),
 ]);
+
+const usesOpenAI = [provider, evaluatorProvider, embeddingProvider].includes('openai');
+if (usesOpenAI) {
+  const key = process.env.OPENAI_API_KEY ?? '';
+  if (!key) throw new Error('OPENAI_API_KEY is required for the selected demo providers.');
+  openai.setOpenAIApiKey(key);
+  if (!await openai.verifyOpenAIConnection()) {
+    throw new Error('OpenAI rejected the configured key or the API is unreachable.');
+  }
+}
+
+const ollamaModels = [
+  ...(provider === 'ollama' ? [generatorModel] : []),
+  ...(evaluatorProvider === 'ollama' ? [evaluatorModel] : []),
+  ...(embeddingProvider === 'ollama' ? [embeddingModel] : []),
+];
+if (ollamaModels.length > 0) {
+  if (!await ollama.checkOllamaConnection()) {
+    throw new Error(`Ollama is unreachable at ${ollamaHost}; refusing to enter the fallback pipeline.`);
+  }
+  const installedModels = new Set(await ollama.getOllamaModels());
+  for (const requiredModel of ollamaModels) {
+    if (!installedModels.has(requiredModel)) {
+      throw new Error(`Required demo model ${requiredModel} is not installed at ${ollamaHost}.`);
+    }
+  }
+}
 
 const result = await runAnalysis(
   SAMPLE_DATA,
   {
     datasetName: 'Synthetic Citizen Science Deliberation',
     strategy: 'balanced',
-    aiProvider: 'ollama',
+    aiProvider: provider,
     model: generatorModel,
+    evaluatorProvider,
     evaluatorModel,
-    embeddingProvider: 'ollama',
+    embeddingProvider,
     embeddingModel,
     runLOO: true,
     summaryMethod: 'ai',
@@ -86,14 +121,22 @@ process.stdout.write('\n');
 if (result.config.summaryMethod !== 'ai') {
   throw new Error(`Demo generation fell back to ${result.config.summaryMethod}; refusing to keep the artifact.`);
 }
-if (result.embeddingTierUsed !== 'ollama') {
+if (result.embeddingTierUsed !== embeddingProvider) {
   throw new Error(`Demo embeddings fell back to ${result.embeddingTierUsed}; refusing to keep the artifact.`);
 }
 if (result.clusteringDiagnostics?.usableForDownstream !== true) {
   throw new Error(`Demo has no validated semantic partition: ${result.clusteringDiagnostics?.reason ?? 'missing diagnostics'}`);
 }
+if (result.clusteringDiagnostics.selectedK !== 4 || result.clusters.length !== 4) {
+  throw new Error(`Demo did not recover the four planted semantic groups (selected k=${result.clusteringDiagnostics.selectedK}).`);
+}
 if ((result.networkGraph?.analysis.bridgeNodes.length ?? 0) === 0) {
   throw new Error('Demo has no cross-group connector in the participant similarity network.');
+}
+if (result.tensionAnalysis?.methodVersion !== 'conservative-exact-span-v2' ||
+    result.tensionAnalysis.basis !== 'stable-semantic-groups' ||
+    result.tensionAnalysis.pairs.length === 0) {
+  throw new Error('Demo has no verified exact-span tension candidate from the conservative v2 method.');
 }
 if (result.enrichmentStatus !== 'complete' || failedStages.length > 0) {
   throw new Error(`Demo enrichment was ${result.enrichmentStatus}; failed stages: ${failedStages.join(', ') || 'none'}.`);

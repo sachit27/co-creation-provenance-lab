@@ -259,6 +259,7 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
       'cprov:conditionalFidelityScore': data.tensionAnalysis.tensionFidelityScore,
       'cprov:unassessedCount': data.tensionAnalysis.unassessedCount,
       'cprov:samplingBasis': data.tensionAnalysis.basis ?? 'legacy-unvalidated',
+      ...(data.tensionAnalysis.samplingCoverage ? { 'cprov:samplingCoverage': data.tensionAnalysis.samplingCoverage } : {}),
       ...(data.tensionAnalysis.unavailableReason ? { 'cprov:unavailableReason': data.tensionAnalysis.unavailableReason } : {}),
     },
     ...await Promise.all(data.tensionAnalysis.pairs.map(async (pair, index) => ({
@@ -270,6 +271,7 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
       'cprov:claimADigest': await sha256(pair.claimA.text),
       'cprov:claimBDigest': await sha256(pair.claimB.text),
       'cprov:summaryHandling': pair.summaryHandling,
+      ...(pair.tensionType ? { 'cprov:tensionType': pair.tensionType } : {}),
       ...(pair.summaryEvidence ? { 'cprov:summaryEvidenceDigest': await sha256(pair.summaryEvidence) } : {}),
     }))),
   ] : [];

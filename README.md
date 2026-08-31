@@ -23,13 +23,13 @@ The application does **not** establish authorship, causal influence, factual ent
 
 ## Hosted demonstration
 
-The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) retains the existing precomputed audit of 30 bundled contributions. That artifact was produced through the application pipeline with:
+The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) includes a precomputed audit of the 40-record synthetic citizen-science tutorial fixture. The artifact was produced through the same production pipeline used by a new browser analysis with:
 
-- `qwen2.5:14b` for summary generation
-- `phi4:14b` for automated model-coded review
-- `qwen3-embedding:8b` for semantic embeddings
+- `gpt-4o-mini` for summary generation
+- `gpt-4o-mini` for automated model-coded review
+- `text-embedding-3-small` for semantic embeddings
 
-That archived run did not pass the current clustering validity gates, so its cluster-dependent views remain unavailable. Starting a **New Analysis** loads a separate 40-record synthetic tutorial fixture with four planted themes and four mixed-theme records. It is designed to exercise validated grouping and cross-group connector workflows with the user's configured models; it is not evaluation evidence.
+The run recovered four groups after the documented internal validity gates, contains proper cross-group connector candidates with both within-group and cross-group retained links, and includes exact-span tension candidates. The tension screen covered all 40 records in this fixture. Starting a **New Analysis** loads the same raw tutorial records and reruns them with the user's selected methods. The fixture and its precomputed output demonstrate workflow states; they are not evaluation evidence or external validation. Generation and automated review used the same model in this artifact, which is recorded in its run manifest and limits independence.
 
 The hosted site has no Vercel backend and no shared server-side API keys. Running a new analysis requires a compatible browser-direct provider, a safely configured Ollama endpoint, or a local installation. Browser-entered credentials are stored only in the current tab's `sessionStorage`, but they remain accessible to the page's JavaScript and browser extensions.
 
@@ -109,7 +109,19 @@ With the documented Ollama models installed:
 OLLAMA_HOST=http://127.0.0.1:11434 npm run demo:generate
 ```
 
-The command refuses to replace the existing artifact if the semantic partition is unavailable, the connector set is empty, required stages fail, or a configured model silently falls back. It is optional; the tracked archived demo remains unchanged until this command completes successfully.
+Or, with an OpenAI key in the current shell:
+
+```bash
+DEMO_PROVIDER=openai \
+DEMO_EVALUATOR_PROVIDER=openai \
+DEMO_EMBEDDING_PROVIDER=openai \
+DEMO_GENERATOR_MODEL=gpt-4o-mini \
+DEMO_EVALUATOR_MODEL=gpt-4o-mini \
+DEMO_EMBEDDING_MODEL=text-embedding-3-small \
+npm run demo:generate
+```
+
+The command refuses to replace the existing artifact if the semantic partition is unavailable, the proper connector set is empty, no exact-span tension candidate survives verification, a required stage fails, or a configured method silently falls back. The artifact is written only after every gate passes.
 
 ## Input format
 

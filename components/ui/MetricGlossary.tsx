@@ -106,8 +106,8 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'tensions': {
     label: 'Tension & Contradiction Mapping',
-    description: 'Samples cross-cluster source evidence for possible disagreements and model-codes how verified summary evidence handles each candidate.',
-    implication: 'Suppressed, merged, or distorted labels are review candidates. Sampling caps and evaluator error mean the output is not a complete contradiction census.',
+    description: 'Samples records from validated semantic groups, requires exact source spans, rechecks a conservative incompatibility taxonomy, and model-codes how exact summary evidence handles each retained candidate.',
+    implication: 'One-sided, flattened, absent, distorted, or unassessed labels are review candidates. Sampling caps and evaluator error mean the output is not a complete contradiction census.',
     idealRange: 'Inspect exact evidence and unassessed coverage; no universal pass threshold',
     formula: 'Tension handling rate = acknowledged / assessed tension candidates',
     thresholdJustification: 'Cross-cluster sampling and caps are computational design choices, not completeness guarantees. Invalid quotations remain unassessed.'
@@ -139,9 +139,9 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   'similarityNetwork': {
     label: 'Participant Similarity Network',
     description: 'A mutual k-nearest-neighbors graph where an edge exists only when both records rank each other among their top-k cosine neighbors.',
-    implication: 'Bridge and peripheral labels describe graph position only. They do not identify facilitators, social influence, unique viewpoints, or natural communities.',
+    implication: 'Connector and peripheral labels describe graph position only. Connector candidates require retained links both within and outside their assigned group, so they are never degree-1 peripheral leaves. They do not identify facilitators, social influence, unique viewpoints, or natural communities.',
     idealRange: 'Descriptive; no universal modularity or connectivity target',
-    formula: 'Mutual k-NN: edge(i,j) iff j in kNN(i) AND i in kNN(j). k = min(5, ceil(sqrt(N))). Metrics: Brandes betweenness O(VE), Newman modularity Q, Watts-Strogatz clustering coefficient.',
+    formula: 'Mutual k-NN: edge(i,j) iff j in kNN(i) AND i in kNN(j). k = max(1, min(6, ceil(sqrt(N)))). Connector candidates have at least one retained within-group and one cross-group edge. Metrics: Brandes betweenness O(VE), Newman modularity Q, Watts-Strogatz clustering coefficient.',
     thresholdJustification: 'Mutual k-NN sparsifies the similarity graph; it does not turn retained edges into verified or high-confidence relationships. Modularity is reported descriptively for this constructed graph.'
   },
   'knowledgeGraph': {

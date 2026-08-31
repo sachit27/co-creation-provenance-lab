@@ -1045,7 +1045,7 @@ const runKMeansStep = (
  *
  * @param embeddings - Per-participant embedding vectors
  * @param participantIds - Matching participant ID strings
- * @param k - Number of nearest neighbors (typically min(5, ceil(sqrt(N))))
+ * @param k - Number of nearest neighbors (chosen separately and reported)
  * @returns Array of undirected edges with cosine similarity weights
  */
 export const computeMutualKNN = (
@@ -1114,6 +1114,10 @@ export const computeMutualKNN = (
   return edges;
 };
 
+/** Sparse, deterministic display-graph heuristic. There is no universal k. */
+export const chooseMutualKnnK = (sampleSize: number): number =>
+  Math.max(1, Math.min(6, Math.ceil(Math.sqrt(Math.max(1, sampleSize)))));
+
 // ── Network Graph Analysis ─────────────────────────────────────────────────────
 
 import { NetworkAnalysis, NodeMetrics, NetworkNode, NetworkEdge } from '../types';
@@ -1178,7 +1182,7 @@ export const analyzeNetworkGraph = (
       weightedDegree,
       clusteringCoefficient: 0, // computed below
       betweennessCentrality: 0, // computed below
-      isBridge: crossCluster > 0,
+      isBridge: crossCluster > 0 && intraCluster > 0,
       crossClusterEdges: crossCluster,
       intraClusterEdges: intraCluster,
     };
@@ -1316,10 +1320,12 @@ export const analyzeNetworkGraph = (
   const hubThreshold = Math.max(2, avgDeg + degreeStdDev);
   const hubNodes = nodeIds.filter((id, i) => degrees[i] >= hubThreshold);
 
-  // Bridge: any node with at least one cross-cluster edge.
-  // Even degree-1 nodes that connect to a different cluster are semantically
-  // bridges — they are the only link between those clusters.
-  const bridgeNodes = nodeIds.filter(id => nodeMetrics[id].crossClusterEdges > 0);
+  // Connector candidate: at least one retained edge to the node's assigned
+  // group and at least one to another group. A degree-1 cross-group leaf is
+  // peripheral, not a connector between neighborhoods.
+  const bridgeNodes = nodeIds.filter(id =>
+    nodeMetrics[id].crossClusterEdges > 0 && nodeMetrics[id].intraClusterEdges > 0
+  );
 
   const peripheralNodes = nodeIds.filter((id, i) => degrees[i] <= 1);
 

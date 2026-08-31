@@ -8,14 +8,15 @@ interface Props {
 }
 
 const HANDLING_CONFIG: Record<TensionHandling, { label: string; color: string; bg: string; icon: string; description: string }> = {
-  acknowledged: { label: 'Acknowledged', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Summary presents both sides' },
-  suppressed: { label: 'Suppressed', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'One side dropped entirely' },
-  merged: { label: 'Merged', color: '#d97706', bg: '#fef3c7', icon: '\u21C4', description: 'False consensus created by averaging' },
+  acknowledged: { label: 'Acknowledged', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Summary explicitly presents the incompatibility' },
+  suppressed: { label: 'One-sided', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'Exactly one position is represented' },
+  merged: { label: 'Flattened', color: '#d97706', bg: '#fef3c7', icon: '\u21C4', description: 'Both positions appear but their incompatibility is removed' },
+  absent: { label: 'Absent', color: '#be123c', bg: '#ffe4e6', icon: '\u2205', description: 'Neither position is represented' },
   distorted: { label: 'Distorted', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'Disagreement mischaracterized' },
   unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Handling evaluation was unavailable or invalid' },
 };
 
-const HANDLINGS: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'distorted', 'unassessed'];
+const HANDLINGS: TensionHandling[] = ['acknowledged', 'suppressed', 'merged', 'absent', 'distorted', 'unassessed'];
 
 export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   const [selectedPair, setSelectedPair] = useState<number | null>(null);
@@ -34,6 +35,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   }
 
   const total = data.pairs.length || 1;
+  const sampling = data.samplingCoverage;
 
   // Overall bar
   const OverallBar = () => (
@@ -48,7 +50,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
             : h === 'suppressed' ? data.suppressedCount
-            : h === 'merged' ? data.mergedCount : h === 'distorted' ? data.distortedCount : data.unassessedCount;
+            : h === 'merged' ? data.mergedCount : h === 'absent' ? (data.absentCount ?? 0) : h === 'distorted' ? data.distortedCount : data.unassessedCount;
           if (count === 0) return null;
           const pct = (count / total) * 100;
           return (
@@ -66,7 +68,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
             : h === 'suppressed' ? data.suppressedCount
-            : h === 'merged' ? data.mergedCount : h === 'distorted' ? data.distortedCount : data.unassessedCount;
+            : h === 'merged' ? data.mergedCount : h === 'absent' ? (data.absentCount ?? 0) : h === 'distorted' ? data.distortedCount : data.unassessedCount;
           if (count === 0) return null;
           return (
             <div key={h} className="flex items-center gap-1.5 text-[11px] text-slate-600">
@@ -143,6 +145,11 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
                   <p className="text-sm text-slate-700 leading-relaxed font-medium">
                     {pair.tensionDescription}
                   </p>
+                  {pair.tensionType && (
+                    <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      {pair.tensionType.replace(/_/g, ' ')} · exact source spans
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mt-1.5">
                     {clusterA && <span className="text-[10px] px-1.5 py-0.5 rounded text-white font-medium" style={{ backgroundColor: clusterA.color }}>{clusterA.label}</span>}
                     <span className="text-[10px] text-slate-400">vs</span>
@@ -195,6 +202,17 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   return (
     <div className="space-y-4">
       <OverallBar />
+
+      {sampling && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+          <span className="font-semibold">Source screening coverage: </span>
+          {sampling.screenedRecords}/{sampling.totalRecords} records were presented to the candidate detector
+          {sampling.screenedRecords === sampling.totalRecords
+            ? ' (complete for this run).'
+            : ` (capped at ${sampling.maximumRecordsPerCluster} per semantic group).`}
+          {' '}A complete screen can still miss disagreements because the detector is model-coded.
+        </div>
+      )}
 
       {/* Legend */}
       <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
