@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { AnalysisResult } from '../../types';
 import { getRepresentationBands } from '../../constants';
-import { generateRecommendations } from '../../services/plainLanguage';
 
 interface ExecutiveSummaryProps {
   data: AnalysisResult;
@@ -75,14 +74,6 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
       reviewFlags,
     };
   }, [data]);
-
-  const recommendations = useMemo(
-    () => generateRecommendations(
-      data.participants.filter(item => !item.embeddingFailed && !item.alignmentUnavailableReason),
-      data.metrics,
-    ),
-    [data],
-  );
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900 to-slate-800 shadow-xl" aria-labelledby="audit-snapshot-title">
@@ -159,17 +150,6 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
         ) : (
           <p className="text-sm text-slate-300">No records cross the current review rules. This does not establish completeness or validity; inspect exact evidence and enrichment coverage.</p>
         )}
-      </div>
-
-      <div className="border-b border-slate-700 bg-emerald-900/10 px-6 py-4">
-        <div className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-300">Review prompts</div>
-        <ul className="space-y-2">
-          {recommendations.slice(0, 4).map(prompt => (
-            <li key={prompt} className="flex items-start gap-2 text-sm text-emerald-100">
-              <span className="mt-0.5 text-emerald-400" aria-hidden="true">→</span><span>{prompt}</span>
-            </li>
-          ))}
-        </ul>
       </div>
 
       <footer className="flex flex-wrap gap-3 px-6 py-4">

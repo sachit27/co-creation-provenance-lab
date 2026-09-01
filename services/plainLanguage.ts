@@ -250,84 +250,11 @@ export const generateOverallInsight = (
   return parts.join(' ');
 };
 
-/**
- * Generate actionable recommendations based on analysis
- */
-export const generateRecommendations = (
-  participants: ParticipantAnalysis[],
-  metrics: DiversityMetrics
-): string[] => {
-  const recommendations: string[] = [];
-  const atRiskCount = computeAtRiskCount(participants);
-  const underrepresented = participants.filter(p =>
-    p.representationScore < getRepresentationBands(p.embeddingTier).low
-  );
-
-  if (atRiskCount > 0) {
-    recommendations.push(
-      `Review the ${atRiskCount} source record${atRiskCount > 1 ? 's' : ''} below the tier-specific marker and inspect their best matching summary evidence.`
-    );
-  }
-
-  if (metrics.giniCoefficient > ANALYSIS_CONFIG.giniInterpretation.moderate) {
-    recommendations.push(
-      'Inspect the uneven alignment-score distribution and compare exact source evidence before choosing a revision strategy.'
-    );
-  }
-
-  if (metrics.distinctRepresentationGap > 0.15) {
-    recommendations.push(
-      'Inspect the centroid-distant records with low alignment; they may be legitimate distinct perspectives, coherent clusters, or data-quality issues.'
-    );
-  }
-
-  if (underrepresented.length > 0) {
-    // Find common themes among underrepresented participants.
-    //
-    // Prefer multi-word noun phrases. Single tokens are far more likely to be
-    // verbs or modifiers that RAKE isolated between stop words, and a
-    // recommendation to attend to the "topic" of, say, "scaled" is noise. The
-    // stopword list in textUtils filters the known procedural verbs; this is
-    // the second line of defence for anything it misses, including
-    // model-supplied keyphrases that never pass through RAKE.
-    const keywords = underrepresented.flatMap(p => p.keywords || []);
-    const seen = new Set<string>();
-    const ranked = keywords.filter(k => {
-      const key = k.toLowerCase().trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).sort((a, b) => {
-      const score = (k: string) => {
-        const words = k.trim().split(/\s+/).length;
-        if (words >= 2) return 2;                       // noun phrase: best
-        return /(ed|ing|ly)$/.test(k) ? 0 : 1;          // bare verb/adverb: worst
-      };
-      return score(b) - score(a);
-    });
-    // Drop the weakest tier entirely when better candidates exist.
-    const usable = ranked.filter(k => k.trim().split(/\s+/).length >= 2 || !/(ed|ing|ly)$/.test(k));
-    const uniqueKeywords = (usable.length > 0 ? usable : ranked).slice(0, 3);
-    if (uniqueKeywords.length > 0) {
-      recommendations.push(
-        `Topics that may need more attention: ${uniqueKeywords.join(', ')}.`
-      );
-    }
-  }
-
-  if (recommendations.length === 0) {
-    recommendations.push('No source records cross the current review threshold. Still inspect evidence coverage, model-coded failures, and the provisional threshold assumptions.');
-  }
-
-  return recommendations;
-};
-
 export default {
   interpretGini,
   interpretEquityGap,
   interpretParticipantRepresentation,
   interpretIsolation,
   interpretLeverage,
-  generateOverallInsight,
-  generateRecommendations
+  generateOverallInsight
 };
