@@ -913,8 +913,8 @@ export default function App() {
                     <div className="font-bold text-sm">Interactive Demo</div>
                     <div className="text-blue-100 text-xs">
                       {data.runManifest
-                        ? `Pre-computed full application run of ${data.participants.length} citizen science contributions · embedding: ${data.runManifest.actualEmbedding.model} · generator: ${data.runManifest.actualGenerator?.model ?? 'non-generative'} · evaluator: ${data.runManifest.actualEvaluator?.model ?? 'unavailable'}.`
-                        : `Pre-computed archived analysis of ${data.participants.length} citizen science contributions using ${data.config.embeddingModel ?? data.embeddingTierUsed ?? 'an archived embedding method'}; newer enrichment modules may be unavailable.`}
+                        ? `Pre-computed full application run of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} · embedding: ${data.runManifest.actualEmbedding.model} · generator: ${data.runManifest.actualGenerator?.model ?? 'non-generative'} · evaluator: ${data.runManifest.actualEvaluator?.model ?? 'unavailable'}.`
+                        : `Pre-computed archived analysis of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} using ${data.config.embeddingModel ?? data.embeddingTierUsed ?? 'an archived embedding method'}; newer enrichment modules may be unavailable.`}
                     </div>
                   </div>
                 </div>
