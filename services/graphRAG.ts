@@ -32,6 +32,7 @@ import { generateCompletion } from './completionRouter';
 
 /** Maximum participant inputs per extraction batch */
 const EXTRACTION_BATCH_SIZE = 5;
+const MAX_STRUCTURED_OUTPUT_ATTEMPTS = 2;
 
 /** Entity types relevant to co-creation / deliberation contexts */
 const ENTITY_TYPES = [
@@ -96,7 +97,7 @@ export const normalizeRelationshipKeywords = (value: unknown): string => {
 const extractEntitiesAndRelationships = async (
   inputs: Array<{ id: string; text: string }>,
   config: AnalysisConfig,
-): Promise<{ entities: RawEntity[]; relationships: RawRelationship[] }> => {
+): Promise<{ entities: RawEntity[]; relationships: RawRelationship[] } | null> => {
 
   const opaqueToParticipant = new Map<string, string>();
   const inputBlock = inputs.map((inp, index) => {
@@ -177,7 +178,7 @@ Return ONLY the JSON object.`;
     console.warn('[GraphRAG] Extraction batch failed:', e);
   }
 
-  return { entities: [], relationships: [] };
+  return null;
 };
 
 // ── Gleaning Pass (Microsoft GraphRAG) ──────────────────────────────────────────
@@ -191,7 +192,7 @@ const gleanMissedEntities = async (
   inputs: Array<{ id: string; text: string }>,
   existingEntities: string[],
   config: AnalysisConfig,
-): Promise<{ entities: RawEntity[]; relationships: RawRelationship[] }> => {
+): Promise<{ entities: RawEntity[]; relationships: RawRelationship[] } | null> => {
 
   const opaqueToParticipant = new Map<string, string>();
   const inputBlock = inputs.map((inp, index) => {
@@ -265,7 +266,22 @@ Return ONLY the JSON object. If nothing was missed, return {"entities": [], "rel
     console.warn('[GraphRAG] Gleaning pass failed:', e);
   }
 
-  return { entities: [], relationships: [] };
+  return null;
+};
+
+const runStructuredBatchWithRetry = async (
+  operation: () => Promise<{ entities: RawEntity[]; relationships: RawRelationship[] } | null>,
+  label: string,
+  onProgress?: (msg: string) => void,
+): Promise<{ entities: RawEntity[]; relationships: RawRelationship[] }> => {
+  for (let attempt = 1; attempt <= MAX_STRUCTURED_OUTPUT_ATTEMPTS; attempt++) {
+    const result = await operation();
+    if (result) return result;
+    if (attempt < MAX_STRUCTURED_OUTPUT_ATTEMPTS) {
+      onProgress?.(`Knowledge graph: retrying ${label} after invalid structured output (${attempt + 1}/${MAX_STRUCTURED_OUTPUT_ATTEMPTS})`);
+    }
+  }
+  throw new Error(`Knowledge graph ${label} failed after ${MAX_STRUCTURED_OUTPUT_ATTEMPTS} structured-output attempts.`);
 };
 
 // ── Entity Normalization & Fuzzy Resolution ─────────────────────────────────────
@@ -959,7 +975,11 @@ export const buildKnowledgeGraph = async (
   for (let bi = 0; bi < batches.length; bi++) {
     onProgress?.(`Knowledge graph: extracting entities from batch ${bi + 1}/${batches.length}`);
 
-    const { entities, relationships } = await extractEntitiesAndRelationships(batches[bi], config);
+    const { entities, relationships } = await runStructuredBatchWithRetry(
+      () => extractEntitiesAndRelationships(batches[bi], config),
+      `extraction batch ${bi + 1}/${batches.length}`,
+      onProgress,
+    );
     allRawEntities.push(...entities);
     allRawRelationships.push(...relationships);
   }
@@ -971,7 +991,11 @@ export const buildKnowledgeGraph = async (
 
     // Glean in batches (same batch structure as extraction)
     for (let bi = 0; bi < batches.length; bi++) {
-      const { entities, relationships } = await gleanMissedEntities(batches[bi], existingNames, config);
+      const { entities, relationships } = await runStructuredBatchWithRetry(
+        () => gleanMissedEntities(batches[bi], existingNames, config),
+        `gleaning batch ${bi + 1}/${batches.length}`,
+        onProgress,
+      );
       allRawEntities.push(...entities);
       allRawRelationships.push(...relationships);
     }

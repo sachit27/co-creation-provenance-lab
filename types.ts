@@ -879,7 +879,7 @@ export interface TensionPair {
 }
 
 export interface TensionAnalysis {
-  methodVersion?: 'conservative-exact-span-v2';
+  methodVersion?: 'conservative-exact-span-v3';
   /** Whether candidate sampling used a validated semantic partition. */
   basis?: 'stable-semantic-groups' | 'unavailable';
   unavailableReason?: string;

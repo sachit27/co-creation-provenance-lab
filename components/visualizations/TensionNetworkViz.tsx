@@ -41,7 +41,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   const OverallBar = () => (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm font-semibold text-slate-700">Tension Fidelity <InfoIcon metricKey="tensions" /></div>
+        <div className="text-sm font-semibold text-slate-700">Conditional tension handling <InfoIcon metricKey="tensions" /></div>
         <div className="text-sm font-bold text-slate-700">
           {data.tensionFidelityScore === null ? 'Handling assessment unavailable' : `${(data.tensionFidelityScore * 100).toFixed(0)}% acknowledged among assessed`}
         </div>
@@ -84,12 +84,12 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   // Cluster-level aggregation view
   const ClusterView = () => {
     if (data.clusterTensions.length === 0) {
-      return <div className="text-sm text-slate-400 text-center py-8">No inter-cluster tensions detected.</div>;
+      return <div className="text-sm text-slate-400 text-center py-8">No retained inter-group tension candidates.</div>;
     }
 
     return (
       <div className="space-y-3">
-        <div className="text-sm font-semibold text-slate-700">Inter-Cluster Tensions</div>
+        <div className="text-sm font-semibold text-slate-700">Retained inter-group tension candidates</div>
         {data.clusterTensions.map((ct, i) => {
           const clusterA = clusters.find(c => c.id === ct.clusterA);
           const clusterB = clusters.find(c => c.id === ct.clusterB);
@@ -123,7 +123,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   // Individual tension pairs view
   const PairsView = () => (
     <div className="space-y-3">
-      <div className="text-sm font-semibold text-slate-700">Detected Tensions ({data.pairs.length})</div>
+      <div className="text-sm font-semibold text-slate-700">Retained tension candidates ({data.pairs.length})</div>
       {data.pairs.map((pair, i) => {
         const isSelected = selectedPair === i;
         const cfg = HANDLING_CONFIG[pair.summaryHandling];

@@ -23,7 +23,7 @@ The application does **not** establish authorship, causal influence, factual ent
 
 ## Hosted demonstration
 
-The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) includes a precomputed audit of the 40-record synthetic citizen-science tutorial fixture. The artifact was produced through the same production pipeline used by a new browser analysis with:
+The [GitHub Pages application](https://sachit27.github.io/apps/provenance-lab/) includes a precomputed audit of a 40-record synthetic nature-based-solutions consultation. The contributions cover urban heat and canopy, stormwater and flooding, habitat and biodiversity, and equitable community stewardship. The artifact was produced through the same production pipeline used by a new browser analysis with:
 
 - `gpt-4o-mini` for summary generation
 - `gpt-4o-mini` for automated model-coded review

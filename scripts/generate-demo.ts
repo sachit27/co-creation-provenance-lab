@@ -83,7 +83,7 @@ if (ollamaModels.length > 0) {
 const result = await runAnalysis(
   SAMPLE_DATA,
   {
-    datasetName: 'Synthetic Citizen Science Deliberation',
+    datasetName: 'Synthetic Nature-Based Solutions Consultation',
     strategy: 'balanced',
     aiProvider: provider,
     model: generatorModel,
@@ -96,7 +96,7 @@ const result = await runAnalysis(
     summaryProvenance: { origin: 'generated-in-run' },
     thresholds: { ...ANALYSIS_CONFIG.thresholds },
     wordLimit: 300,
-    domainContext: 'Citizen feedback about the design and governance of a community science project.',
+    domainContext: 'Municipal consultation on urban nature-based solutions for heat, stormwater, biodiversity, and equitable stewardship.',
   },
   message => process.stdout.write(`[demo] ${message}\n`),
 );
@@ -133,10 +133,10 @@ if (result.clusteringDiagnostics.selectedK !== 4 || result.clusters.length !== 4
 if ((result.networkGraph?.analysis.bridgeNodes.length ?? 0) === 0) {
   throw new Error('Demo has no cross-group connector in the participant similarity network.');
 }
-if (result.tensionAnalysis?.methodVersion !== 'conservative-exact-span-v2' ||
+if (result.tensionAnalysis?.methodVersion !== 'conservative-exact-span-v3' ||
     result.tensionAnalysis.basis !== 'stable-semantic-groups' ||
     result.tensionAnalysis.pairs.length === 0) {
-  throw new Error('Demo has no verified exact-span tension candidate from the conservative v2 method.');
+  throw new Error('Demo has no verified exact-span tension candidate from the conservative v3 method.');
 }
 if (result.enrichmentStatus !== 'complete' || failedStages.length > 0) {
   throw new Error(`Demo enrichment was ${result.enrichmentStatus}; failed stages: ${failedStages.join(', ') || 'none'}.`);

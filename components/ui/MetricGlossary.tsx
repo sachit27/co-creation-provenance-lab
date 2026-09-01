@@ -106,11 +106,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'tensions': {
     label: 'Tension & Contradiction Mapping',
-    description: 'Samples records from validated semantic groups, requires exact source spans, rechecks a conservative incompatibility taxonomy, and model-codes how exact summary evidence handles each retained candidate.',
-    implication: 'One-sided, flattened, absent, distorted, or unassessed labels are review candidates. Sampling caps and evaluator error mean the output is not a complete contradiction census.',
+    description: 'Screens records from validated semantic groups for a shared concrete subject and explicit opposing directions, requires exact source spans, rechecks a conservative incompatibility taxonomy, and model-codes how exact summary evidence handles each retained candidate.',
+    implication: 'One-sided, flattened, absent, distorted, or unassessed labels are review candidates. The precision-first lexical guard will miss implicit or paraphrased disagreements; sampling caps and evaluator error mean the output is not a complete contradiction census.',
     idealRange: 'Inspect exact evidence and unassessed coverage; no universal pass threshold',
     formula: 'Tension handling rate = acknowledged / assessed tension candidates',
-    thresholdJustification: 'Cross-cluster sampling and caps are computational design choices, not completeness guarantees. Invalid quotations remain unassessed.'
+    thresholdJustification: 'Shared-subject and explicit-opposition rules prioritize precision, while group sampling and caps control context size. None is a completeness guarantee. Invalid quotations are rejected.'
   },
   'sankey': {
     label: 'Semantic Association Map (Sankey)',

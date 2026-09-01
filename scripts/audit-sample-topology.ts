@@ -1,10 +1,11 @@
 /**
  * Deterministic structural preflight for the bundled sample.
  *
- * This is deliberately run with the browser-local TF-IDF representation. The
- * published demo must still be regenerated and checked with its declared dense
- * embedding model; this script catches accidental loss of planted structure or
- * cross-group connector examples before an expensive model run.
+ * This structural check uses the browser-local TF-IDF representation and the
+ * fixture's hidden planted labels to confirm that mixed-theme neighborhood
+ * examples remain present. It does not claim that TF-IDF recovered the groups.
+ * Published demo generation separately requires an unsupervised partition from
+ * the declared dense embedding model to pass every production validity gate.
  */
 import { SAMPLE_DATA } from '../constants.ts';
 import { LocalVectorizer } from '../services/vectorizer.ts';
@@ -12,6 +13,7 @@ import {
   analyzeNetworkGraph,
   computeAutoKMeans,
   computeMutualKNN,
+  chooseMutualKnnK,
 } from '../services/mathUtils.ts';
 
 const sample = process.env.CORE_ONLY === '1'
@@ -20,12 +22,18 @@ const sample = process.env.CORE_ONLY === '1'
 const vectorizer = new LocalVectorizer(sample.map(item => item.text), 300);
 const vectors = sample.map(item => vectorizer.embed(item.text));
 const clustering = computeAutoKMeans(vectors);
-const k = Math.min(5, Math.ceil(Math.sqrt(sample.length)));
+const plantedGroups = new Map<string, number>();
+const plantedAssignments = sample.map(item => {
+  const prefix = item.id.split('_')[0];
+  if (!plantedGroups.has(prefix)) plantedGroups.set(prefix, plantedGroups.size);
+  return plantedGroups.get(prefix)!;
+});
+const k = chooseMutualKnnK(sample.length);
 const edges = computeMutualKNN(vectors, sample.map(item => item.id), k);
 const analysis = analyzeNetworkGraph(
   sample.map((item, index) => ({
     id: item.id,
-    clusterId: clustering.assignments[index],
+    clusterId: plantedAssignments[index],
     representationScore: 0,
     semanticIsolation: 0,
     x: 0,
@@ -36,24 +44,21 @@ const analysis = analyzeNetworkGraph(
 
 console.log(JSON.stringify({
   sampleSize: sample.length,
-  selectedK: clustering.k,
-  status: clustering.diagnostics.status,
-  reason: clustering.diagnostics.reason,
-  clusterSizes: clustering.diagnostics.clusterSizes,
-  silhouette: clustering.diagnostics.silhouette,
-  stability: clustering.diagnostics.stability,
-  neighborhoodAgreement: clustering.diagnostics.neighborhoodAgreement,
-  methodAgreement: clustering.diagnostics.methodAgreement,
+  plantedThemeCount: plantedGroups.size,
+  lexicalBaselineClustering: {
+    selectedK: clustering.k,
+    status: clustering.diagnostics.status,
+    reason: clustering.diagnostics.reason,
+  },
   networkK: k,
   edgeCount: edges.length,
   connectedComponents: analysis.connectedComponents,
-  bridgeNodes: analysis.bridgeNodes,
-  candidates: clustering.diagnostics.candidateDiagnostics,
+  designedConnectorCandidates: analysis.bridgeNodes,
 }, null, 2));
 
-if (!clustering.diagnostics.usableForDownstream) {
-  throw new Error('The bundled sample has no validated TF-IDF partition.');
+if (plantedGroups.size !== 4) {
+  throw new Error('The bundled sample must retain four declared tutorial themes.');
 }
-if (analysis.bridgeNodes.length === 0) {
-  throw new Error('The bundled sample has no cross-group connector in the TF-IDF mutual-kNN graph.');
+if (!analysis.bridgeNodes.some(id => id.endsWith('_10'))) {
+  throw new Error('The bundled sample has no designed mixed-theme connector in the lexical neighborhood graph.');
 }

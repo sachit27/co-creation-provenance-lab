@@ -767,7 +767,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       </select>
                       <div className="flex flex-col items-center justify-center py-6 text-center border-2 border-dashed border-green-200 bg-green-50/50 rounded-lg">
                         <div className="text-green-600 font-bold mb-1">Dataset Loaded</div>
-                        <div className="text-slate-600 font-medium text-sm">{SAMPLE_DATASETS[selectedDataset]?.label || 'Citizen Science'}</div>
+                        <div className="text-slate-600 font-medium text-sm">{SAMPLE_DATASETS[selectedDataset]?.label || 'Nature-Based Solutions'}</div>
                         <div className="text-slate-400 text-xs mt-1">{SAMPLE_DATASETS[selectedDataset]?.description}</div>
                       </div>
                     </div>

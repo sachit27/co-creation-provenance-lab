@@ -1,4 +1,4 @@
-import { MAX_TENSION_RECORDS_PER_CLUSTER, sampleClusterRecords, validateDetectedTensionPayload } from './.modules/services/tensionAnalysis.ts';
+import { hasExplicitTensionCue, hasSharedTensionAnchor, MAX_TENSION_RECORDS_PER_CLUSTER, sampleClusterRecords, validateDetectedTensionPayload } from './.modules/services/tensionAnalysis.ts';
 
 let pass = 0;
 let fail = 0;
@@ -40,6 +40,26 @@ check('rejects broad priority and emphasis labels outside the conservative taxon
   participantA: 'a0', quoteA: groupA[0].text, participantB: 'b0', quoteB: groupB[0].text,
   tensionType: 'priority_conflict', incompatibility: 'The records emphasize different priorities in the project.',
 }], groupA, groupB).length === 0);
+check('accepts a concrete shared disputed object', hasSharedTensionAnchor(
+  'Every garden plot should become flood storage.',
+  'The garden plots must not become flood storage.',
+));
+check('rejects an incompatibility that requires inventing a shared location', !hasSharedTensionAnchor(
+  'Every garden plot should become a stormwater retention area.',
+  'Rain gardens should be placed near homes and underpasses.',
+));
+check('consultation-wide theme words do not become a disputed subject', !hasSharedTensionAnchor(
+  'For urban biodiversity and native habitat planning, pollinator meadows should exclude pesticides.',
+  'For urban biodiversity and native habitat planning, invasive plants need careful removal.',
+));
+check('explicit hide-versus-publish direction is retained', hasExplicitTensionCue(
+  'Public maps must hide precise nest coordinates.',
+  'Every precise coordinate should be released as unredacted open data.',
+));
+check('compatible funding proposals have no explicit opposition cue', !hasExplicitTensionCue(
+  'Rain gardens need a funded maintenance schedule.',
+  'Households should receive grants for rain barrels.',
+));
 
 console.log('\n[Disclosed source-screening coverage]');
 const participants = Array.from({ length: MAX_TENSION_RECORDS_PER_CLUSTER + 3 }, (_, index) => ({
