@@ -27,6 +27,10 @@ import { ParticipantFeedback, FacilitationGapBrief, SummarizationStrategy } from
 import { preprocessWithSelections, PreprocessResult } from './services/dataPreprocessor';
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay';
 import { ANALYSIS_CONFIG, getRepresentationBands } from './constants';
+import {
+  selectRevisionCandidates,
+  type RevisionTargetMode,
+} from './services/revisionTargeting';
 
 // The dashboard contains many mutually exclusive visualization tabs. Loading
 // them on demand keeps charting and force-graph code out of the initial app
@@ -194,6 +198,12 @@ export default function App() {
   const [showRevisionEditor, setShowRevisionEditor] = useState(false);
   const [revisionDraft, setRevisionDraft] = useState('');
   const [revisionOrigin, setRevisionOrigin] = useState<SummaryOrigin>('human-authored');
+  const [revisionTargetMode, setRevisionTargetMode] = useState<RevisionTargetMode>('below-threshold');
+  const [revisionThreshold, setRevisionThreshold] = useState(ANALYSIS_CONFIG.thresholds.matchingThreshold);
+  const [revisionMaxCandidates, setRevisionMaxCandidates] = useState(8);
+  const [revisionInstruction, setRevisionInstruction] = useState('');
+  const [revisionError, setRevisionError] = useState<string | null>(null);
+  const [revisionTargetingNote, setRevisionTargetingNote] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [isApplyingRevision, setIsApplyingRevision] = useState(false);
   // Feature #1: Facilitation Co-Pilot
@@ -230,6 +240,15 @@ export default function App() {
   // Mobile sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const revisionSelection = data
+    ? selectRevisionCandidates(data.participants, {
+        mode: revisionTargetMode,
+        threshold: revisionThreshold,
+        maxCandidates: revisionMaxCandidates,
+        instruction: revisionInstruction,
+      })
+    : null;
 
   useEffect(() => () => {
     enrichmentAbortRef.current?.abort();
@@ -287,6 +306,12 @@ export default function App() {
     if (!data) return;
     setRevisionDraft(data.summary);
     setRevisionOrigin('human-authored');
+    setRevisionTargetMode('below-threshold');
+    setRevisionThreshold(data.config.thresholds?.matchingThreshold ?? ANALYSIS_CONFIG.thresholds.matchingThreshold);
+    setRevisionMaxCandidates(8);
+    setRevisionInstruction('');
+    setRevisionError(null);
+    setRevisionTargetingNote(null);
     setShowRevisionEditor(true);
   };
 
@@ -294,14 +319,21 @@ export default function App() {
   const handleGenerateAIDraft = async () => {
     if (!data) return;
     setIsGeneratingDraft(true);
+    setRevisionError(null);
     try {
       const { generateRevisedSummary } = await import('./services/summaryRevision');
-      const draft = await generateRevisedSummary(data, data.config);
-      setRevisionDraft(draft);
+      const draft = await generateRevisedSummary(data, data.config, {
+        mode: revisionTargetMode,
+        threshold: revisionThreshold,
+        maxCandidates: revisionMaxCandidates,
+        instruction: revisionInstruction,
+      });
+      setRevisionDraft(draft.text);
       setRevisionOrigin('ai-assisted');
+      setRevisionTargetingNote(draft.targetingNote);
     } catch (e: any) {
       console.error('AI draft failed:', e);
-      alert(`AI draft generation failed: ${e.message}`);
+      setRevisionError(e?.message || 'AI draft generation failed.');
     } finally {
       setIsGeneratingDraft(false);
     }
@@ -313,7 +345,16 @@ export default function App() {
     setIsApplyingRevision(true);
     try {
       const { recomputeWithNewSummary } = await import('./services/summaryRevision');
-      const revised = await recomputeWithNewSummary(data, revisionDraft.trim(), data.config, setProgressMsg, revisionOrigin);
+      const revised = await recomputeWithNewSummary(
+        data,
+        revisionDraft.trim(),
+        data.config,
+        setProgressMsg,
+        revisionOrigin,
+        revisionOrigin === 'ai-assisted' || revisionOrigin === 'mixed'
+          ? revisionTargetingNote ?? undefined
+          : undefined,
+      );
       setRevisedData(revised);
       setShowRevisionEditor(false);
     } catch (e: any) {
@@ -1013,33 +1054,151 @@ export default function App() {
                     </p>
                   </div>
 
+                  {/* Explicit target selection for AI-assisted drafts */}
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-4">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">AI draft targeting</div>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Choose which records the model should inspect. This selection controls the draft only; it does not change the completed audit or turn a retrieval score into a finding.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <label className="block">
+                        <span className="text-xs font-medium text-slate-700">Selection rule</span>
+                        <select
+                          value={revisionTargetMode}
+                          onChange={event => {
+                            setRevisionTargetMode(event.target.value as RevisionTargetMode);
+                            setRevisionError(null);
+                          }}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                        >
+                          <option value="below-threshold">Below a chosen score</option>
+                          <option value="lowest-ranked">Lowest-scoring records</option>
+                        </select>
+                      </label>
+
+                      {revisionTargetMode === 'below-threshold' ? (
+                        <label className="block md:col-span-1">
+                          <span className="flex items-center justify-between text-xs font-medium text-slate-700">
+                            <span>Score cutoff</span>
+                            <span className="font-mono">{revisionThreshold.toFixed(2)}</span>
+                          </span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={revisionThreshold}
+                            onChange={event => {
+                              setRevisionThreshold(Number(event.target.value));
+                              setRevisionError(null);
+                            }}
+                            className="mt-3 w-full accent-indigo-600"
+                          />
+                          <span className="mt-1 block text-[10px] text-slate-500">
+                            Run threshold: {(data.config.thresholds?.matchingThreshold ?? ANALYSIS_CONFIG.thresholds.matchingThreshold).toFixed(2)}
+                          </span>
+                        </label>
+                      ) : (
+                        <div className="rounded-lg border border-indigo-100 bg-white/70 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                          This deliberately reviews the lowest-scoring eligible records even when none falls below the run threshold.
+                        </div>
+                      )}
+
+                      <label className="block">
+                        <span className="text-xs font-medium text-slate-700">Maximum records sent</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="12"
+                          step="1"
+                          value={revisionMaxCandidates}
+                          onChange={event => {
+                            const value = Number(event.target.value);
+                            if (Number.isFinite(value)) {
+                              setRevisionMaxCandidates(Math.min(12, Math.max(1, Math.round(value))));
+                              setRevisionError(null);
+                            }
+                          }}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                        />
+                        <span className="mt-1 block text-[10px] text-slate-500">Limited to 12 to bound prompt size and review scope.</span>
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-700">Facilitator instruction <span className="font-normal text-slate-400">(optional)</span></span>
+                      <textarea
+                        value={revisionInstruction}
+                        onChange={event => setRevisionInstruction(event.target.value)}
+                        rows={2}
+                        maxLength={600}
+                        className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="For example: preserve the disagreement about costs and add any missing implementation constraints."
+                      />
+                    </label>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-slate-600">
+                        {revisionSelection && revisionSelection.candidates.length > 0 ? (
+                          <>
+                            <span className="font-semibold text-indigo-800">
+                              {revisionSelection.candidates.length} record{revisionSelection.candidates.length === 1 ? '' : 's'} selected
+                            </span>
+                            {revisionTargetMode === 'below-threshold'
+                              ? `; ${revisionSelection.matchingCount} match the rule among ${revisionSelection.eligibleCount} eligible records`
+                              : ` from ${revisionSelection.eligibleCount} eligible records`}
+                            <span className="mt-1 block text-slate-500">
+                              {revisionSelection.candidates.map(participant => participant.id).join(', ')}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="font-medium text-amber-700">
+                            No record matches this rule. Raise the cutoff or choose Lowest-scoring records.
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleGenerateAIDraft}
+                        disabled={isGeneratingDraft || !revisionSelection?.candidates.length}
+                        title="Generate an AI-assisted revision from the explicitly selected review candidates"
+                        className="flex flex-shrink-0 items-center justify-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {isGeneratingDraft ? (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
+                            Generating…
+                          </>
+                        ) : (
+                          '✨ Generate AI Draft'
+                        )}
+                      </button>
+                    </div>
+
+                    {revisionError && (
+                      <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        <span className="font-semibold">AI draft generation failed:</span> {revisionError}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Textarea + controls */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-semibold text-slate-700">Summary Text</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => { setRevisionDraft(data.summary); setRevisionOrigin('human-authored'); }}
-                          className="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded px-2.5 py-1 hover:bg-slate-50 transition-colors"
-                        >
-                          Reset to Original
-                        </button>
-                        <button
-                          onClick={handleGenerateAIDraft}
-                          disabled={isGeneratingDraft}
-                          title="Generate an AI-assisted revision from automated review candidates"
-                          className="text-xs bg-slate-800 text-white rounded px-3 py-1 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                        >
-                          {isGeneratingDraft ? (
-                            <>
-                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
-                              Generating…
-                            </>
-                          ) : (
-                            '✨ Generate AI Draft'
-                          )}
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => {
+                          setRevisionDraft(data.summary);
+                          setRevisionOrigin('human-authored');
+                          setRevisionError(null);
+                          setRevisionTargetingNote(null);
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded px-2.5 py-1 hover:bg-slate-50 transition-colors"
+                      >
+                        Reset to Original
+                      </button>
                     </div>
                     <textarea
                       value={revisionDraft}
