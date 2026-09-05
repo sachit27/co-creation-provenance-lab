@@ -45,4 +45,17 @@ assert.doesNotMatch(read('services/nli.ts'), /import\('\.\/huggingface'\)/);
 assert.doesNotMatch(read('services/anomalyDetection.ts'), /import\('\.\/huggingface'\)/);
 console.log('  PASS  vulnerable unused runtime and dynamic fallbacks are removed');
 
+console.log('\n[5] Hosted Ollama checks are explicit and race-safe');
+const ollamaService = read('services/ollama.ts');
+const configPanel = read('components/ui/ConfigPanel.tsx');
+assert.match(ollamaService, /diagnoseOllamaConnection/);
+assert.match(ollamaService, /targetAddressSpace/);
+assert.doesNotMatch(ollamaService, /method: 'GET',[^}]*headers: \{ 'Content-Type': 'application\/json' \}/s);
+assert.match(configPanel, /Host changed\. Select Test connection to apply it\./);
+assert.match(configPanel, /onClick=\{handleOllamaHostTest\}/);
+assert.doesNotMatch(configPanel, /onChange=\{\(e\) => handleOllamaHostChange/);
+console.log('  PASS  bodyless health checks do not force a JSON CORS preflight');
+console.log('  PASS  editing a host cannot launch overlapping connection checks');
+console.log('  PASS  hosted users receive browser-reachability diagnostics');
+
 console.log('\nrelease regression checks passed');

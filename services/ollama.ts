@@ -49,28 +49,117 @@ export const getOllamaHostUrl = (): string => getOllamaHost();
 export const isUsingViteProxy = (): boolean =>
   !sessionStorage.getItem(OLLAMA_HOST_STORAGE);
 
-export const checkOllamaConnection = async (): Promise<boolean> => {
+export type OllamaConnectionCode =
+  | 'connected'
+  | 'static-proxy-unavailable'
+  | 'invalid-url'
+  | 'insecure-remote-host'
+  | 'http-error'
+  | 'timeout'
+  | 'unreachable-or-blocked';
+
+export interface OllamaConnectionDiagnostic {
+  connected: boolean;
+  code: OllamaConnectionCode;
+  host: string;
+  message: string;
+  httpStatus?: number;
+  models: string[];
+}
+
+const browserOrigin = (): string =>
+  typeof window === 'undefined' ? '' : window.location.origin;
+
+const isLoopbackHostname = (hostname: string): boolean =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
+
+/**
+ * Diagnose whether this browser can reach the configured Ollama API.
+ * A running Ollama process is not sufficient: static hosted pages also need a
+ * browser-reachable URL, an allowed Origin, and any required local-network
+ * permission. Network and CORS failures are intentionally grouped because
+ * Fetch exposes both as an opaque TypeError.
+ */
+export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagnostic> => {
+  const host = getOllamaHost();
+  const origin = browserOrigin();
+  if (host === VITE_PROXY_HOST && import.meta.env?.DEV !== true) {
+    return {
+      connected: false,
+      code: 'static-proxy-unavailable',
+      host,
+      message: 'This static page has no Ollama proxy. Enter the Ollama URL that this browser can reach, then select Test connection.',
+      models: [],
+    };
+  }
+
+  let parsedHost: URL;
   try {
-    const response = await fetch(`${getOllamaHost()}/api/tags`, {
+    parsedHost = new URL(host, origin || 'http://localhost');
+  } catch {
+    return { connected: false, code: 'invalid-url', host, message: 'Enter a complete valid Ollama URL.', models: [] };
+  }
+  const isLoopback = isLoopbackHostname(parsedHost.hostname);
+  if (origin.startsWith('https:') && parsedHost.protocol === 'http:' && !isLoopback) {
+    return {
+      connected: false,
+      code: 'insecure-remote-host',
+      host,
+      message: 'An HTTPS page cannot call this non-loopback HTTP host. Use an authenticated HTTPS reverse proxy.',
+      models: [],
+    };
+  }
+
+  try {
+    // targetAddressSpace is understood by browsers implementing Local Network
+    // Access and ignored by browsers that do not yet support it.
+    const request: RequestInit & { targetAddressSpace?: 'loopback' | 'local' } = {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(5000), // 5s timeout to prevent hanging
-    });
-    return response.ok;
-  } catch (e) {
-    if (isUsingViteProxy()) {
-      // On a static production host this path fails because the Vite proxy
-      // exists only during local development.
-      // Suppress the error; the UI will show the "Enter Ollama URL" prompt.
-    } else {
-      console.warn(
-        "Ollama connection check failed. Ensure `OLLAMA_ORIGINS=\"*\" ollama serve` is running " +
-        "and the URL is reachable from your browser."
-      );
+    };
+    if (isLoopback) request.targetAddressSpace = 'loopback';
+    const response = await fetch(`${host}/api/tags`, request);
+    if (!response.ok) {
+      return {
+        connected: false,
+        code: 'http-error',
+        host,
+        httpStatus: response.status,
+        message: `The browser reached Ollama, but /api/tags returned HTTP ${response.status}.`,
+        models: [],
+      };
     }
-    return false;
+    const payload = await response.json().catch(() => ({}));
+    const models = Array.isArray(payload.models)
+      ? payload.models.map((model: unknown) => typeof model === 'object' && model !== null && 'name' in model
+        ? String((model as { name: unknown }).name)
+        : '').filter(Boolean)
+      : [];
+    return {
+      connected: true,
+      code: 'connected',
+      host,
+      message: `Connected${models.length ? `; ${models.length} installed model${models.length === 1 ? '' : 's'} found` : '; no installed models were reported'}.`,
+      models,
+    };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
+    const originAdvice = origin ? ` Allow the exact origin ${origin} in OLLAMA_ORIGINS.` : '';
+    const reachability = isLoopback
+      ? 'localhost means the computer running this browser. If Ollama is on another machine, create a local SSH tunnel first.'
+      : 'Confirm that the URL is reachable from this browser and protected appropriately.';
+    return {
+      connected: false,
+      code: timedOut ? 'timeout' : 'unreachable-or-blocked',
+      host,
+      message: `${timedOut ? 'The connection timed out.' : 'The browser received no usable response.'} ${reachability}${originAdvice} A browser local-network permission or CORS policy may also be blocking access.`,
+      models: [],
+    };
   }
 };
+
+export const checkOllamaConnection = async (): Promise<boolean> =>
+  (await diagnoseOllamaConnection()).connected;
 
 export const getOllamaModels = async (): Promise<string[]> => {
   try {

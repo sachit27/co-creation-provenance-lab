@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnalysisConfig, ParticipantInput, StakeholderGroup, ColumnInfo, ColumnSelection, MultiColumnMode, AIProvider } from '../../types';
 import { SAMPLE_DATA, SAMPLE_DATASETS, ANALYSIS_CONFIG } from '../../constants';
 import { checkAIConnection, getGeminiModels, setRuntimeGeminiKey, DEFAULT_GEMINI_GENERATION_MODEL, DEFAULT_GEMINI_EMBEDDING_MODEL } from '../../services/gemini';
-import { checkOllamaConnection, filterOllamaEmbeddingModels, getOllamaModels, rankOllamaCompletionModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy } from '../../services/ollama';
+import { diagnoseOllamaConnection, filterOllamaEmbeddingModels, rankOllamaCompletionModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy } from '../../services/ollama';
 import { checkBgeM3Connection, resetBgeM3Cache } from '../../services/bgeM3';
 import { checkGroqConnection, verifyGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GROQ_FREE_MODELS, fetchGroqModels } from '../../services/groq';
 import { checkOpenAIConnection, verifyOpenAIConnection, setOpenAIApiKey, getOpenAIApiKey, OPENAI_CHAT_MODELS, OPENAI_EMBEDDING_MODELS, fetchOpenAIChatModels } from '../../services/openai';
@@ -109,6 +109,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [apertusKeyInput, setApertusKeyInput] = useState(() => getApertusApiKey());
   // Ollama host URL for non-Vite hosts, including the static demonstration.
   const [ollamaHostInput, setOllamaHostInput] = useState(() => isUsingViteProxy() ? '' : getOllamaHostUrl());
+  const [ollamaConnectionMessage, setOllamaConnectionMessage] = useState('');
+  const ollamaValidationSequence = useRef(0);
   const apertusValidationSequence = useRef(0);
 
   const [config, setConfig] = useState<AnalysisConfig>({
@@ -176,6 +178,24 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
     }
   };
 
+  const runOllamaConnectionCheck = async () => {
+    const sequence = ++ollamaValidationSequence.current;
+    setOllamaStatus('checking');
+    setOllamaConnectionMessage('Testing from this browser…');
+    const diagnostic = await diagnoseOllamaConnection();
+    if (sequence !== ollamaValidationSequence.current) return;
+    setOllamaStatus(diagnostic.connected ? 'connected' : 'offline');
+    setOllamaConnectionMessage(diagnostic.message);
+    setOllamaModels(diagnostic.models);
+    if (diagnostic.connected) {
+      const completionModels = rankOllamaCompletionModels(diagnostic.models);
+      setConfig(prev => {
+        if (prev.aiProvider !== 'ollama' || completionModels.length === 0) return prev;
+        return completionModels.includes(prev.model) ? prev : { ...prev, model: completionModels[0] };
+      });
+    }
+  };
+
   // Check connections on mount
   useEffect(() => {
     checkAIConnection().then(async connected => {
@@ -190,18 +210,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
         }
       }
     });
-    checkOllamaConnection().then(async connected => {
-      setOllamaStatus(connected ? 'connected' : 'offline');
-      if (connected) {
-        const models = await getOllamaModels();
-        setOllamaModels(models);
-        const completionModels = rankOllamaCompletionModels(models);
-        setConfig(prev => {
-          if (prev.aiProvider !== 'ollama' || completionModels.length === 0) return prev;
-          return completionModels.includes(prev.model) ? prev : { ...prev, model: completionModels[0] };
-        });
-      }
-    });
+    void runOllamaConnectionCheck();
     // A stored key is not a verified connection. Test authentication before
     // enabling an AI run or showing a provider as connected.
     if (checkGroqConnection()) {
@@ -682,18 +691,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   };
 
   // Handle an explicit Ollama host for static or non-Vite deployments.
-  const handleOllamaHostChange = (host: string) => {
+  const handleOllamaHostInputChange = (host: string) => {
     setOllamaHostInput(host);
-    setOllamaHost(host);
-    setOllamaStatus('checking');
-    checkOllamaConnection().then(async connected => {
-      setOllamaStatus(connected ? 'connected' : 'offline');
-      if (connected) {
-        const models = await getOllamaModels();
-        setOllamaModels(models);
-        setConfig(prev => reconcileCompletionCatalog(prev, 'ollama', rankOllamaCompletionModels(models)));
-      }
-    });
+    ++ollamaValidationSequence.current;
+    setOllamaStatus('offline');
+    setOllamaConnectionMessage('Host changed. Select Test connection to apply it.');
+  };
+
+  const handleOllamaHostTest = () => {
+    setOllamaHost(ollamaHostInput);
+    void runOllamaConnectionCheck();
   };
 
   return (
@@ -1200,7 +1207,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                       <div className="text-xl">💻</div>
                       <div className="font-bold text-slate-800">Local Ollama</div>
                       {ollamaStatus === 'connected' && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Active</span>}
-                      {ollamaStatus === 'offline' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Offline</span>}
+                      {ollamaStatus === 'offline' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Not connected</span>}
                     </div>
                     <p className="text-xs text-slate-500">Local/organization host · privacy depends on the configured host.</p>
                   </button>
@@ -1397,17 +1404,38 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                         <span className="text-[10px] text-violet-500">Leave blank for local dev (auto-proxied)</span>
                       )}
                     </div>
-                    <input
-                      id="ollama-host"
-                      type="text"
-                      value={ollamaHostInput}
-                      onChange={(e) => handleOllamaHostChange(e.target.value)}
-                      placeholder="http://localhost:11434"
-                      className="w-full p-2.5 border border-violet-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none bg-white font-mono"
-                    />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="ollama-host"
+                        type="url"
+                        value={ollamaHostInput}
+                        onChange={(e) => handleOllamaHostInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleOllamaHostTest();
+                          }
+                        }}
+                        placeholder="http://localhost:11434"
+                        className="min-w-0 flex-1 p-2.5 border border-violet-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 outline-none bg-white font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleOllamaHostTest}
+                        disabled={ollamaStatus === 'checking'}
+                        className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {ollamaStatus === 'checking' ? 'Testing…' : 'Test connection'}
+                      </button>
+                    </div>
+                    {ollamaConnectionMessage && (
+                      <p role="status" className={`mt-2 text-xs ${ollamaStatus === 'connected' ? 'text-green-700' : ollamaStatus === 'checking' ? 'text-violet-700' : 'text-amber-800'}`}>
+                        {ollamaConnectionMessage}
+                      </p>
+                    )}
                     <p className="text-xs text-violet-600 mt-1.5">
                       <strong>Local dev:</strong> Leave blank — Vite auto-proxies to localhost:11434.<br />
-                      <strong>Hosted app:</strong> use an origin-specific Ollama allowlist or an authenticated reverse proxy. Do not expose Ollama through a public unauthenticated tunnel.
+                      <strong>Hosted app:</strong> localhost means the computer running this browser. If Ollama runs elsewhere, use a local SSH tunnel or an authenticated HTTPS reverse proxy. Allow only <code>https://sachit27.github.io</code> in Ollama's browser-origin configuration. Do not expose Ollama through a public unauthenticated tunnel.
                     </p>
                   </div>
                 )}
