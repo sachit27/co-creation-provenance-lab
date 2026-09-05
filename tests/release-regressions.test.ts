@@ -50,6 +50,9 @@ const ollamaService = read('services/ollama.ts');
 const configPanel = read('components/ui/ConfigPanel.tsx');
 assert.match(ollamaService, /diagnoseOllamaConnection/);
 assert.match(ollamaService, /targetAddressSpace/);
+assert.match(ollamaService, /Safari 26\.2–26\.3/);
+assert.match(ollamaService, /if \(!isLoopback \|\| isTimeoutError\(error\)\) throw error/);
+assert.match(ollamaService, /return fetch\(url, \{\s*method: 'GET'/);
 assert.match(ollamaService, /normalizeOllamaHost/);
 assert.match(ollamaService, /parseLocalOllamaModelNames/);
 assert.doesNotMatch(ollamaService, /block-insecure-private-network-requests/);
@@ -61,5 +64,6 @@ console.log('  PASS  bodyless health checks do not force a JSON CORS preflight')
 console.log('  PASS  editing a host cannot launch overlapping connection checks');
 console.log('  PASS  hosted users receive browser-reachability diagnostics');
 console.log('  PASS  shorthand hosts are normalized and remote cloud tags are excluded');
+console.log('  PASS  affected Safari versions retry loopback without the failing LNA hint');
 
 console.log('\nrelease regression checks passed');

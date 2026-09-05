@@ -111,6 +111,35 @@ const browserOrigin = (): string =>
 const isLoopbackHostname = (hostname: string): boolean =>
   hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
 
+const isTimeoutError = (error: unknown): boolean =>
+  error instanceof DOMException && error.name === 'TimeoutError';
+
+/**
+ * Fetch a loopback endpoint with the Local Network Access hint where supported.
+ * Safari 26.2–26.3 throws before sending requests containing
+ * `targetAddressSpace: "loopback"` (WebKit bug 304164). A single retry without
+ * the hint preserves Safari compatibility. Other network and CORS failures
+ * still fail closed because the ordinary fetch must independently succeed.
+ */
+const fetchOllamaTags = async (host: string, isLoopback: boolean): Promise<Response> => {
+  const url = `${host}/api/tags`;
+  const request: RequestInit & { targetAddressSpace?: 'loopback' | 'local' } = {
+    method: 'GET',
+    signal: AbortSignal.timeout(5000),
+  };
+  if (isLoopback) request.targetAddressSpace = 'loopback';
+
+  try {
+    return await fetch(url, request);
+  } catch (error) {
+    if (!isLoopback || isTimeoutError(error)) throw error;
+    return fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+  }
+};
+
 /**
  * Diagnose whether this browser can reach the configured Ollama API.
  * A running Ollama process is not sufficient: static hosted pages also need a
@@ -149,14 +178,7 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
   }
 
   try {
-    // targetAddressSpace is understood by browsers implementing Local Network
-    // Access and ignored by browsers that do not yet support it.
-    const request: RequestInit & { targetAddressSpace?: 'loopback' | 'local' } = {
-      method: 'GET',
-      signal: AbortSignal.timeout(5000), // 5s timeout to prevent hanging
-    };
-    if (isLoopback) request.targetAddressSpace = 'loopback';
-    const response = await fetch(`${host}/api/tags`, request);
+    const response = await fetchOllamaTags(host, isLoopback);
     if (!response.ok) {
       return {
         connected: false,
@@ -177,7 +199,7 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
       models,
     };
   } catch (error) {
-    const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
+    const timedOut = isTimeoutError(error);
     const originAdvice = origin ? ` Allow the exact origin ${origin} in OLLAMA_ORIGINS.` : '';
     const reachability = isLoopback
       ? 'localhost means the computer running this browser. If Ollama is on another machine, create a local SSH tunnel first.'
