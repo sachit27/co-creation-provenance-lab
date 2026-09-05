@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {
-  MAX_REVISION_CANDIDATES,
   selectRevisionCandidates,
 } from '../tests/.modules/services/revisionTargeting.ts';
 
@@ -54,7 +53,7 @@ const raisedThreshold = selectRevisionCandidates(participants, {
 });
 assert.equal(raisedThreshold.matchingCount, 3);
 assert.deepEqual(raisedThreshold.candidates.map(item => item.id), ['P-low']);
-console.log('  PASS  user-selected cutoff and prompt-size cap are applied deterministically');
+console.log('  PASS  user-selected cutoff and record count are applied deterministically');
 
 const explicitLowest = selectRevisionCandidates(participants, {
   mode: 'lowest-ranked',
@@ -64,6 +63,15 @@ const explicitLowest = selectRevisionCandidates(participants, {
 assert.deepEqual(explicitLowest.candidates.map(item => item.id), ['P-low', 'P-mid', 'P-no-match']);
 console.log('  PASS  explicit lowest-ranked mode works without inventing a hidden fallback');
 
+const noArbitraryCeiling = selectRevisionCandidates(participants, {
+  mode: 'lowest-ranked',
+  threshold: 0,
+  maxCandidates: 100,
+});
+assert.equal(noArbitraryCeiling.candidates.length, 4);
+assert.equal(noArbitraryCeiling.eligibleCount, 4);
+console.log('  PASS  a requested count above 12 can include every eligible record');
+
 assert.throws(() => selectRevisionCandidates(participants, {
   mode: 'below-threshold',
   threshold: 1.01,
@@ -72,6 +80,11 @@ assert.throws(() => selectRevisionCandidates(participants, {
 assert.throws(() => selectRevisionCandidates(participants, {
   mode: 'lowest-ranked',
   threshold: 0.5,
-  maxCandidates: MAX_REVISION_CANDIDATES + 1,
-}), /between 1 and 12/);
+  maxCandidates: 0,
+}), /positive whole number/);
+assert.throws(() => selectRevisionCandidates(participants, {
+  mode: 'lowest-ranked',
+  threshold: 0.5,
+  maxCandidates: 1.5,
+}), /positive whole number/);
 console.log('  PASS  invalid user configuration fails closed');

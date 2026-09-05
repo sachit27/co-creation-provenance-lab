@@ -200,7 +200,7 @@ export default function App() {
   const [revisionOrigin, setRevisionOrigin] = useState<SummaryOrigin>('human-authored');
   const [revisionTargetMode, setRevisionTargetMode] = useState<RevisionTargetMode>('below-threshold');
   const [revisionThreshold, setRevisionThreshold] = useState(ANALYSIS_CONFIG.thresholds.matchingThreshold);
-  const [revisionMaxCandidates, setRevisionMaxCandidates] = useState(8);
+  const [revisionMaxCandidates, setRevisionMaxCandidates] = useState(12);
   const [revisionInstruction, setRevisionInstruction] = useState('');
   const [revisionError, setRevisionError] = useState<string | null>(null);
   const [revisionTargetingNote, setRevisionTargetingNote] = useState<string | null>(null);
@@ -249,6 +249,15 @@ export default function App() {
         instruction: revisionInstruction,
       })
     : null;
+  const revisionAvailableTargetCount = revisionSelection
+    ? (revisionTargetMode === 'below-threshold'
+        ? revisionSelection.matchingCount
+        : revisionSelection.eligibleCount)
+    : 0;
+  const revisionSelectedSourceCharacters = revisionSelection?.candidates.reduce(
+    (total, participant) => total + participant.originalText.length,
+    0,
+  ) ?? 0;
 
   useEffect(() => () => {
     enrichmentAbortRef.current?.abort();
@@ -308,7 +317,12 @@ export default function App() {
     setRevisionOrigin('human-authored');
     setRevisionTargetMode('below-threshold');
     setRevisionThreshold(data.config.thresholds?.matchingThreshold ?? ANALYSIS_CONFIG.thresholds.matchingThreshold);
-    setRevisionMaxCandidates(8);
+    const eligibleCount = data.participants.filter(participant =>
+      !participant.embeddingFailed &&
+      !participant.alignmentUnavailableReason &&
+      Number.isFinite(participant.representationScore),
+    ).length;
+    setRevisionMaxCandidates(Math.max(1, Math.min(12, eligibleCount)));
     setRevisionInstruction('');
     setRevisionError(null);
     setRevisionTargetingNote(null);
@@ -1108,23 +1122,41 @@ export default function App() {
                       )}
 
                       <label className="block">
-                        <span className="text-xs font-medium text-slate-700">Maximum records sent</span>
+                        <span className="flex items-center justify-between gap-2 text-xs font-medium text-slate-700">
+                          <span>Records sent <span className="font-normal text-slate-400">(default 12)</span></span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (revisionAvailableTargetCount > 0) {
+                                setRevisionMaxCandidates(revisionAvailableTargetCount);
+                                setRevisionError(null);
+                              }
+                            }}
+                            disabled={revisionAvailableTargetCount === 0}
+                            className="font-normal text-indigo-700 hover:text-indigo-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Use all ({revisionAvailableTargetCount})
+                          </button>
+                        </span>
                         <input
                           type="number"
                           min="1"
-                          max="12"
+                          max={Math.max(1, revisionSelection?.eligibleCount ?? data.participants.length)}
                           step="1"
                           value={revisionMaxCandidates}
                           onChange={event => {
                             const value = Number(event.target.value);
                             if (Number.isFinite(value)) {
-                              setRevisionMaxCandidates(Math.min(12, Math.max(1, Math.round(value))));
+                              setRevisionMaxCandidates(Math.min(
+                                Math.max(1, revisionSelection?.eligibleCount ?? data.participants.length),
+                                Math.max(1, Math.round(value)),
+                              ));
                               setRevisionError(null);
                             }
                           }}
                           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                         />
-                        <span className="mt-1 block text-[10px] text-slate-500">Limited to 12 to bound prompt size and review scope.</span>
+                        <span className="mt-1 block text-[10px] text-slate-500">Increase this up to all eligible records. Provider context limits, latency, and usage still apply.</span>
                       </label>
                     </div>
 
@@ -1151,7 +1183,13 @@ export default function App() {
                               ? `; ${revisionSelection.matchingCount} match the rule among ${revisionSelection.eligibleCount} eligible records`
                               : ` from ${revisionSelection.eligibleCount} eligible records`}
                             <span className="mt-1 block text-slate-500">
-                              {revisionSelection.candidates.map(participant => participant.id).join(', ')}
+                              {revisionSelection.candidates.slice(0, 12).map(participant => participant.id).join(', ')}
+                              {revisionSelection.candidates.length > 12
+                                ? `, and ${revisionSelection.candidates.length - 12} more`
+                                : ''}
+                            </span>
+                            <span className="mt-1 block text-slate-500">
+                              Selected source text: {revisionSelectedSourceCharacters.toLocaleString()} characters. The summary and instructions add further prompt content.
                             </span>
                           </>
                         ) : (

@@ -20,8 +20,6 @@ export interface RevisionTargetSelection {
   matchingCount: number;
 }
 
-export const MAX_REVISION_CANDIDATES = 12;
-
 /**
  * Select records for an AI-assisted revision using an explicit, inspectable rule.
  * This function never changes the rule or invents a fallback target.
@@ -33,8 +31,8 @@ export const selectRevisionCandidates = (
   if (!Number.isFinite(options.threshold) || options.threshold < 0 || options.threshold > 1) {
     throw new Error('The AI-draft score cutoff must be between 0 and 1.');
   }
-  if (!Number.isInteger(options.maxCandidates) || options.maxCandidates < 1 || options.maxCandidates > MAX_REVISION_CANDIDATES) {
-    throw new Error(`The AI draft can target between 1 and ${MAX_REVISION_CANDIDATES} records.`);
+  if (!Number.isSafeInteger(options.maxCandidates) || options.maxCandidates < 1) {
+    throw new Error('The AI-draft record count must be a positive whole number.');
   }
 
   const eligible = participants
