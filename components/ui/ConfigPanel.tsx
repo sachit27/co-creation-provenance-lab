@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnalysisConfig, ParticipantInput, StakeholderGroup, ColumnInfo, ColumnSelection, MultiColumnMode, AIProvider } from '../../types';
 import { SAMPLE_DATA, SAMPLE_DATASETS, ANALYSIS_CONFIG } from '../../constants';
 import { checkAIConnection, getGeminiModels, setRuntimeGeminiKey, DEFAULT_GEMINI_GENERATION_MODEL, DEFAULT_GEMINI_EMBEDDING_MODEL } from '../../services/gemini';
-import { diagnoseOllamaConnection, filterOllamaEmbeddingModels, rankOllamaCompletionModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy } from '../../services/ollama';
+import { diagnoseOllamaConnection, filterOllamaEmbeddingModels, rankOllamaCompletionModels, setOllamaHost, getOllamaHostUrl, isUsingViteProxy, normalizeOllamaHost } from '../../services/ollama';
 import { checkBgeM3Connection, resetBgeM3Cache } from '../../services/bgeM3';
 import { checkGroqConnection, verifyGroqConnection, setGroqApiKey, getGroqApiKey, isGroqKeyFromEnv, GROQ_FREE_MODELS, fetchGroqModels } from '../../services/groq';
 import { checkOpenAIConnection, verifyOpenAIConnection, setOpenAIApiKey, getOpenAIApiKey, OPENAI_CHAT_MODELS, OPENAI_EMBEDDING_MODELS, fetchOpenAIChatModels } from '../../services/openai';
@@ -699,7 +699,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   };
 
   const handleOllamaHostTest = () => {
-    setOllamaHost(ollamaHostInput);
+    const normalized = normalizeOllamaHost(ollamaHostInput);
+    if (normalized && normalized !== ollamaHostInput) {
+      setOllamaHostInput(normalized);
+    }
+    setOllamaHost(normalized || ollamaHostInput);
     void runOllamaConnectionCheck();
   };
 
@@ -1435,7 +1439,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                     )}
                     <p className="text-xs text-violet-600 mt-1.5">
                       <strong>Local dev:</strong> Leave blank — Vite auto-proxies to localhost:11434.<br />
-                      <strong>Hosted app:</strong> localhost means the computer running this browser. If Ollama runs elsewhere, use a local SSH tunnel or an authenticated HTTPS reverse proxy. Allow only <code>https://sachit27.github.io</code> in Ollama's browser-origin configuration. Do not expose Ollama through a public unauthenticated tunnel.
+                      <strong>Hosted app:</strong> Enter <code>localhost:11434</code> or <code>http://localhost:11434</code>; the scheme is added automatically. Allow only <code>https://sachit27.github.io</code> in Ollama's browser-origin configuration. If Ollama runs elsewhere, use a local SSH tunnel or an authenticated HTTPS reverse proxy. Do not expose Ollama through a public unauthenticated tunnel.
                     </p>
                   </div>
                 )}

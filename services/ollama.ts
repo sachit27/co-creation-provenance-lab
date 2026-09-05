@@ -27,17 +27,30 @@ import type { CompletionResult } from '../types';
 const VITE_PROXY_HOST = '/api/ollama';
 const OLLAMA_HOST_STORAGE = 'cprov_ollama_host';
 
+/** Normalize raw host input by stripping trailing slashes and ensuring a protocol scheme. */
+export const normalizeOllamaHost = (rawHost: string): string => {
+  let trimmed = rawHost.trim().replace(/\/$/, '');
+  if (!trimmed || trimmed === VITE_PROXY_HOST) return trimmed;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = `http://${trimmed}`;
+  }
+  return trimmed;
+};
+
 /** Returns the currently active Ollama host URL.
  *  Falls back to the Vite dev proxy if the user hasn't set a custom host. */
-const getOllamaHost = (): string =>
-  sessionStorage.getItem(OLLAMA_HOST_STORAGE) || VITE_PROXY_HOST;
+const getOllamaHost = (): string => {
+  const stored = sessionStorage.getItem(OLLAMA_HOST_STORAGE);
+  if (!stored) return VITE_PROXY_HOST;
+  return normalizeOllamaHost(stored);
+};
 
 /** Set a custom Ollama host URL (e.g. http://localhost:11434 for hosted users).
  *  Pass an empty string to reset to the Vite proxy default. */
 export const setOllamaHost = (host: string): void => {
-  const trimmed = host.trim().replace(/\/$/, ''); // remove trailing slash
-  if (trimmed) {
-    sessionStorage.setItem(OLLAMA_HOST_STORAGE, trimmed);
+  const normalized = normalizeOllamaHost(host);
+  if (normalized && normalized !== VITE_PROXY_HOST) {
+    sessionStorage.setItem(OLLAMA_HOST_STORAGE, normalized);
   } else {
     sessionStorage.removeItem(OLLAMA_HOST_STORAGE);
   }
@@ -67,6 +80,31 @@ export interface OllamaConnectionDiagnostic {
   models: string[];
 }
 
+interface OllamaTagModel {
+  name?: unknown;
+  remote_host?: unknown;
+}
+
+/** Cloud-backed tags send prompts outside the configured Ollama host. They are
+ * excluded from the provider presented as Local Ollama. `remote_host` is the
+ * authoritative signal; the suffix check covers older catalog responses. */
+export const isOllamaCloudModel = (model: string): boolean =>
+  /(?:[:_-]cloud)$/i.test(model.trim());
+
+export const parseLocalOllamaModelNames = (payload: unknown): string[] => {
+  if (typeof payload !== 'object' || payload === null || !('models' in payload)) return [];
+  const models = (payload as { models?: unknown }).models;
+  if (!Array.isArray(models)) return [];
+
+  return models.flatMap((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const model = entry as OllamaTagModel;
+    const name = typeof model.name === 'string' ? model.name.trim() : '';
+    const hasRemoteHost = typeof model.remote_host === 'string' && model.remote_host.trim().length > 0;
+    return name && !hasRemoteHost && !isOllamaCloudModel(name) ? [name] : [];
+  });
+};
+
 const browserOrigin = (): string =>
   typeof window === 'undefined' ? '' : window.location.origin;
 
@@ -95,9 +133,9 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
 
   let parsedHost: URL;
   try {
-    parsedHost = new URL(host, origin || 'http://localhost');
+    parsedHost = new URL(host);
   } catch {
-    return { connected: false, code: 'invalid-url', host, message: 'Enter a complete valid Ollama URL.', models: [] };
+    return { connected: false, code: 'invalid-url', host, message: 'Enter a complete valid Ollama URL (e.g. http://localhost:11434).', models: [] };
   }
   const isLoopback = isLoopbackHostname(parsedHost.hostname);
   if (origin.startsWith('https:') && parsedHost.protocol === 'http:' && !isLoopback) {
@@ -105,7 +143,7 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
       connected: false,
       code: 'insecure-remote-host',
       host,
-      message: 'An HTTPS page cannot call this non-loopback HTTP host. Use an authenticated HTTPS reverse proxy.',
+      message: 'An HTTPS page cannot call an insecure remote HTTP host. Use an authenticated HTTPS reverse proxy or tunnel.',
       models: [],
     };
   }
@@ -130,16 +168,12 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
       };
     }
     const payload = await response.json().catch(() => ({}));
-    const models = Array.isArray(payload.models)
-      ? payload.models.map((model: unknown) => typeof model === 'object' && model !== null && 'name' in model
-        ? String((model as { name: unknown }).name)
-        : '').filter(Boolean)
-      : [];
+    const models = parseLocalOllamaModelNames(payload);
     return {
       connected: true,
       code: 'connected',
       host,
-      message: `Connected${models.length ? `; ${models.length} installed model${models.length === 1 ? '' : 's'} found` : '; no installed models were reported'}.`,
+      message: `Connected${models.length ? `; ${models.length} local model${models.length === 1 ? '' : 's'} found` : '; no local models were reported'}.`,
       models,
     };
   } catch (error) {
@@ -148,11 +182,15 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
     const reachability = isLoopback
       ? 'localhost means the computer running this browser. If Ollama is on another machine, create a local SSH tunnel first.'
       : 'Confirm that the URL is reachable from this browser and protected appropriately.';
+    const message = timedOut
+      ? `The connection to ${host} timed out after 5 seconds. ${reachability}`
+      : `The browser received no usable response. ${reachability}${originAdvice} A browser local-network permission or CORS policy may also be blocking access.`;
+
     return {
       connected: false,
       code: timedOut ? 'timeout' : 'unreachable-or-blocked',
       host,
-      message: `${timedOut ? 'The connection timed out.' : 'The browser received no usable response.'} ${reachability}${originAdvice} A browser local-network permission or CORS policy may also be blocking access.`,
+      message,
       models: [],
     };
   }
@@ -168,16 +206,12 @@ export const getOllamaModels = async (): Promise<string[]> => {
     });
     if (!response.ok) return [];
     const data = await response.json();
-    return data.models?.map((m: any) => m.name) || [];
+    return parseLocalOllamaModelNames(data);
   } catch (e) {
     console.warn("Failed to fetch Ollama models", e);
     return [];
   }
 };
-
-/** Cloud-tagged entries route outside the local Ollama host and are therefore
- * not offered when the user selects the local-only provider. */
-export const isOllamaCloudModel = (model: string): boolean => /:cloud$/i.test(model.trim());
 
 /** Conservative name-based capability guard for catalogs returned by /api/tags.
  * The generation endpoint remains the final authority and still fails closed. */
