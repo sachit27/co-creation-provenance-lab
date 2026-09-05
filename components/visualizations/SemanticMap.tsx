@@ -145,7 +145,9 @@ export const SemanticMap: React.FC<SemanticMapProps> = ({ data, clusters, cluste
           </>
         ) : (
           <>
-            No validated semantic partition. {clusteringDiagnostics?.reason || 'This legacy result has no clustering diagnostics.'}
+            {clusteringDiagnostics?.candidateDiagnostics.length
+              ? 'No partition met all internal checks. This does not mean participants agree. Open Network details → Clustering checks for candidate scores.'
+              : clusteringDiagnostics?.reason || 'This saved result has no clustering diagnostics. Rerun the analysis to obtain them.'}
           </>
         )}
       </div>

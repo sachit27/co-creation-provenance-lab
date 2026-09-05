@@ -74,11 +74,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'clusters': {
     label: 'Semantic Groups',
-    description: 'Exploratory geometric groups from repeated spherical K-Means++ on unit-normalized source embeddings. High-dimensional runs use a deterministic signed projection only after a cosine-distance preservation check; the selected result is revalidated in full space.',
+    description: 'Exploratory geometric groups from repeated spherical K-Means++ on unit-normalized source embeddings. Version 4 fits new partitions in the original embedding space and abstains when internal robustness checks disagree.',
     implication: 'Passing these internal checks permits cluster-conditioned exploratory modules, but does not establish natural topics, social groups, or causal strata. Failed runs remain visibly unpartitioned.',
     idealRange: 'No universal ideal number; inspect every diagnostic and the source evidence',
-    formula: 'Repeated spherical K-Means++; choose the best eligible k by silhouette, then require full-space silhouette validation',
-    thresholdJustification: `Current transparent gates: n ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringSampleSize}, cluster size ≥ ${ANALYSIS_CONFIG.algorithms.minClusterSize}, projected and full-space silhouette ≥ ${ANALYSIS_CONFIG.algorithms.minSilhouette}, resampling ARI ≥ ${ANALYSIS_CONFIG.algorithms.minClusterStability}, neighborhood coherence ≥ ${ANALYSIS_CONFIG.algorithms.minNeighborhoodAgreement}, method agreement ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringMethodAgreement}, and projection-distance correlation ≥ ${ANALYSIS_CONFIG.algorithms.minProjectionDistanceCorrelation}. These are conservative internal release gates, not universal statistical cutoffs.`
+    formula: 'Repeated spherical K-Means++; retain candidates that pass every disclosed check, then choose the highest-silhouette candidate',
+    thresholdJustification: `Current transparent checks: n ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringSampleSize}, cluster size ≥ ${ANALYSIS_CONFIG.algorithms.minClusterSize}, positive mean cosine silhouette, resampling ARI ≥ ${ANALYSIS_CONFIG.algorithms.minClusterStability}, neighborhood coherence ≥ ${ANALYSIS_CONFIG.algorithms.minNeighborhoodAgreement}, and method agreement ≥ ${ANALYSIS_CONFIG.algorithms.minClusteringMethodAgreement}. New partitions are fitted in the original embedding space. These are internal robustness policies, not significance tests or external validation.`
   },
   'bootstrap': {
     label: 'Participant-resampling Stability Interval',
@@ -106,7 +106,7 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'tensions': {
     label: 'Tension & Contradiction Mapping',
-    description: 'Screens records from validated semantic groups for a shared concrete subject and explicit opposing directions, requires exact source spans, rechecks a conservative incompatibility taxonomy, and model-codes how exact summary evidence handles each retained candidate.',
+    description: 'Screens records from semantic groups that passed internal checks for a shared concrete subject and explicit opposing directions, requires exact source spans, rechecks a conservative incompatibility taxonomy, and model-codes how exact summary evidence handles each retained candidate.',
     implication: 'One-sided, flattened, absent, distorted, or unassessed labels are review candidates. The precision-first lexical guard will miss implicit or paraphrased disagreements; sampling caps and evaluator error mean the output is not a complete contradiction census.',
     idealRange: 'Inspect exact evidence and unassessed coverage; no universal pass threshold',
     formula: 'Tension handling rate = acknowledged / assessed tension candidates',
@@ -133,7 +133,7 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     description: 'A 2D projection of high-dimensional text embeddings using Principal Component Analysis (PCA). Each point represents a participant\'s contribution, positioned so that semantically similar inputs appear close together.',
     implication: 'Nearby points are more similar under the selected representation, subject to projection distortion. Isolation in two dimensions does not establish uniqueness or marginalization. Point size encodes the alignment score.',
     idealRange: 'Descriptive; inspect explained variance and source text',
-    formula: 'PCA supplies display coordinates only. Clustering uses normalized embeddings, an audited high-dimensional projection when needed, and full-space validation.',
+    formula: 'PCA supplies display coordinates only. Clustering uses the original unit-normalized embeddings; the two-dimensional display cannot determine membership.',
     thresholdJustification: 'PCA is deterministic for fixed inputs but loses information. Axes are abstract directions and apparent 2-D distances may distort high-dimensional relationships.'
   },
   'similarityNetwork': {

@@ -754,10 +754,13 @@ export interface ClusterData {
 export interface ClusteringCandidateDiagnostic {
   k: number;
   silhouette: number;
-  /** Full-space validation silhouette; null when the candidate failed an earlier gate. */
+  /** Original-space silhouette; null for projected candidates not checked in that space. */
   fullSpaceSilhouette: number | null;
   restartStability: number;
-  subsampleStability: number;
+  /** Null when the candidate cannot be assessed using a genuine subsample. */
+  subsampleStability: number | null;
+  /** Number of records per without-replacement stability sample (v3+). */
+  stabilitySampleSize?: number;
   neighborhoodAgreement: number;
   methodAgreement: number;
   minimumClusterSize: number;
@@ -773,7 +776,7 @@ export interface ClusteringCandidateDiagnostic {
  * score-simulation paths. It does not make groups causal, social, or validated topics.
  */
 export interface ClusteringDiagnostics {
-  methodVersion: 'spherical-kmeans-stability-v1' | 'spherical-kmeans-stability-v2';
+  methodVersion: 'spherical-kmeans-stability-v1' | 'spherical-kmeans-stability-v2' | 'spherical-kmeans-stability-v3' | 'spherical-kmeans-stability-v4';
   status: 'available' | 'unavailable';
   usableForDownstream: boolean;
   reason: string;
@@ -880,7 +883,7 @@ export interface TensionPair {
 
 export interface TensionAnalysis {
   methodVersion?: 'conservative-exact-span-v3';
-  /** Whether candidate sampling used a validated semantic partition. */
+  /** Whether candidate sampling used a semantic partition that passed internal checks. */
   basis?: 'stable-semantic-groups' | 'unavailable';
   unavailableReason?: string;
   /** Records presented to the tension evaluator. A capped subset is not a census. */

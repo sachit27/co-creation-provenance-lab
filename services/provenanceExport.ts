@@ -359,7 +359,7 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
       } : {
         'cprov:semanticGroupingDiagnostics': {
           status: 'unavailable',
-          reason: 'Legacy result contains no validated clustering diagnostics.',
+          reason: 'Legacy result contains no recorded clustering diagnostics.',
           usableForDownstream: false,
         },
       }),

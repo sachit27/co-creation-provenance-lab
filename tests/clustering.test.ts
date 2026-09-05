@@ -25,6 +25,12 @@ check('singleton contributes zero to the mean instead of disappearing',
   singletonScore > 0 && singletonScore <= (2 / 3) + 1e-9,
   `score=${singletonScore}`);
 check('all-singleton partition is unavailable', meanSilhouette([[1, 0], [0, 1], [-1, 0]], [0, 1, 2]) === -1);
+check('mixed-dimensional vectors cannot yield a finite silhouette',
+  meanSilhouette([[1, 0], [1, 0, 0], [0, 1]], [0, 0, 1]) === -1);
+check('orthogonal duplicate pairs have exact silhouette one',
+  meanSilhouette([[1, 0], [1, 0], [0, 1], [0, 1]], [0, 0, 1, 1]) === 1);
+check('crossed two-by-two labels have exact ARI minus one half',
+  Math.abs(adjustedRandIndex([0, 0, 1, 1], [0, 1, 0, 1]) + 0.5) < 1e-12);
 
 console.log('\n[2] Sample-size and no-structure guards');
 const tiny = computeAutoKMeans([[1, 0], [0.99, 0.01], [-1, 0], [-0.99, -0.01]]);
@@ -32,6 +38,12 @@ check('n below the configured minimum remains unpartitioned', tiny.k === 1 && !t
 check('small-run reason is explicit', tiny.diagnostics.reason.includes('at least'));
 const identical = computeAutoKMeans(Array.from({ length: 12 }, () => [1, 0, 0]));
 check('identical records cannot manufacture groups', identical.k === 1 && !identical.diagnostics.usableForDownstream);
+let noiseState = 104729;
+const noiseRandom = () => { noiseState = (Math.imul(noiseState, 1664525) + 1013904223) >>> 0; return noiseState / 2 ** 32; };
+const isotropicNoise = Array.from({ length: 60 }, () => Array.from({ length: 32 }, () => noiseRandom() - 0.5));
+const noiseResult = computeAutoKMeans(isotropicNoise);
+check('isotropic noise does not manufacture an accepted partition',
+  noiseResult.k === 1 && !noiseResult.diagnostics.usableForDownstream);
 const incomplete = computeAutoKMeans([...Array.from({ length: 8 }, (_, index) => [index < 4 ? 1 : 0, index < 4 ? 0 : 1]), [0, 0]]);
 check('one failed embedding disables group-conditioned claims for the whole run',
   !incomplete.diagnostics.usableForDownstream && incomplete.diagnostics.reason.includes('complete common embedding space'));
@@ -61,12 +73,28 @@ const highDimensional = sixGroups.map(vector => [
   ...Array.from({ length: 500 }, () => (random() - 0.5) * 0.002),
 ]);
 const projected = computeAutoKMeans(highDimensional);
-check('high-dimensional fitting records and validates its efficient projection',
+check('ordinary high-dimensional consultations fit in the original space',
   projected.k === 6 &&
-  projected.diagnostics.projectionMethod === 'deterministic-signed-feature-hash' &&
-  projected.diagnostics.analysisDimensions === 128 &&
+  projected.diagnostics.projectionMethod === 'none' &&
+  projected.diagnostics.analysisDimensions === 512 &&
   projected.diagnostics.projectionDistanceCorrelation >= projected.diagnostics.thresholds.minimumProjectionDistanceCorrelation &&
   projected.diagnostics.silhouette !== null);
+check('rejected original-space candidates also retain their original-space silhouette',
+  projected.diagnostics.candidateDiagnostics.every(candidate => candidate.fullSpaceSilhouette === candidate.silhouette));
+const largeExact = computeAutoKMeans([...highDimensional, ...highDimensional, ...highDimensional]);
+check('larger runs also fit in the original embedding space',
+  largeExact.k === 6 && largeExact.diagnostics.analysisDimensions === 512 &&
+  largeExact.diagnostics.projectionMethod === 'none' &&
+  (largeExact.diagnostics.silhouette ?? -1) > largeExact.diagnostics.thresholds.minimumSilhouette);
+
+const sixRecords = computeAutoKMeans([[1, 0], [1, 0.01], [0, 1], [0.01, 1], [-1, 0], [-1, 0.01]]);
+check('stability samples never silently become the whole dataset',
+  sixRecords.diagnostics.candidateDiagnostics.every(candidate => candidate.stabilitySampleSize === 5));
+check('candidate requiring more records than a genuine subsample is rejected explicitly',
+  sixRecords.diagnostics.candidateDiagnostics.some(candidate => candidate.k === 3 &&
+    !candidate.eligible && candidate.subsampleStability === null && candidate.rejectionReasons.includes('insufficient-subsample-size')));
+check('updated calculation has a distinct recorded method version',
+  sixRecords.diagnostics.methodVersion === 'spherical-kmeans-stability-v4');
 
 console.log('\n[4] Order invariance and label invariance');
 const reversed = computeAutoKMeans([...sixGroups].reverse());
@@ -139,10 +167,10 @@ check('tension sampling fails closed before any evaluator call',
 
 const appSource = readFileSync('App.tsx', 'utf8');
 const facilitationSource = readFileSync('services/facilitationCoPilot.ts', 'utf8');
-check('large-N utility attribution is gated on validated clustering',
+check('large-N utility attribution is gated on a robust retained partition',
   appSource.includes("data.clusteringDiagnostics?.usableForDownstream !== true") &&
   appSource.includes("data.clusteringDiagnostics?.usableForDownstream === true"));
-check('facilitation group-gap claims are gated on validated clustering',
+check('facilitation group-gap claims are gated on a robust retained partition',
   facilitationSource.includes("data.clusteringDiagnostics?.usableForDownstream === true"));
 
 console.log('\n[7] Similarity-network construction guards');

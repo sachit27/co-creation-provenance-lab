@@ -62,13 +62,12 @@ export const ANALYSIS_CONFIG = {
     /** Every reported semantic group must contain at least this many records. */
     minClusterSize: 2,
     /**
-     * Minimum mean silhouette required to report more than one cluster.
-     * Replaces the former `elbowThreshold`: WCSS decreases monotonically with k,
-     * so an elbow cut-off is scale-dependent and fired early on gradually
-     * structured data (it selected k=2 where 5 themes were planted). Silhouette
-     * is an internal separation diagnostic, not proof of a natural partition.
+     * A reported hard partition must have positive mean silhouette: on average,
+     * records are closer to their own group than the nearest alternative group.
+     * No stronger universal cut-off is claimed. Robustness is screened by the
+     * resampling, neighbourhood and method-agreement checks below.
      */
-    minSilhouette: 0.25,
+    minSilhouette: 0,
     /** Minimum mean adjusted-Rand agreement with deterministic subsample fits. */
     minClusterStability: 0.75,
     /** Minimum fraction of local-neighbour edges retained inside groups. */
@@ -79,9 +78,9 @@ export const ANALYSIS_CONFIG = {
     /** Maximum deterministic subsample used for the average-linkage
      * method-sensitivity hierarchy, whose exact implementation is cubic. */
     clusterMethodSensitivityMaxSampleSize: 160,
-    /** Maximum working dimensions for deterministic signed feature hashing. */
+    /** Legacy projection settings retained to interpret saved v1-v3 reports.
+     * Version 4 fits new partitions in the original embedding space. */
     maxClusteringDimensions: 128,
-    /** Minimum Pearson agreement between sampled full/projection cosine distances. */
     minProjectionDistanceCorrelation: 0.80,
 
     /** Analytical search ceiling. Display code may simplify the legend, but it

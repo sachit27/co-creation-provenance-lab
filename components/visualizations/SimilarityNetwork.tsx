@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d';
 import { NetworkGraph, ClusterData, NetworkAnalysis, ClusteringDiagnostics } from '../../types';
 import { InfoIcon } from '../ui/MetricGlossary';
+import { ClusteringDiagnosticsPanel } from './ClusteringDiagnosticsPanel';
 
 const escapeTooltipText = (value: unknown): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -299,7 +300,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
             <MetricBadge label="Connectors" value={groupingUsable ? String(analysis.bridgeNodes.length) : '—'} color="amber"
               tooltip={groupingUsable
                 ? "Records with at least one retained within-group edge and one retained cross-group edge. These are connector candidates, not graph-theoretic bridge edges or evidence of social mediation."
-                : "Unavailable because cross-group connectors require a validated semantic partition."}
+                : "Unavailable because no partition met the internal grouping checks."}
             />
             <MetricBadge label="Peripheral" value={String(analysis.peripheralNodes.length)}
               color={analysis.peripheralNodes.length > 0 ? 'red' : 'green'}
@@ -349,7 +350,8 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
               <div className="font-semibold text-slate-800">Network Interpretation</div>
               {groupingUsable
                 ? <InterpretModularity Q={analysis.modularity} />
-                : <div className="text-amber-700">Cluster-conditioned modularity and cross-group connector interpretations are unavailable because no validated semantic partition exists.</div>}
+                : <div className="text-amber-700">No partition met the internal grouping checks, so between-group connector and modularity results are not reported. Similarity links remain available. This does not mean participants agree.</div>}
+              <ClusteringDiagnosticsPanel diagnostics={clusteringDiagnostics} />
               <InterpretComponents count={analysis.connectedComponents} total={networkGraph.nodes.length} />
               {groupingUsable && <InterpretBridges bridges={analysis.bridgeNodes} clusters={clusters} nodeMetrics={analysis.nodeMetrics} />}
               {analysis.peripheralNodes.length > 0 && (
@@ -357,7 +359,7 @@ export const SimilarityNetwork: React.FC<SimilarityNetworkProps> = ({
                   <span className="font-medium text-slate-700">Peripheral graph nodes: </span>
                   {analysis.peripheralNodes.slice(0, 8).join(', ')}
                   {analysis.peripheralNodes.length > 8 && ` (+${analysis.peripheralNodes.length - 8} more)`}
-                  {' — these records have few retained mutual-kNN edges; inspect them before inferring uniqueness or undersampling.'}
+                  {'. Each has at most one retained mutual-neighbour link at this k. This describes graph connectivity, not the importance or distinctiveness of their views.'}
                 </div>
               )}
               {crossClusterEdgeCount > 0 && (

@@ -229,7 +229,7 @@ export const runWhatIfSimulation = (
     case 'add_voices':
       if (data.clusteringDiagnostics?.usableForDownstream !== true) {
         throw new Error(
-          `Cluster-conditioned score simulation is unavailable: ${data.clusteringDiagnostics?.reason || 'no validated semantic partition is present.'}`,
+          `Cluster-conditioned score simulation is unavailable: ${data.clusteringDiagnostics?.reason || 'no semantic partition passed the internal checks.'}`,
         );
       }
       return simulateAddVoices(data, scenario);

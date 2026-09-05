@@ -403,8 +403,8 @@ export const runCoreAnalysis = async (
     );
   }
 
-  // Clustering uses normalized semantic geometry with an audited projection
-  // only when needed; the selected partition is revalidated in full space.
+  // Clustering uses the original normalized semantic geometry. PCA below is
+  // used only for the two-dimensional display.
   const {
     assignments: clusterAssignments,
     k: numClusters,

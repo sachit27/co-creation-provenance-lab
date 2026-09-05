@@ -125,7 +125,7 @@ if (result.embeddingTierUsed !== embeddingProvider) {
   throw new Error(`Demo embeddings fell back to ${result.embeddingTierUsed}; refusing to keep the artifact.`);
 }
 if (result.clusteringDiagnostics?.usableForDownstream !== true) {
-  throw new Error(`Demo has no validated semantic partition: ${result.clusteringDiagnostics?.reason ?? 'missing diagnostics'}`);
+  throw new Error(`Demo has no partition that passed the configured robustness checks: ${result.clusteringDiagnostics?.reason ?? 'missing diagnostics'}`);
 }
 if (result.clusteringDiagnostics.selectedK !== 4 || result.clusters.length !== 4) {
   throw new Error(`Demo did not recover the four planted semantic groups (selected k=${result.clusteringDiagnostics.selectedK}).`);

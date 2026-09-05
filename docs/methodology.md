@@ -73,15 +73,14 @@ The centroid is majority-weighted. High isolation can mean a legitimate minority
 
 The mutual-k-nearest-neighbour graph, PCA map, clusters, and Sankey-style view are semantic-association visualizations. Their edges do not establish information flow or derivation.
 
-### Validated exploratory semantic grouping
+### Internally screened exploratory semantic grouping
 
 New runs do not treat every K-Means output as a usable partition. The grouping
 pipeline first L2-normalizes source embeddings, so squared Euclidean assignment
-is equivalent to cosine assignment. Up to 128 dimensions are used directly. For
-larger embeddings, a deterministic signed feature-hash projection is used for
-repeated candidate fitting only when sampled full/projected cosine distances
-correlate at least 0.80; the selected partition must then also pass silhouette
-validation in the original full embedding space. PCA is used only to draw the
+is equivalent to cosine assignment. Version 4 fits every candidate in the
+original embedding space. The earlier feature-hash approximation was removed:
+global distance correlation cannot show that local neighbours, cluster boundaries,
+or resampling behaviour survived a projection. PCA is used only to draw the
 two-dimensional map and cannot determine group membership.
 
 For every candidate `k`, the application runs multiple deterministic K-Means++
@@ -91,11 +90,14 @@ transparent internal gates pass:
 
 - at least six valid source embeddings are available;
 - every group has at least two source records;
-- mean cosine silhouette is at least 0.25, with singleton observations assigned
-  silhouette zero rather than removed from the mean;
-- mean adjusted-Rand agreement with deterministic 80% participant subsamples is
-  at least 0.75;
-- at least 75% of local-neighbour relations remain inside the proposed groups.
+- mean cosine silhouette is positive, meaning that records are closer on average
+  to their assigned group than to the nearest alternative group. Singleton
+  observations receive silhouette zero rather than being removed from the mean;
+- mean adjusted-Rand agreement with eight deterministic 80% participant subsamples is
+  at least 0.75. Versions 3 and 4 use the same 12 optimisation restarts for the full and
+  subsample fits. Subsamples always omit records; candidate counts that cannot
+  fit the minimum group sizes in a genuine subsample are rejected explicitly;
+- at least 75% of local-neighbour relations remain inside the proposed groups;
 - adjusted-Rand agreement with a same-`k` cosine average-linkage sensitivity
   partition is at least 0.75. Average linkage uses all cross-group distances and
   avoids the single-edge chaining failure of the earlier single-linkage check.
@@ -108,9 +110,27 @@ utility attribution, facilitation gaps, tension sampling, and cluster-score
 simulation are then unavailable rather than silently using an arbitrary split.
 The report and PROV record carry the selected `k`, group sizes, candidate scores,
 thresholds, stability, neighborhood coherence, method version, and failure
-reason. These checks establish only internal geometric reproducibility. They do
+reason. The Network details panel also exposes rejected candidates and their
+scores. No permutation-null significance claim is made. Independently shuffling
+embedding dimensions destroys their covariance and row-norm structure, so it
+does not supply a defensible no-cluster reference for contextual embeddings.
+The ARI and neighbourhood thresholds are conservative engineering screening
+rules, not calibrated significance tests or universal standards of cluster validity.
+Silhouette favours compact, separated groups; agreement with a second method
+measures dependence on modelling assumptions. These checks provide internal
+geometric diagnostics. They do
 not validate topics, stakeholder identities, natural social groups, or causal
-strata; every interpretation still requires source-text review.
+strata; every interpretation still requires source-text review. Opposing positions
+on the same subject can have similar embeddings. An unavailable partition does
+not establish consensus, absence of disagreement, or lack of meaningful topics.
+The current tension scan depends on accepted groups for candidate sampling;
+when this scan is unavailable it has not tested whether participants disagree.
+
+Relevant methodological background: [Rousseeuw's silhouette paper](https://doi.org/10.1016/0377-0427(87)90125-7),
+[von Luxburg's review of clustering stability](https://arxiv.org/abs/1007.1075), and
+[Clustering: Science or Art?](https://proceedings.mlr.press/v27/luxburg12a.html).
+These sources motivate scrutiny of clustering assumptions; they do not prescribe
+this application's thresholds.
 
 ## 6. Participant-resampling stability
 

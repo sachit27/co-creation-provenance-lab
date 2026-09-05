@@ -27,7 +27,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
         <div className="text-sm font-semibold text-amber-900">Cluster-conditioned tension mapping unavailable</div>
         <p className="mt-1 text-xs leading-relaxed text-amber-800">
-          {data.unavailableReason || 'This legacy result does not contain a validated semantic partition.'}
+          {data.unavailableReason || 'This saved result does not contain a partition that passed internal checks.'}
           {' '}No absence-of-tension conclusion should be drawn.
         </p>
       </div>

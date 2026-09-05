@@ -410,7 +410,7 @@ export const extractKeywords = (text: string, max: number = 8): string[] => {
 };
 
 /**
- * Produce a short descriptive label for a validated semantic cluster.
+ * Produce a short descriptive label for a semantic group that passed internal checks.
  *
  * The score is a contrastive document-frequency score: terms must recur across
  * records inside the cluster and are rewarded when they are uncommon outside

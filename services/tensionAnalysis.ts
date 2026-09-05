@@ -414,7 +414,7 @@ export const performTensionAnalysis = async (
     return {
       methodVersion: 'conservative-exact-span-v3',
       basis: 'unavailable',
-      unavailableReason: clusteringReason || 'A validated semantic partition was not available.',
+      unavailableReason: `The current tension scan samples within and between accepted groups. It did not run because no partition met the internal checks. This is not evidence of an absence of disagreement. ${clusteringReason || ''}`.trim(),
       pairs: [],
       tensionFidelityScore: null,
       acknowledgedCount: 0,

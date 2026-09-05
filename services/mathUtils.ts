@@ -246,58 +246,6 @@ const orderInvariantSeed = (vectors: number[][]): number => {
     return hash >>> 0;
 };
 
-const pearsonCorrelation = (left: number[], right: number[]): number => {
-    if (left.length !== right.length || left.length < 2) return 1;
-    const leftMean = mean(left);
-    const rightMean = mean(right);
-    let numerator = 0;
-    let leftVariance = 0;
-    let rightVariance = 0;
-    for (let i = 0; i < left.length; i++) {
-        const a = left[i] - leftMean;
-        const b = right[i] - rightMean;
-        numerator += a * b;
-        leftVariance += a * a;
-        rightVariance += b * b;
-    }
-    const denominator = Math.sqrt(leftVariance * rightVariance);
-    return denominator > 1e-12 ? numerator / denominator : 1;
-};
-
-/** O(nd) signed feature hashing used only to make repeated clustering practical. */
-const projectForClustering = (
-    vectors: number[][],
-    targetDimensions: number,
-    seed: number,
-): { vectors: number[][]; method: 'none' | 'deterministic-signed-feature-hash'; distanceCorrelation: number } => {
-    const dimensions = vectors[0]?.length ?? 0;
-    if (dimensions <= targetDimensions) return { vectors, method: 'none', distanceCorrelation: 1 };
-    const projected = vectors.map(vector => {
-        const output = new Array(targetDimensions).fill(0);
-        for (let dimension = 0; dimension < vector.length; dimension++) {
-            let hash = Math.imul((dimension + 1) ^ seed, 0x45d9f3b);
-            hash ^= hash >>> 16;
-            const bucket = (hash >>> 1) % targetDimensions;
-            output[bucket] += (hash & 1) === 0 ? vector[dimension] : -vector[dimension];
-        }
-        return normalizeVector(output);
-    });
-    const sample = deterministicSilhouetteSample(vectors, Math.min(40, vectors.length));
-    const fullDistances: number[] = [];
-    const projectedDistances: number[] = [];
-    for (let i = 0; i < sample.length; i++) {
-        for (let j = i + 1; j < sample.length; j++) {
-            fullDistances.push(cosineDistanceUnit(vectors[sample[i]], vectors[sample[j]]));
-            projectedDistances.push(cosineDistanceUnit(projected[sample[i]], projected[sample[j]]));
-        }
-    }
-    return {
-        vectors: projected,
-        method: 'deterministic-signed-feature-hash',
-        distanceCorrelation: pearsonCorrelation(fullDistances, projectedDistances),
-    };
-};
-
 const deterministicSilhouetteSample = (vectors: number[][], maxN: number): number[] => {
     const indices = vectors.map((_, index) => index);
     if (indices.length <= maxN) return indices;
@@ -318,7 +266,7 @@ export const meanSilhouette = (
     const clusters = new Set(assignments);
     if (clusters.size < 2 || clusters.size >= n) return -1;
     const normalized = vectors.map(normalizeVector);
-    if (normalized.some(vector => vector.length === 0)) return -1;
+    if (normalized.some(vector => vector.length === 0 || vector.length !== normalized[0].length)) return -1;
 
     const sample = deterministicSilhouetteSample(normalized, maxN);
     let total = 0;
@@ -379,20 +327,7 @@ export const adjustedRandIndex = (a: number[], b: number[]): number => {
     return Math.max(-1, Math.min(1, (cellPairs - expected) / denominator));
 };
 
-/**
- * Automatic k-selection by silhouette score.
- *
- * v3 change: the previous implementation used an elbow rule — stop as soon as
- * the marginal WCSS improvement fell below 15%. WCSS decreases monotonically
- * with k, so the rule is scale-dependent and fires early on gradually
- * structured data: on the Deliberative Provenance Benchmark it selected k = 2
- * where five themes were planted. Silhouette instead measures how well separated
- * the clusters actually are, and has a defined optimum rather than an arbitrary
- * cut-off.
- *
- * If no k >= 2 achieves MIN_SILHOUETTE, the data is reported as a single
- * cluster rather than being split arbitrarily.
- */
+/** Internal fit. A downstream unpartitioned sentinel is not evidence of one topic. */
 interface KMeansFit {
     assignments: number[];
     centroids: number[][];
@@ -454,15 +389,19 @@ const estimateSubsampleStability = (
     runs: number,
     fraction: number,
     minClusterSize: number,
+    restarts: number,
     iterations: number,
     seed: number,
-): number => {
-    const sampleSize = Math.min(vectors.length, Math.max(k * minClusterSize, Math.round(vectors.length * fraction)));
+): number | null => {
+    const sampleSize = Math.min(vectors.length - 1, Math.round(vectors.length * fraction));
+    // Increasing a subsample to fit k can silently turn it into the entire data
+    // set. Such a run does not measure sensitivity to removing observations.
+    if (sampleSize < k * minClusterSize) return null;
     const scores: number[] = [];
     for (let run = 0; run < runs; run++) {
         const sample = withoutReplacementSample(vectors.length, sampleSize, new SeededRNG((seed + Math.imul(run + 1, 65537)) >>> 0));
         const subset = sample.map(index => vectors[index]);
-        const { best } = fitWithRestarts(subset, k, 4, iterations, (seed + Math.imul(run + 1, 99991)) >>> 0);
+        const { best } = fitWithRestarts(subset, k, restarts, iterations, (seed + Math.imul(run + 1, 99991)) >>> 0);
         const sizes = clusterSizesFor(best.assignments, k);
         scores.push(sizes.every(size => size > 0)
             ? adjustedRandIndex(sample.map(index => fullAssignments[index]), best.assignments)
@@ -612,7 +551,7 @@ const unavailableClustering = (
         assignments: new Array(originalLength).fill(0),
         k: 1,
         diagnostics: {
-            methodVersion: 'spherical-kmeans-stability-v2',
+            methodVersion: 'spherical-kmeans-stability-v4',
             status: 'unavailable',
             usableForDownstream: false,
             reason,
@@ -644,15 +583,16 @@ const unavailableClustering = (
             limitations: [
                 'Semantic groups are exploratory geometric partitions, not validated topics, stakeholder categories, or causal strata.',
                 'Passing internal separation and stability checks does not establish external construct validity.',
+                'Thresholds are configured screening rules, not calibrated tests for the existence of topics or disagreement.',
             ],
         },
     };
 };
 
 /**
- * Validated deterministic spherical K-Means.
+ * Deterministic spherical K-Means with internal diagnostic screening.
  *
- * The method uses full, unit-normalized source embeddings (cosine geometry),
+ * The method uses unit-normalized source embeddings (cosine geometry),
  * repeated K-Means++ starts, convergence stopping, silhouette with singleton
  * zeroes, and without-replacement resampling stability. If no candidate passes
  * every diagnostic gate, the result is deliberately unpartitioned and cluster-
@@ -689,23 +629,12 @@ export const computeAutoKMeans = (
 
     const normalized = validEntries.map(entry => entry.vector);
     const seed = orderInvariantSeed(normalized);
-    let workingVectors = normalized;
-    let projectionMethod: ClusteringDiagnostics['projectionMethod'] = 'none';
-    let projectionDistanceCorrelation = 1;
-
-    if (dimensions > algorithms.maxClusteringDimensions) {
-        const projection = projectForClustering(normalized, algorithms.maxClusteringDimensions, seed);
-        if (projection.distanceCorrelation >= algorithms.minProjectionDistanceCorrelation) {
-            workingVectors = projection.vectors;
-            projectionMethod = projection.method;
-            projectionDistanceCorrelation = projection.distanceCorrelation;
-        } else {
-            // When hashing projection loses too much geometric fidelity, retain exact unprojected space
-            workingVectors = normalized;
-            projectionMethod = 'none';
-            projectionDistanceCorrelation = 1;
-        }
-    }
+    // Version 4 fits the original normalized embedding vectors. A projected
+    // rejection cannot rule out structure in the original space, while a
+    // projected acceptance can depend on projection artefacts.
+    const workingVectors = normalized;
+    const projectionMethod: ClusteringDiagnostics['projectionMethod'] = 'none';
+    const projectionDistanceCorrelation = 1;
     const maxK = Math.min(algorithms.maxClusters, Math.floor(workingVectors.length / algorithms.minClusterSize));
     const methodSampleSize = Math.min(
         workingVectors.length,
@@ -723,6 +652,7 @@ export const computeAutoKMeans = (
         maxK,
     );
     const candidates: Array<ClusteringCandidateDiagnostic & { assignments: number[] }> = [];
+    const stabilitySampleSize = Math.min(workingVectors.length - 1, Math.round(workingVectors.length * algorithms.clusterSubsampleFraction));
 
     for (let k = 2; k <= maxK; k++) {
         const { best, fits } = fitWithRestarts(workingVectors, k, algorithms.kmeansRestarts, algorithms.kmeansIterations, seed);
@@ -736,6 +666,7 @@ export const computeAutoKMeans = (
             algorithms.clusterStabilityRuns,
             algorithms.clusterSubsampleFraction,
             algorithms.minClusterSize,
+            algorithms.kmeansRestarts,
             algorithms.kmeansIterations,
             seed,
         );
@@ -748,17 +679,19 @@ export const computeAutoKMeans = (
             )
             : 0;
         const rejectionReasons: string[] = [];
+        if (stabilitySampleSize < k * algorithms.minClusterSize) rejectionReasons.push('insufficient-subsample-size');
         if (Math.min(...sizes) < algorithms.minClusterSize) rejectionReasons.push('minimum-cluster-size');
-        if (silhouette < algorithms.minSilhouette) rejectionReasons.push('silhouette');
-        if (subsampleStability < algorithms.minClusterStability) rejectionReasons.push('subsample-stability');
+        if (silhouette <= algorithms.minSilhouette) rejectionReasons.push('nonpositive-separation');
+        if (subsampleStability !== null && subsampleStability < algorithms.minClusterStability) rejectionReasons.push('subsample-stability');
         if (neighborhoodAgreement < algorithms.minNeighborhoodAgreement) rejectionReasons.push('neighborhood-coherence');
         if (methodAgreement < algorithms.minClusteringMethodAgreement) rejectionReasons.push('method-sensitivity');
         candidates.push({
             k,
             silhouette,
-            fullSpaceSilhouette: null,
+            fullSpaceSilhouette: projectionMethod === 'none' ? silhouette : null,
             restartStability,
             subsampleStability,
+            stabilitySampleSize,
             neighborhoodAgreement,
             methodAgreement,
             minimumClusterSize: Math.min(...sizes),
@@ -772,11 +705,11 @@ export const computeAutoKMeans = (
 
     const eligibleByWorkingSpace = [...candidates]
         .filter(candidate => candidate.eligible)
-        .sort((a, b) => b.silhouette - a.silhouette || b.subsampleStability - a.subsampleStability || a.k - b.k);
+        .sort((a, b) => b.silhouette - a.silhouette || (b.subsampleStability ?? -1) - (a.subsampleStability ?? -1) || a.k - b.k);
     let selected: typeof eligibleByWorkingSpace[number] | undefined;
     for (const candidate of eligibleByWorkingSpace) {
-        candidate.fullSpaceSilhouette = meanSilhouette(normalized, candidate.assignments, 120);
-        if (candidate.fullSpaceSilhouette >= algorithms.minSilhouette) {
+        candidate.fullSpaceSilhouette ??= meanSilhouette(normalized, candidate.assignments, 120);
+        if (candidate.fullSpaceSilhouette > algorithms.minSilhouette) {
             selected = candidate;
             break;
         }
@@ -789,7 +722,11 @@ export const computeAutoKMeans = (
             vectors.length,
             validEntries.length,
             dimensions,
-            'No candidate partition passed the separation, minimum-size, resampling-stability, neighborhood-coherence, and method-sensitivity gates.',
+            (() => {
+                const best = [...publicCandidates].sort((a, b) => b.silhouette - a.silhouette || a.k - b.k)[0];
+                if (!best) return 'No candidate partition could be evaluated.';
+                return `No candidate met all configured internal robustness checks. The highest-separation candidate had k=${best.k}, silhouette=${best.silhouette.toFixed(3)}, resampling ARI=${best.subsampleStability === null ? 'not assessed' : best.subsampleStability.toFixed(3)}, neighbourhood coherence=${best.neighborhoodAgreement.toFixed(3)}, and method agreement=${best.methodAgreement.toFixed(3)}. Its checks below threshold were ${best.rejectionReasons.join(', ') || 'none'}. Records remain unpartitioned. This may reflect overlapping contributions or sensitivity to the clustering method; it does not establish consensus or absence of distinct viewpoints.`;
+            })(),
             publicCandidates,
             workingVectors[0]?.length ?? dimensions,
             projectionMethod,
@@ -800,7 +737,7 @@ export const computeAutoKMeans = (
     const assignments = new Array(vectors.length).fill(-1);
     validEntries.forEach((entry, sortedIndex) => { assignments[entry.originalIndex] = selected.assignments[sortedIndex]; });
     const diagnostics: ClusteringDiagnostics = {
-            methodVersion: 'spherical-kmeans-stability-v2',
+        methodVersion: 'spherical-kmeans-stability-v4',
         status: 'available',
         usableForDownstream: true,
         reason: 'Partition passed all configured internal diagnostic gates.',
@@ -832,6 +769,7 @@ export const computeAutoKMeans = (
         limitations: [
             'Semantic groups are exploratory geometric partitions, not validated topics, stakeholder categories, or causal strata.',
             'The diagnostics measure internal run stability and geometry; they do not establish external construct validity.',
+            'Thresholds are configured screening rules, not calibrated tests for the existence of topics or disagreement.',
             'K-Means favors compact cosine-space partitions. Irregular or varying-density structure may remain unavailable.',
             `Strong disagreement with a same-k cosine average-linkage sensitivity partition disables downstream cluster-conditioned claims (method-sensitivity n=${methodSampleSize}).`,
         ],
@@ -884,9 +822,9 @@ export const calculateGini = (values: number[]): number => {
  * K-Means++ Initialization (Arthur & Vassilvitskii, 2007)
  *
  * Selects initial centroids with probability proportional to squared distance
- * from existing centroids. This provably achieves O(log k) competitive ratio
- * versus optimal clustering, and avoids the poor-convergence pathologies of
- * naive (first-k or random) initialization.
+ * from existing centroids. The published O(log k) result concerns the ordinary
+ * Euclidean k-means objective; no such guarantee is claimed for this spherical
+ * variant, which re-normalizes centroids after every update.
  *
  * @param vectors - Input data points
  * @param k - Number of clusters to initialise
@@ -938,9 +876,8 @@ const kMeansPlusPlusInit = (vectors: number[][], k: number, rng: SeededRNG): num
  * K-Means clustering (Lloyd's algorithm) with K-Means++ initialization
  *
  * Statistical Justification:
- * - K-Means++ initialisation (Arthur & Vassilvitskii, 2007) gives O(log k)
- *   approximation guarantee vs. optimal, avoiding poor local minima
- * - Lloyd's algorithm converges to local minimum in O(k * n * d * i) time
+ * - K-Means++ seeding is repeated to reduce sensitivity to local solutions
+ * - Spherical Lloyd updates cost O(k * n * d * i) up to the iteration limit
  * - Assignment convergence stops the algorithm before its iteration ceiling
  * - Empty clusters are deterministically re-seeded from the worst-fit point
  *
