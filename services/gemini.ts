@@ -50,6 +50,14 @@ const checkProxy = async (): Promise<boolean> => {
   // check entirely to ensure their key is used and to save a network roundtrip.
   if (hasRuntimeKey()) return false;
 
+  // A static production bundle has no same-origin API routes. Self-hosted
+  // production deployments can opt in when they actually provide the relay.
+  const proxyConfigured = import.meta.env?.DEV === true || import.meta.env?.VITE_GEMINI_PROXY_ENABLED === 'true';
+  if (!proxyConfigured) {
+    proxyAvailable = false;
+    return false;
+  }
+
   if (proxyAvailable !== null) return proxyAvailable;
   try {
     const res = await fetch('/api/gemini-health', { signal: AbortSignal.timeout(3000) });

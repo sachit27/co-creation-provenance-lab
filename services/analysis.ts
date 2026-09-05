@@ -130,8 +130,11 @@ export const runCoreAnalysis = async (
       : (config.summaryProvenance ?? { origin: 'unknown' }),
   };
 
-  // Check BGE-M3 availability (independent of AI provider — used for embeddings only)
-  let bgeM3Available = await checkBgeM3Connection();
+  // Probe the optional BGE-M3 service only when the user selected it. Other
+  // embedding providers must not create unrelated localhost requests.
+  let bgeM3Available = activeConfig.embeddingProvider === 'bge-m3'
+    ? await checkBgeM3Connection()
+    : false;
   if (bgeM3Available) {
     onProgress?.("BGE-M3 embedding server detected");
     console.log('[Analysis] BGE-M3 available — using the configured multilingual dense embeddings');

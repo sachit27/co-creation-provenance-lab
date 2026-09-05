@@ -18,6 +18,14 @@ Object.defineProperty(globalThis, 'window', {
   configurable: true,
   value: { location: { origin: 'https://sachit27.github.io' } },
 });
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    permissions: {
+      query: async () => ({ state: 'prompt' }),
+    },
+  },
+});
 
 console.log('\n[Hosted Ollama browser compatibility]');
 
@@ -59,3 +67,26 @@ assert.equal(timeout.connected, false);
 assert.equal(timeout.code, 'timeout');
 console.log('  PASS  a genuine timeout is not doubled by the compatibility retry');
 
+calls = 0;
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    permissions: {
+      query: async ({ name }: { name: string }) => {
+        assert.equal(name, 'loopback-network');
+        return { state: 'denied' };
+      },
+    },
+  },
+});
+globalThis.fetch = (async () => {
+  calls++;
+  throw new TypeError('Permission was denied for loopback access');
+}) as typeof fetch;
+const denied = await diagnoseOllamaConnection();
+assert.equal(calls, 1);
+assert.equal(denied.connected, false);
+assert.equal(denied.code, 'browser-permission-denied');
+assert.match(denied.message, /Site settings/);
+assert.match(denied.message, /Loopback network or Local network access to Allow/);
+console.log('  PASS  denied Chrome loopback permission is diagnosed without a futile retry');

@@ -67,6 +67,7 @@ export type OllamaConnectionCode =
   | 'static-proxy-unavailable'
   | 'invalid-url'
   | 'insecure-remote-host'
+  | 'browser-permission-denied'
   | 'http-error'
   | 'timeout'
   | 'unreachable-or-blocked';
@@ -114,6 +115,32 @@ const isLoopbackHostname = (hostname: string): boolean =>
 const isTimeoutError = (error: unknown): boolean =>
   error instanceof DOMException && error.name === 'TimeoutError';
 
+type LocalNetworkPermissionState = PermissionState | 'unsupported';
+
+/** Read Chrome's Local Network Access permission without prompting. Chrome
+ * 145 split loopback access from access to the wider local network, while the
+ * older name remains an alias. Other browsers currently reject these names. */
+const getLoopbackPermissionState = async (): Promise<LocalNetworkPermissionState> => {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) return 'unsupported';
+
+  for (const name of ['loopback-network', 'local-network-access'] as const) {
+    try {
+      const status = await navigator.permissions.query({ name } as unknown as PermissionDescriptor);
+      return status.state;
+    } catch {
+      // Try the compatibility name before declaring the API unsupported.
+    }
+  }
+  return 'unsupported';
+};
+
+class LoopbackPermissionDeniedError extends Error {
+  constructor() {
+    super('Browser loopback permission denied');
+    this.name = 'LoopbackPermissionDeniedError';
+  }
+}
+
 /**
  * Fetch a loopback endpoint with the Local Network Access hint where supported.
  * Safari 26.2–26.3 throws before sending requests containing
@@ -133,6 +160,11 @@ const fetchOllamaTags = async (host: string, isLoopback: boolean): Promise<Respo
     return await fetch(url, request);
   } catch (error) {
     if (!isLoopback || isTimeoutError(error)) throw error;
+    // A denied Chrome LNA request must not be retried. The retry cannot bypass
+    // browser permission and only adds a second misleading console failure.
+    if (await getLoopbackPermissionState() === 'denied') {
+      throw new LoopbackPermissionDeniedError();
+    }
     return fetch(url, {
       method: 'GET',
       signal: AbortSignal.timeout(5000),
@@ -199,6 +231,15 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
       models,
     };
   } catch (error) {
+    if (error instanceof LoopbackPermissionDeniedError) {
+      return {
+        connected: false,
+        code: 'browser-permission-denied',
+        host,
+        message: `Chrome has blocked loopback access for ${origin || 'this site'}. Open the site controls beside the address bar, choose Site settings, set Loopback network or Local network access to Allow, reload the page, then select Test connection.`,
+        models: [],
+      };
+    }
     const timedOut = isTimeoutError(error);
     const originAdvice = origin ? ` Allow the exact origin ${origin} in OLLAMA_ORIGINS.` : '';
     const reachability = isLoopback

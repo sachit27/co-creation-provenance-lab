@@ -98,7 +98,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const [apertusModels, setApertusModels] = useState<string[]>(APERTUS_MODELS);
   const [apertusModelInfo, setApertusModelInfo] = useState<PublicAIModelInfo[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState<'openai' | 'groq' | 'claude' | 'apertus' | null>(null);
-  const [bgeM3Status, setBgeM3Status] = useState<'checking' | 'connected' | 'offline'>('checking');
+  const [bgeM3Status, setBgeM3Status] = useState<'checking' | 'connected' | 'offline'>('offline');
   // API key inputs — values are written to sessionStorage. Provider routing is
   // disclosed in the corresponding UI. Apertus uses the Vite relay during
   // local development; the public static build has no provider relay.
@@ -241,10 +241,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
         if (sequence === apertusValidationSequence.current) setApertusStatus('offline');
       });
     }
-    // BGE-M3 check (independent — used for embeddings regardless of provider)
-    resetBgeM3Cache();
-    checkBgeM3Connection().then(connected => setBgeM3Status(connected ? 'connected' : 'offline'));
   }, []);
+
+  const runBgeM3ConnectionCheck = async () => {
+    setBgeM3Status('checking');
+    resetBgeM3Cache();
+    const connected = await checkBgeM3Connection();
+    setBgeM3Status(connected ? 'connected' : 'offline');
+  };
 
   // Select an available embedding provider using the documented fallback order.
   // This is used as the default so non-expert users always get optimal quality.
@@ -1817,7 +1821,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                             )}
                             {bgeM3Status === 'offline' && (
                               <div>
-                                <span>BGE-M3 server <b>offline</b></span>
+                                <div className="flex items-center gap-2">
+                                  <span>BGE-M3 server <b>not tested</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void runBgeM3ConnectionCheck()}
+                                    className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-600"
+                                  >
+                                    Test BGE-M3
+                                  </button>
+                                </div>
                                 <details className="mt-1">
                                   <summary className="cursor-pointer text-blue-500 hover:text-blue-600 font-medium">How to start BGE-M3</summary>
                                   <div className="mt-1.5 text-[10px] text-slate-500 space-y-1">
@@ -1830,7 +1843,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
                                     <code className="block bg-slate-100 text-slate-700 px-2 py-1 rounded text-[10px] font-mono">
                                       docker compose up bge-m3
                                     </code>
-                                    <p className="text-slate-400 mt-1">Once running, refresh this page — it auto-detects on port 5001.</p>
+                                    <p className="text-slate-400 mt-1">Once running, select Test BGE-M3. The app checks port 5001 only on request.</p>
                                   </div>
                                 </details>
                               </div>
