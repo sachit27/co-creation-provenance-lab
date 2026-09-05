@@ -88,5 +88,27 @@ assert.equal(calls, 1);
 assert.equal(denied.connected, false);
 assert.equal(denied.code, 'browser-permission-denied');
 assert.match(denied.message, /Site settings/);
-assert.match(denied.message, /Loopback network or Local network access to Allow/);
+assert.match(denied.message, /Reset permissions/);
 console.log('  PASS  denied Chrome loopback permission is diagnosed without a futile retry');
+
+calls = 0;
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    userAgent: 'Mozilla/5.0 Chrome/152.0.0.0 Safari/537.36',
+    permissions: {
+      // Chrome can report "prompt" while its automatic prompt embargo rejects
+      // the request after the user dismisses the prompt repeatedly.
+      query: async () => ({ state: 'prompt' }),
+    },
+  },
+});
+globalThis.fetch = (async () => {
+  calls++;
+  throw new TypeError('Failed to fetch');
+}) as typeof fetch;
+const embargoed = await diagnoseOllamaConnection();
+assert.equal(calls, 1);
+assert.equal(embargoed.code, 'browser-permission-denied');
+assert.match(embargoed.message, /Reset permissions/);
+console.log('  PASS  Chromium prompt embargo is diagnosed without a Safari fallback retry');

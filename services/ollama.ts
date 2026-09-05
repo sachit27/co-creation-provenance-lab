@@ -115,6 +115,9 @@ const isLoopbackHostname = (hostname: string): boolean =>
 const isTimeoutError = (error: unknown): boolean =>
   error instanceof DOMException && error.name === 'TimeoutError';
 
+const isChromiumBrowser = (): boolean =>
+  typeof navigator !== 'undefined' && /(?:Chrome|Chromium|CriOS)\//.test(navigator.userAgent || '');
+
 type LocalNetworkPermissionState = PermissionState | 'unsupported';
 
 /** Read Chrome's Local Network Access permission without prompting. Chrome
@@ -162,7 +165,7 @@ const fetchOllamaTags = async (host: string, isLoopback: boolean): Promise<Respo
     if (!isLoopback || isTimeoutError(error)) throw error;
     // A denied Chrome LNA request must not be retried. The retry cannot bypass
     // browser permission and only adds a second misleading console failure.
-    if (await getLoopbackPermissionState() === 'denied') {
+    if (await getLoopbackPermissionState() === 'denied' || isChromiumBrowser()) {
       throw new LoopbackPermissionDeniedError();
     }
     return fetch(url, {
@@ -236,7 +239,7 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
         connected: false,
         code: 'browser-permission-denied',
         host,
-        message: `Chrome has blocked loopback access for ${origin || 'this site'}. Open the site controls beside the address bar, choose Site settings, set Loopback network or Local network access to Allow, reload the page, then select Test connection.`,
+        message: `Chrome has blocked or has not granted loopback access for ${origin || 'this site'}. Open the site controls beside the address bar, choose Site settings, and select Reset permissions. Reload the page, select Test connection, and choose Allow when Chrome asks about loopback or local-network access. If it is already allowed, confirm that OLLAMA_ORIGINS includes ${origin || 'this site'} exactly.`,
         models: [],
       };
     }
