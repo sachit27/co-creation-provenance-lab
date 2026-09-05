@@ -198,6 +198,7 @@ export default function App() {
   const [showRevisionEditor, setShowRevisionEditor] = useState(false);
   const [revisionDraft, setRevisionDraft] = useState('');
   const [revisionOrigin, setRevisionOrigin] = useState<SummaryOrigin>('human-authored');
+  const [revisionWorkflowMode, setRevisionWorkflowMode] = useState<'manual' | 'ai-assisted'>('manual');
   const [revisionTargetMode, setRevisionTargetMode] = useState<RevisionTargetMode>('below-threshold');
   const [revisionThreshold, setRevisionThreshold] = useState(ANALYSIS_CONFIG.thresholds.matchingThreshold);
   const [revisionMaxCandidates, setRevisionMaxCandidates] = useState(12);
@@ -315,6 +316,7 @@ export default function App() {
     if (!data) return;
     setRevisionDraft(data.summary);
     setRevisionOrigin('human-authored');
+    setRevisionWorkflowMode('manual');
     setRevisionTargetMode('below-threshold');
     setRevisionThreshold(data.config.thresholds?.matchingThreshold ?? ANALYSIS_CONFIG.thresholds.matchingThreshold);
     const eligibleCount = data.participants.filter(participant =>
@@ -1068,7 +1070,45 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Explicit target selection for AI-assisted drafts */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-1.5" role="group" aria-label="Revision method">
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        aria-pressed={revisionWorkflowMode === 'manual'}
+                        onClick={() => {
+                          setRevisionWorkflowMode('manual');
+                          setRevisionError(null);
+                        }}
+                        className={`rounded-lg px-4 py-3 text-left transition-colors ${revisionWorkflowMode === 'manual'
+                          ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-emerald-200'
+                          : 'text-slate-600 hover:bg-white/70'}`}
+                      >
+                        <span className="block text-sm font-semibold">Manual edit</span>
+                        <span className="mt-0.5 block text-xs opacity-80">Edit the summary directly without text generation.</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={revisionWorkflowMode === 'ai-assisted'}
+                        onClick={() => {
+                          setRevisionWorkflowMode('ai-assisted');
+                          setRevisionError(null);
+                        }}
+                        className={`rounded-lg px-4 py-3 text-left transition-colors ${revisionWorkflowMode === 'ai-assisted'
+                          ? 'bg-white text-indigo-800 shadow-sm ring-1 ring-indigo-200'
+                          : 'text-slate-600 hover:bg-white/70'}`}
+                      >
+                        <span className="block text-sm font-semibold">AI-assisted draft</span>
+                        <span className="mt-0.5 block text-xs opacity-80">Select source records and ask the configured model for a draft.</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {revisionWorkflowMode === 'manual' ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-800">
+                      Edit the summary text below and select <strong>Apply &amp; Compare</strong>. No text-generation call is made. The application recomputes the audit using the current embedding settings.
+                    </div>
+                  ) : (
+                  /* Explicit target selection for AI-assisted drafts */
                   <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-4">
                     <div>
                       <div className="text-sm font-semibold text-slate-800">AI draft targeting</div>
@@ -1221,6 +1261,7 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   {/* Textarea + controls */}
                   <div>
@@ -1243,7 +1284,9 @@ export default function App() {
                       onChange={(e) => setRevisionDraft(e.target.value)}
                       rows={7}
                       className="w-full p-4 border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none resize-y leading-relaxed"
-                      placeholder="Edit the summary here, or use Generate AI Draft to get a starting point…"
+                      placeholder={revisionWorkflowMode === 'manual'
+                        ? 'Edit the summary directly here…'
+                        : 'Edit the summary here, or generate an AI draft as a starting point…'}
                     />
                     <div className="text-xs text-slate-400 mt-1">
                       {revisionDraft.length} chars · {revisionDraft.split(/\s+/).filter(Boolean).length} words

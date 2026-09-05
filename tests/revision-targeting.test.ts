@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   selectRevisionCandidates,
 } from '../tests/.modules/services/revisionTargeting.ts';
@@ -88,3 +89,9 @@ assert.throws(() => selectRevisionCandidates(participants, {
   maxCandidates: 1.5,
 }), /positive whole number/);
 console.log('  PASS  invalid user configuration fails closed');
+
+const appSource = readFileSync('App.tsx', 'utf8');
+assert.match(appSource, /useState<'manual' \| 'ai-assisted'>\('manual'\)/);
+assert.match(appSource, /No text-generation call is made/);
+assert.match(appSource, /onClick=\{handleApplyRevision\}/);
+console.log('  PASS  manual editing is the default and retains an independent apply path');
