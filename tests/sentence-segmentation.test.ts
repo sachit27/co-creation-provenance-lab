@@ -16,6 +16,9 @@ console.log('\n[2] Period disambiguation');
 check('common title abbreviation', splitSentenceLikeUnits('Dr. smith spoke. next point.'), ['Dr. smith spoke.', 'next point.']);
 check('decimal point', splitSentenceLikeUnits('Value is 3.5. next.'), ['Value is 3.5.', 'next.']);
 check('common discourse abbreviation', splitSentenceLikeUnits('Use examples, e.g. solar roofs. then decide.'), ['Use examples, e.g. solar roofs.', 'then decide.']);
+check('ordinary words ending in an abbreviation suffix still terminate a sentence',
+  splitSentenceLikeUnits('The drains can overwhelm systems. Restoring wetlands creates buffers.'),
+  ['The drains can overwhelm systems.', 'Restoring wetlands creates buffers.']);
 
 console.log('\n[3] Multilingual terminators');
 check('CJK terminators', splitSentenceLikeUnits('最初の文。次の文！'), ['最初の文。', '次の文！']);

@@ -1,4 +1,7 @@
-import { summarizeLanguageTransformation } from '../tests/.modules/services/languageFidelity.ts';
+import {
+  isPlausibleLanguageAlignment,
+  summarizeLanguageTransformation,
+} from '../tests/.modules/services/languageFidelity.ts';
 
 let pass = 0, fail = 0;
 const check = (name: string, condition: boolean, detail = '') => {
@@ -69,6 +72,59 @@ check('valid target abstention counts as complete output, not execution failure'
   abstained.completedSourceUnitCount === 1 && abstained.overallCounts.unassessed === 0);
 check('target-uncertain unit is excluded from conditional preservation denominator',
   abstained.fidelityScore === null && abstained.assessedParticipantEquivalent === 0);
+
+console.log('\n[4] Conservative alignment cross-check');
+const summarySentences = [
+  'Preserving dead wood and leaf litter provides habitat for many species.',
+  'Monitoring wildlife populations across several seasons can assess restoration.',
+  'Rain gardens and vegetated bioswales capture stormwater.',
+];
+const participant = {
+  id: 'Habitat_09',
+  representationScore: 0.49,
+  topSentenceMatchIndex: 1,
+  sentenceMatches: [{ sentenceIndex: 1, similarity: 0.49 }],
+} as any;
+check('accepts a sentence retained by dense record retrieval',
+  isPlausibleLanguageAlignment(
+    'Bird, bat, pollinator, and vegetation surveys are needed before and after restoration.',
+    1,
+    summarySentences,
+    participant,
+  ));
+check('same-language dense topic retrieval alone cannot establish proposition alignment',
+  !isPlausibleLanguageAlignment(
+    'Sensitive locations must never be disclosed.',
+    1,
+    summarySentences,
+    participant,
+  ));
+check('dense retrieval can validate cross-language alignment without literal anchors',
+  isPlausibleLanguageAlignment(
+    'Die Beobachtung muss mehrere Jahreszeiten umfassen.',
+    1,
+    summarySentences,
+    { ...participant, detectedLanguage: 'de' },
+  ));
+check('accepts an exact lexical alignment without a participant record',
+  isPlausibleLanguageAlignment(
+    'Dead wood and leaf litter must remain in habitat areas.',
+    0,
+    summarySentences,
+  ));
+check('rejects a different same-topic object that neither retrieval nor exact anchors support',
+  !isPlausibleLanguageAlignment(
+    'Precise nest coordinates should be withheld from public maps.',
+    0,
+    summarySentences,
+    participant,
+  ));
+check('rejects an unrelated dashboard-to-rain-garden alignment',
+  !isPlausibleLanguageAlignment(
+    'A public dashboard should show spending and maintenance progress.',
+    2,
+    summarySentences,
+  ));
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} — passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

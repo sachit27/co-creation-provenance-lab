@@ -14,7 +14,11 @@ const isDecimalPoint = (line: string, index: number): boolean =>
 const isAbbreviationPoint = (line: string, index: number): boolean => {
   const prefix = line.slice(0, index + 1).toLocaleLowerCase();
   for (const abbreviation of ABBREVIATIONS) {
-    if (prefix.endsWith(abbreviation)) return true;
+    if (!prefix.endsWith(abbreviation)) continue;
+    const start = prefix.length - abbreviation.length;
+    const preceding = prefix[start - 1] ?? '';
+    // A suffix is not an abbreviation token: "systems." must not match "ms.".
+    if (start === 0 || !/[\p{L}\p{N}]/u.test(preceding)) return true;
   }
   // Personal initials such as "J. Smith" and acronym components such as "U.S.".
   const token = prefix.match(/(?:^|\s)([\p{L}](?:\.[\p{L}])*)\.$/u)?.[1];

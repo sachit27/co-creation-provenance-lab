@@ -20,9 +20,8 @@ const MAX_EVIDENCE_PER_CLAIM = 5;
 const MAX_EVIDENCE_PASSAGE_CHARS = 500;
 
 const CLAIM_SCAFFOLD_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'by', 'for',
-  'from', 'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the',
-  'their', 'these', 'this', 'those', 'to', 'was', 'were', 'with',
+  'a', 'an', 'and', 'are', 'be', 'been', 'being', 'is', 'it', 'its', 'of',
+  'or', 'the', 'was', 'were',
 ]);
 
 const meaningBearingTokens = (text: string): string[] =>
@@ -85,6 +84,17 @@ export const validateAtomicDecomposition = (
   // or outcomes. Repetition is allowed because each claim must be self-contained.
   const coveredTokens = new Set(claimTokenLists.flat());
   if (sourceTokens.some(token => !coveredTokens.has(token))) return [original];
+
+  // A full claim plus shorter restatements is not an atomic decomposition. It
+  // inflates the denominator and can label one proposition several times.
+  for (let left = 0; left < claimTokenLists.length; left++) {
+    const leftTokens = new Set(claimTokenLists[left]);
+    for (let right = 0; right < claimTokenLists.length; right++) {
+      if (left === right || leftTokens.size >= new Set(claimTokenLists[right]).size) continue;
+      const rightTokens = new Set(claimTokenLists[right]);
+      if ([...leftTokens].every(token => rightTokens.has(token))) return [original];
+    }
+  }
 
   // Preserve the scope of coordinated subjects such as "decision-making and
   // funding processes". Splitting that subject asymmetrically changes meaning.
@@ -158,8 +168,8 @@ Return ONLY a JSON array.`;
  *   score = 0.5 * embeddingSim + 0.3 * conceptOverlap + 0.2 * keywordMatch   (with embeddings)
  *   score = 0.6 * conceptOverlap + 0.4 * keywordMatch                         (TF-IDF only)
  *
- * Evidence threshold is calibrated per mode: higher threshold with embeddings
- * (cosine sims are more informative) vs TF-IDF (scores are generally lower).
+ * Retrieval keeps a bounded candidate set without a fixed pre-judge cutoff.
+ * Candidate similarity is a ranking signal, not a support verdict.
  */
 /**
  * Keep the best-matching sentence together with one adjacent sentence. Many
@@ -210,9 +220,6 @@ export const findEvidenceForClaim = (
       vector.length === claimEmbedding.length && vector.length > 0 && vector.every(Number.isFinite))
   );
 
-  // Calibrated evidence threshold: with embeddings we can be stricter.
-  const EVIDENCE_THRESHOLD = hasEmbeddings ? 0.30 : 0.22;
-
   for (let pi = 0; pi < participants.length; pi++) {
     const p = participants[pi];
     const input = inputs.find(i => i.id === p.id);
@@ -241,7 +248,10 @@ export const findEvidenceForClaim = (
       ? embSim * 0.5 + overlap * 0.3 + wordMatchRatio * 0.2
       : overlap * 0.6 + wordMatchRatio * 0.4;
 
-    if (similarity > EVIDENCE_THRESHOLD) {
+    // Retrieval proposes candidates; the model-coded NLI stage decides support.
+    // A fixed pre-judge cutoff can hide a valid source for short or generic
+    // claims, so retain the strongest finite positive candidates instead.
+    if (Number.isFinite(similarity) && similarity > 0) {
       results.push({
         participantId: p.id,
         passage: selectEvidencePassage(text, claim),
@@ -287,6 +297,10 @@ const mightBeContradicted = (claim: string, evidence: AtomicClaim['evidence']): 
 export const isDisagreementMetaClaim = (claim: string): boolean =>
   /\b(disagreement|disagreed|participants?\s+(?:were|are)\s+divided|divided\s+(?:views?|opinions?|positions?)|conflicting\s+(?:views?|opinions?|positions?|proposals?)|opposing\s+(?:views?|opinions?|positions?|proposals?)|differed\s+(?:on|over)|debate[sd]?\s+(?:on|over)|contested\s+(?:issue|proposal|plan|policy))\b/i.test(claim);
 
+/** Claims whose truth requires consultation-wide stance/count evidence. */
+export const isPopulationScopeClaim = (claim: string): boolean =>
+  /\b(consensus|unanim(?:ous|ously|ity)|uniformly|all participants?|every participant|entire group|majority|most participants?|broad(?:ly)? shared|widespread agreement|strong agreement|strong call|clear demand|key themes?|emerged as (?:a )?key theme)\b/i.test(claim);
+
 export const evidenceContainsExplicitDisagreement = (
   evidence: AtomicClaim['evidence'],
 ): boolean => {
@@ -308,8 +322,29 @@ export const validateProposedSupportLevel = (
   claim: string,
   evidence: AtomicClaim['evidence'],
   hasEmbeddings: boolean,
+  supportingParticipantIds?: string[],
 ): ClaimSupportLevel => {
-  if (!isDisagreementMetaClaim(claim)) return proposed;
+  // Top-k retrieval cannot establish consultation-wide prevalence or absence of
+  // dissent. Such claims require a separate source census, so this panel must
+  // abstain rather than convert a few similar passages into consensus evidence.
+  if (isPopulationScopeClaim(claim)) return 'unassessed';
+
+  if ((proposed === 'supported' || proposed === 'inferrable') &&
+      supportingParticipantIds && supportingParticipantIds.length === 0) {
+    return 'unsupported';
+  }
+
+  if (!isDisagreementMetaClaim(claim)) {
+    const retrievedIds = new Set(evidence.map(item => item.participantId));
+    const distinctSources = new Set(
+      (supportingParticipantIds ?? evidence.map(item => item.participantId))
+        .filter(id => retrievedIds.has(id)),
+    ).size;
+    if (/\bparticipants\b/i.test(claim) && distinctSources < 2 && proposed === 'supported') {
+      return 'unsupported';
+    }
+    return proposed;
+  }
 
   // Two exact source passages with a shared object and an explicit directional
   // incompatibility directly support a claim that disagreement existed.
@@ -323,12 +358,12 @@ export const validateProposedSupportLevel = (
 };
 
 /**
- * Deterministic fallback classification using calibrated thresholds.
+ * Deterministic fallback classification using configured operational thresholds.
  * Contradiction is NOT determined here — it requires semantic understanding
  * that keyword heuristics cannot reliably provide. Contradiction candidates
  * are flagged by mightBeContradicted() and resolved by the LLM batch call.
  *
- * Thresholds are calibrated per embedding mode:
+ * Thresholds differ by embedding mode:
  * - With embeddings: cosine similarity spans a wider, more informative range
  * - TF-IDF only: overlap scores are generally lower, so thresholds are relaxed
  */
@@ -366,7 +401,7 @@ const classifyClaim = (
 const classifyClaimsBatchLLM = async (
   claims: Array<{ claim: string; evidence: AtomicClaim['evidence']; hasEmbeddings: boolean }>,
   config: AnalysisConfig,
-): Promise<ClaimSupportLevel[]> => {
+): Promise<{ levels: ClaimSupportLevel[]; supportingIds: string[][] }> => {
   const toReview = claims.map((c, i) => ({
     ...c,
     idx: i,
@@ -376,8 +411,21 @@ const classifyClaimsBatchLLM = async (
 
   // Start with deterministic classification for all claims
   const results = claims.map(c => classifyClaim(c.claim, c.evidence, c.hasEmbeddings));
+  // For plural-attribution claims, retrieved candidates are not equivalent to
+  // supporting sources. A failed or malformed adjudication therefore supplies
+  // no counted supporters and cannot establish plural support.
+  const supportingIdsByClaim: string[][] = claims.map(() => []);
 
-  if (toReview.length === 0) return results;
+  if (toReview.length === 0) {
+    const levels = results.map((result, index) => validateProposedSupportLevel(
+      result,
+      claims[index].claim,
+      claims[index].evidence,
+      claims[index].hasEmbeddings,
+      [],
+    ));
+    return { levels, supportingIds: supportingIdsByClaim };
+  }
 
   const BATCH = 8;
   for (let start = 0; start < toReview.length; start += BATCH) {
@@ -409,7 +457,10 @@ Important distinctions:
 - A retrieved source taking one side of a dispute does not contradict the claim that a dispute existed.
 - Use "contradicted" only when a source directly asserts the opposite of the claim itself.
 
-Return ONLY a JSON array of ${batch.length} strings in order, e.g. ["supported", "inferrable", "contradicted"]`;
+For each item, list only participant IDs whose quoted passage actually supports the claim. Unrelated, merely topical, and contradicting passages are not supporters. Use an empty array unless the label is "supported" or "inferrable".
+
+Return ONLY a JSON array of ${batch.length} objects in order:
+[{"label":"supported|inferrable|unsupported|contradicted","supportingParticipantIds":["exact participantId"]}]`;
 
     try {
       const response = await generateCompletion(
@@ -420,16 +471,27 @@ Return ONLY a JSON array of ${batch.length} strings in order, e.g. ["supported",
       );
       const match = response.match(/\[[\s\S]*\]/);
       if (match) {
-        const labels = JSON.parse(match[0]) as string[];
+        const labels = JSON.parse(match[0]) as unknown[];
         const valid: ClaimSupportLevel[] = ['supported', 'inferrable', 'unsupported', 'contradicted'];
         for (let i = 0; i < Math.min(labels.length, batch.length); i++) {
-          const label = labels[i]?.toLowerCase().trim();
+          const item = labels[i];
+          if (!item || typeof item !== 'object') continue;
+          const raw = item as Record<string, unknown>;
+          const label = typeof raw.label === 'string' ? raw.label.toLowerCase().trim() : '';
           if (valid.includes(label as ClaimSupportLevel)) {
+            const allowedIds = new Set(batch[i].evidence.map(item => item.participantId));
+            const supportingIds = Array.isArray(raw.supportingParticipantIds)
+              ? [...new Set(raw.supportingParticipantIds.filter(
+                (id): id is string => typeof id === 'string' && allowedIds.has(id),
+              ))]
+              : [];
+            supportingIdsByClaim[batch[i].idx] = supportingIds;
             results[batch[i].idx] = validateProposedSupportLevel(
               label as ClaimSupportLevel,
               batch[i].claim,
               batch[i].evidence,
               batch[i].hasEmbeddings,
+              supportingIds,
             );
           }
         }
@@ -447,10 +509,11 @@ Return ONLY a JSON array of ${batch.length} strings in order, e.g. ["supported",
       claims[index].claim,
       claims[index].evidence,
       claims[index].hasEmbeddings,
+      supportingIdsByClaim[index],
     );
   }
 
-  return results;
+  return { levels: results, supportingIds: supportingIdsByClaim };
 };
 
 // ── Orchestrator ────────────────────────────────────────────────────────────────
@@ -536,16 +599,21 @@ export const performClaimAttribution = async (
 
   // LLM-enhanced classification for ambiguous and contradiction-candidate cases
   onProgress?.('Claim attribution: classifying claims...');
-  const levels = await classifyClaimsBatchLLM(claimsWithEvidence, config);
+  const { levels, supportingIds } = await classifyClaimsBatchLLM(claimsWithEvidence, config);
 
   // Assemble final results
   for (let i = 0; i < claimsWithEvidence.length; i++) {
+    const supportLevel = levels[i];
+    const verifiedSupportingIds = new Set(supportingIds[i]);
+    const displayedEvidence = supportLevel === 'supported' || supportLevel === 'inferrable'
+      ? claimsWithEvidence[i].evidence.filter(item => verifiedSupportingIds.has(item.participantId))
+      : claimsWithEvidence[i].evidence;
     allClaims.push({
       claimIndex: claimIdx++,
       sentenceIndex: claimsWithEvidence[i].sentenceIndex,
       claimText: claimsWithEvidence[i].claim,
-      supportLevel: levels[i],
-      evidence: claimsWithEvidence[i].evidence,
+      supportLevel,
+      evidence: displayedEvidence,
     });
   }
 

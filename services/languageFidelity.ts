@@ -1,4 +1,62 @@
-import { AIProvider, LanguageFidelity, PhraseMapping, SentenceFidelity, TransformationType } from '../types';
+import { AIProvider, LanguageFidelity, ParticipantAnalysis, PhraseMapping, SentenceFidelity, TransformationType } from '../types';
+
+const ALIGNMENT_STOPWORDS = new Set([
+  'about', 'after', 'again', 'also', 'and', 'because', 'before', 'being',
+  'could', 'every', 'from', 'have', 'into', 'must', 'only', 'other',
+  'participants', 'planning', 'project', 'should', 'their', 'there', 'these',
+  'they', 'this', 'those', 'through', 'under', 'using', 'would',
+  // Broad consultation-domain terms establish topic, not proposition-level
+  // alignment. They cannot rescue an otherwise unrelated mapping.
+  'access', 'biodiversity', 'canopy', 'community', 'equitable', 'flood',
+  'habitat', 'heat', 'native', 'resilience', 'stewardship', 'stormwater',
+  'tree', 'urban', 'water',
+]);
+
+const alignmentTerms = (text: string): Set<string> => new Set(
+  text.toLocaleLowerCase('en-US')
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/)
+    .map(token => token.endsWith('ies') ? `${token.slice(0, -3)}y`
+      : token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1)
+      : token)
+    .filter(token => token.length >= 4 && !ALIGNMENT_STOPWORDS.has(token)),
+);
+
+/**
+ * Conservative cross-check for model-proposed source-to-summary alignments.
+ * A mapping is plausible when the exact source unit and sentence share at
+ * least two substantive lexical anchors, or when one anchor agrees with the
+ * run's dense record retrieval. Dense same-topic retrieval alone is not proof
+ * of proposition alignment. For detected non-English records, dense retrieval
+ * can provide the cross-language check that literal anchors cannot.
+ */
+export const isPlausibleLanguageAlignment = (
+  sourceText: string,
+  summarySentenceIndex: number,
+  summarySentences: string[],
+  participant?: ParticipantAnalysis,
+): boolean => {
+  if (!Number.isInteger(summarySentenceIndex) || summarySentenceIndex < 0 || summarySentenceIndex >= summarySentences.length) {
+    return false;
+  }
+  let denseCandidate = false;
+  if (participant) {
+    const denseCandidates = new Set(participant.sentenceMatches.map(match => match.sentenceIndex));
+    if (Number.isFinite(participant.representationScore) && participant.representationScore > 0) {
+      denseCandidates.add(participant.topSentenceMatchIndex);
+    }
+    denseCandidate = denseCandidates.has(summarySentenceIndex);
+    if (denseCandidate && participant.detectedLanguage &&
+        participant.detectedLanguage !== 'en' && participant.detectedLanguage !== 'und') return true;
+  }
+  const sourceTerms = alignmentTerms(sourceText);
+  let shared = 0;
+  for (const term of alignmentTerms(summarySentences[summarySentenceIndex])) {
+    if (sourceTerms.has(term)) shared++;
+  }
+  return shared >= 2 || (denseCandidate && shared >= 1);
+};
 
 export const emptyTransformationCounts = (): Record<TransformationType, number> => ({
   preserved: 0,

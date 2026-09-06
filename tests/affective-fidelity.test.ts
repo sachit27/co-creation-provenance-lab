@@ -8,6 +8,7 @@ import {
   parseAffectProfile,
   resolveVerbatimSpan,
   splitVerbatimSourceUnits,
+  targetLabelsShareAnchor,
 } from '../tests/.modules/services/affectiveFidelity.ts';
 
 let pass = 0, fail = 0;
@@ -73,7 +74,8 @@ const pairs = [
   pair('low-certainty', profile(-1, 2, 1, ['fear'], 'oppose', 0.4), profile(0, 0, 0, [], 'none')),
   pair('neutral', profile(0, 0, 0, [], 'none'), profile(0, 0, 0, [], 'none')),
   pair('stance-uncertain', profile(-1, 1, 0, [], 'uncertain'), profile(-1, 1, 0, [], 'oppose')),
-  pair('target-label-review', profile(-1, 2, 1, ['fear'], 'oppose'), { ...profile(-1, 2, 1, ['fear'], 'oppose'), target: 'service reductions' }),
+  pair('target-label-review', { ...profile(-1, 2, 1, ['fear'], 'oppose'), target: 'shade trees' }, { ...profile(-1, 2, 1, ['fear'], 'oppose'), target: 'mature shade trees' }),
+  pair('target-label-mismatch', { ...profile(-1, 2, 1, ['fear'], 'oppose'), target: 'heatwaves making walks unbearable' }, { ...profile(1, 2, 1, ['joy'], 'support'), target: 'shade in public spaces' }),
 ];
 // Duplicate evidence must not inflate any denominator.
 pairs.push({ ...pairs[0] });
@@ -90,16 +92,23 @@ check('low-certainty output is uncertain, not neutral/preserved', byId.get('low-
 check('uncertain stance cannot be labelled preserved', byId.get('stance-uncertain')?.transition === 'uncertain');
 check('literal profile-target disagreement is surfaced without overriding alignment',
   byId.get('target-label-review')?.flags.profileTargetLabelsDiffer === true && byId.get('target-label-review')?.transition === 'preserved');
-check('deduplicates repeated source-summary evidence', result.cases.length === 10, `got ${result.cases.length}`);
+check('unanchored profile targets abstain instead of creating a false polarity shift',
+  byId.get('target-label-mismatch')?.transition === 'uncertain' &&
+  byId.get('target-label-mismatch')?.exclusionReason === 'uncertain_target' &&
+  byId.get('target-label-mismatch')?.comparable === false);
+check('target anchor helper distinguishes paraphrase-like overlap from different objects',
+  targetLabelsShareAnchor('shade trees', 'mature shade trees') &&
+  !targetLabelsShareAnchor('heatwaves making walks unbearable', 'shade in public spaces'));
+check('deduplicates repeated source-summary evidence', result.cases.length === 11, `got ${result.cases.length}`);
 
 console.log('\n[4] Denominators and sensitivity');
 check('neutral mappings cannot dilute the affect-bearing denominator', result.comparableAffectBearingCount === 6, `got ${result.comparableAffectBearingCount}`);
 check('stance abstention does not make numeric-dimension eligibility depend on the outcome', byId.get('stance-uncertain')?.comparable === true);
 check('expressed stance is affective/evaluative even at neutral valence', byId.get('stance')?.sourceAffectBearing === true);
 check('attenuation rate includes unchanged stance-abstention cases in its denominator', approx(result.attenuationRate, 2 / 6), `got ${result.attenuationRate}`);
-check('coverage denominator includes valid affect-bearing omissions/target changes', result.sourceAffectBearingCount === 8, `got ${result.sourceAffectBearingCount}`);
-check('coverage numerator requires valid same-target summary evidence', result.representedAffectBearingCount === 6, `got ${result.representedAffectBearingCount}`);
-check('coverage is reported conditionally with an explicit denominator', approx(result.affectiveCoverageRate, 6 / 8), `got ${result.affectiveCoverageRate}`);
+check('coverage denominator includes valid affect-bearing omissions/target changes', result.sourceAffectBearingCount === 9, `got ${result.sourceAffectBearingCount}`);
+check('coverage numerator records verified source-to-summary alignments independently of profile comparability', result.representedAffectBearingCount === 7, `got ${result.representedAffectBearingCount}`);
+check('coverage is reported conditionally with an explicit denominator', approx(result.affectiveCoverageRate, 7 / 9), `got ${result.affectiveCoverageRate}`);
 check('primary sensitivity reproduces the primary estimate',
   result.sensitivity.find(point => point.label === 'primary')?.attenuationRate === result.attenuationRate);
 check('method provenance records deterministic evaluation settings',

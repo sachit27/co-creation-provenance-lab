@@ -53,6 +53,35 @@ const normalizeForComparison = (value: string): string => value
   .trim()
   .toLocaleLowerCase();
 
+const TARGET_STOPWORDS = new Set([
+  'about', 'action', 'approach', 'community', 'concern', 'effect', 'effort',
+  'initiative', 'issue', 'measure', 'participant', 'people', 'plan', 'planning',
+  'policy', 'process', 'project', 'proposal', 'public', 'response', 'strategy',
+  'support', 'their', 'these', 'this', 'toward', 'towards', 'with',
+]);
+
+const targetTerms = (value: string): Set<string> => new Set(
+  normalizeForComparison(value)
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/)
+    .map(token => token.endsWith('ies') ? `${token.slice(0, -3)}y`
+      : token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1)
+      : token)
+    .filter(token => token.length >= 4 && !TARGET_STOPWORDS.has(token)),
+);
+
+/**
+ * Free-text target labels are model outputs, so exact equality is too strict.
+ * A shared substantive lexical anchor is nevertheless required before ordinal
+ * affect profiles are compared. Otherwise a problem and its proposed remedy
+ * can be mistaken for the same object and create a false polarity shift.
+ */
+export const targetLabelsShareAnchor = (sourceTarget: string, summaryTarget: string): boolean => {
+  if (normalizeForComparison(sourceTarget) === normalizeForComparison(summaryTarget)) return true;
+  const sourceTerms = targetTerms(sourceTarget);
+  return [...targetTerms(summaryTarget)].some(term => sourceTerms.has(term));
+};
+
 /** Deterministic multilingual sentence-like segmentation for source census. */
 export const splitVerbatimSourceUnits = (text: string): string[] => {
   return splitSentenceLikeUnits(text);
@@ -189,6 +218,15 @@ const classifyPair = (
 
   const source = pair.sourceProfile;
   const summary = pair.summaryProfile;
+  const profileTargetLabelsDiffer = normalizeForComparison(source.target) !== normalizeForComparison(summary.target);
+  if (profileTargetLabelsDiffer && !targetLabelsShareAnchor(source.target, summary.target)) {
+    return {
+      ...base,
+      transition: 'uncertain',
+      exclusionReason: 'uncertain_target',
+      flags: { ...base.flags, profileTargetLabelsDiffer: true },
+    };
+  }
   const valenceMagnitudeDelta = Math.abs(summary.valence) - Math.abs(source.valence);
   const intensityDelta = summary.intensity - source.intensity;
   const urgencyDelta = summary.urgency - source.urgency;
@@ -198,7 +236,6 @@ const classifyPair = (
   const stanceChanged = stanceAssessed &&
     source.stance !== summary.stance;
   const emotionSetChanged = emotionSetsDiffer(source.emotions, summary.emotions);
-  const profileTargetLabelsDiffer = normalizeForComparison(source.target) !== normalizeForComparison(summary.target);
 
   const attenuatedDimensions: AffectiveTransitionFlags['attenuatedDimensions'] = [];
   const amplifiedDimensions: AffectiveTransitionFlags['amplifiedDimensions'] = [];
@@ -439,7 +476,7 @@ export const buildAffectiveFidelity = (
       'Alignment coverage and affect-profile comparability are reported separately so evaluator profile failures are not mislabeled as missing source representation.',
       'Source units are an automated sentence segmentation proxy and may combine multiple targets or split one target across units.',
       'Same-target status is assigned by the automated alignment evaluator and has not been independently calibrated.',
-      'Free-text targets from the independent pointwise profiles are shown and literal disagreements are flagged for review; they are not automatically equated or excluded because labels may be paraphrases.',
+      'Free-text targets from the independent pointwise profiles are shown. A literal disagreement with no shared substantive lexical anchor is excluded as target-uncertain; synonym-only paraphrases may therefore be conservatively excluded.',
       'An uncertain stance cannot be labelled preserved; cases with another measurable change remain comparable only on the assessed dimensions.',
       'The attenuation rate counts any comparable case with a materially attenuated dimension, including cases primarily labelled as a polarity or stance shift.',
       'Ordinal levels are descriptive categories; adjacent levels are not assumed to be equal-interval measurements.',

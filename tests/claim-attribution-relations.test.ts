@@ -1,6 +1,7 @@
 import {
   evidenceContainsExplicitDisagreement,
   isDisagreementMetaClaim,
+  isPopulationScopeClaim,
   selectEvidencePassage,
   validateAtomicDecomposition,
   validateProposedSupportLevel,
@@ -45,6 +46,41 @@ check('ordinary claim-evidence contradiction labels remain available',
     oneSidedEvidence,
     true,
   ) === 'contradicted');
+check('recognizes claims that require consultation-wide prevalence evidence',
+  isPopulationScopeClaim('There is a consensus that tree planting should prioritize low-income neighbourhoods.'));
+check('top-k passages cannot establish consensus',
+  validateProposedSupportLevel(
+    'supported',
+    'There is a consensus that tree planting should prioritize low-income neighbourhoods.',
+    evidence,
+    true,
+  ) === 'unassessed');
+check('one source cannot support a claim explicitly attributed to plural participants',
+  validateProposedSupportLevel(
+    'supported',
+    'Participants advocated for retaining the garden plots.',
+    oneSidedEvidence,
+    true,
+  ) === 'unsupported');
+check('irrelevant retrieved candidates do not count as additional supporters',
+  validateProposedSupportLevel(
+    'supported',
+    'Participants advocated for retaining the garden plots.',
+    evidence,
+    true,
+    ['Stewardship_06'],
+  ) === 'unsupported');
+check('two adjudicated supporting sources can establish plural attribution',
+  validateProposedSupportLevel(
+    'supported',
+    'Participants advocated for retaining the garden plots.',
+    [
+      evidence[0],
+      { participantId: 'Stewardship_08', passage: 'The community-garden plots must remain available to residents.', similarity: 0.46 },
+    ],
+    true,
+    ['Stewardship_06', 'Stewardship_08'],
+  ) === 'supported');
 
 console.log('\n[Meaning-preserving atomic decomposition]');
 const compoundSentence = 'Transparency in decision-making and funding processes is deemed essential for building trust and ensuring that community voices are heard and prioritized.';
@@ -69,6 +105,14 @@ check('falls back to the original sentence when substantive word order changes',
   validateAtomicDecomposition(compoundSentence, [compoundSentence.replace('building trust', 'trust building')])[0] === compoundSentence);
 check('retains an unchanged sentence as one valid claim unit',
   validateAtomicDecomposition(compoundSentence, [compoundSentence])[0] === compoundSentence);
+const monitoringSentence = 'Monitoring efforts, including surveys of wildlife populations, were deemed necessary to assess the success of restoration initiatives.';
+const redundantMonitoringClaims = [
+  'Monitoring efforts were deemed necessary',
+  'Surveys of wildlife populations were deemed necessary',
+  'Monitoring efforts, including surveys of wildlife populations, were deemed necessary to assess the success of restoration initiatives',
+];
+check('rejects a full claim accompanied by redundant shorter restatements',
+  validateAtomicDecomposition(monitoringSentence, redundantMonitoringClaims)[0] === monitoringSentence);
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} - passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

@@ -10,9 +10,9 @@ interface Props {
 const SUPPORT_CONFIG: Record<ClaimSupportLevel, { label: string; color: string; bg: string; icon: string; description: string }> = {
   supported: { label: 'Supported', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Directly stated in source text' },
   inferrable: { label: 'Inferrable', color: '#2563eb', bg: '#dbeafe', icon: '\u2197', description: 'Reasonable derivation from evidence' },
-  unsupported: { label: 'No support retrieved', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'Automated search/judge did not establish source support; not proof of hallucination' },
+  unsupported: { label: 'Support not established', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'Automated retrieval and judging did not establish support' },
   contradicted: { label: 'Contradicted by source', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'A source asserts the opposite of this summary claim' },
-  unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Retrieval or evaluation did not establish usable evidence' },
+  unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Needed evidence was unavailable or required a consultation-wide count' },
 };
 
 const LEVELS: ClaimSupportLevel[] = ['supported', 'inferrable', 'unsupported', 'contradicted', 'unassessed'];
@@ -108,6 +108,7 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
       {sentenceIndices.map(si => {
         const claims = claimsBySentence[si] || [];
         const hasIssue = claims.some(c => c.supportLevel === 'unsupported' || c.supportLevel === 'contradicted');
+        const hasUnassessed = claims.some(c => c.supportLevel === 'unassessed');
         return (
           <button
             key={si}
@@ -119,7 +120,7 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
             }`}
           >
             S{si + 1}
-            {hasIssue && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />}
+            {(hasIssue || hasUnassessed) && <span className={`ml-1 w-1.5 h-1.5 rounded-full ${hasIssue ? 'bg-red-500' : 'bg-slate-400'} inline-block`} />}
           </button>
         );
       })}
@@ -202,7 +203,9 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
                       </span>
                       {claim.evidence.length > 0 && (
                         <span className="text-[10px] text-slate-400">
-                          {claim.evidence.length} source{claim.evidence.length !== 1 ? 's' : ''}
+                          {claim.evidence.length} {claim.supportLevel === 'supported' || claim.supportLevel === 'inferrable'
+                            ? `supporting source${claim.evidence.length !== 1 ? 's' : ''}`
+                            : `candidate passage${claim.evidence.length !== 1 ? 's' : ''}`}
                         </span>
                       )}
                     </div>
@@ -222,7 +225,11 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Source Evidence</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">
+                        {claim.supportLevel === 'supported' || claim.supportLevel === 'inferrable'
+                          ? 'Adjudicated source evidence'
+                          : 'Retrieved candidate passages'}
+                      </div>
                       {claim.evidence.map((ev, i) => (
                         <div key={i} className="flex items-start gap-3 p-2.5 rounded-lg bg-white border border-slate-200">
                           <div className="flex-shrink-0">
