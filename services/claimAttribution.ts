@@ -13,9 +13,11 @@ import { ParticipantAnalysis, ParticipantInput, AnalysisConfig, AtomicClaim, Cla
 import { generateCompletion } from './completionRouter';
 import { computeConceptOverlapScore } from './textUtils';
 import { cosineSimilarity } from './mathUtils';
+import { hasExplicitTensionCue, hasSharedTensionAnchor } from './tensionAnalysis';
 
 const MAX_CLAIMS_PER_SENTENCE = 5;
 const MAX_EVIDENCE_PER_CLAIM = 5;
+const MAX_EVIDENCE_PASSAGE_CHARS = 500;
 
 // ── Claim Decomposition ─────────────────────────────────────────────────────────
 
@@ -72,7 +74,40 @@ Return ONLY a JSON array.`;
  * Evidence threshold is calibrated per mode: higher threshold with embeddings
  * (cosine sims are more informative) vs TF-IDF (scores are generally lower).
  */
-const findEvidenceForClaim = (
+/**
+ * Keep the best-matching sentence together with one adjacent sentence. Many
+ * consultation records state the topic first and the requested action second;
+ * returning only the topic sentence can remove the proposition that establishes
+ * support or opposition. The returned passage is always a contiguous source span.
+ */
+export const selectEvidencePassage = (text: string, claim: string): string => {
+  const sentences = text.match(/[^.!?]+(?:[.!?]+|$)/g)
+    ?.map(sentence => sentence.trim())
+    .filter(Boolean) ?? [];
+  if (sentences.length === 0) return text.trim().slice(0, MAX_EVIDENCE_PASSAGE_CHARS);
+
+  let bestIndex = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < sentences.length; index++) {
+    const sentence = sentences[index];
+    const overlap = computeConceptOverlapScore(sentence, claim);
+    const lengthBoost = Math.min(1, sentence.split(/\s+/).length / 8);
+    const score = overlap * 0.8 + lengthBoost * 0.2;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  }
+
+  // Prefer the following sentence because civic inputs often use a
+  // context-then-recommendation structure. If the best match is last, include
+  // the preceding sentence instead.
+  const start = bestIndex < sentences.length - 1 ? bestIndex : Math.max(0, bestIndex - 1);
+  const end = Math.min(sentences.length, start + 2);
+  return sentences.slice(start, end).join(' ').slice(0, MAX_EVIDENCE_PASSAGE_CHARS);
+};
+
+export const findEvidenceForClaim = (
   claim: string,
   participants: ParticipantAnalysis[],
   inputs: ParticipantInput[],
@@ -120,41 +155,9 @@ const findEvidenceForClaim = (
       : overlap * 0.6 + wordMatchRatio * 0.4;
 
     if (similarity > EVIDENCE_THRESHOLD) {
-      // Find the most relevant sentence-level passage for the evidence excerpt.
-      // When we have claim embeddings, compute per-sentence embedding similarity
-      // for more accurate passage extraction; fall back to TF-IDF concept overlap.
-      const sents = text.match(/[^.!?]+[.!?]+/g) || [text];
-      let bestPassage = text.slice(0, 150);
-      let bestScore = 0;
-
-      if (hasEmbeddings && sents.length > 1) {
-        // Reuse the input-level embedding as a proxy: rank sentences by combined
-        // concept overlap + a length-weighted boost for sentences with more content words.
-        // We don't embed each sentence individually (too many LLM calls) but the hybrid
-        // TF-IDF + word match approach already benefits from the parent-level similarity.
-        for (const sent of sents) {
-          const sentOverlap = computeConceptOverlapScore(sent, claim);
-          // Boost sentences that are substantial (penalize fragments)
-          const lengthBoost = Math.min(1, sent.trim().split(/\s+/).length / 8);
-          const sentScore = sentOverlap * 0.8 + lengthBoost * 0.2;
-          if (sentScore > bestScore) {
-            bestScore = sentScore;
-            bestPassage = sent.trim();
-          }
-        }
-      } else {
-        for (const sent of sents) {
-          const sentScore = computeConceptOverlapScore(sent, claim);
-          if (sentScore > bestScore) {
-            bestScore = sentScore;
-            bestPassage = sent.trim();
-          }
-        }
-      }
-
       results.push({
         participantId: p.id,
-        passage: bestPassage.slice(0, 200),
+        passage: selectEvidencePassage(text, claim),
         similarity,
       });
     }
@@ -182,10 +185,54 @@ const NEGATION_RE = /\b(not|never|no\b|neither|nor|oppos(ed?|es|ing)|reject(ed|s
  */
 const mightBeContradicted = (claim: string, evidence: AtomicClaim['evidence']): boolean => {
   if (evidence.length === 0) return false;
-  const passageHasNegation = NEGATION_RE.test(evidence[0].passage);
   const claimHasNegation = NEGATION_RE.test(claim);
-  // Asymmetric negation: one side negates while the other asserts
-  return passageHasNegation !== claimHasNegation;
+  // Any retrieved passage may contradict the claim. This remains only a review
+  // cue; it never determines the label by itself.
+  return evidence.some(item => NEGATION_RE.test(item.passage) !== claimHasNegation);
+};
+
+/**
+ * A relational meta-claim reports disagreement among contributors. An opposing
+ * source position therefore cannot, by itself, contradict the meta-claim. This
+ * distinction prevents evidence-evidence conflict from being confused with
+ * claim-evidence contradiction.
+ */
+export const isDisagreementMetaClaim = (claim: string): boolean =>
+  /\b(disagreement|disagreed|participants?\s+(?:were|are)\s+divided|divided\s+(?:views?|opinions?|positions?)|conflicting\s+(?:views?|opinions?|positions?|proposals?)|opposing\s+(?:views?|opinions?|positions?|proposals?)|differed\s+(?:on|over)|debate[sd]?\s+(?:on|over)|contested\s+(?:issue|proposal|plan|policy))\b/i.test(claim);
+
+export const evidenceContainsExplicitDisagreement = (
+  evidence: AtomicClaim['evidence'],
+): boolean => {
+  for (let left = 0; left < evidence.length; left++) {
+    for (let right = left + 1; right < evidence.length; right++) {
+      const passageA = evidence[left].passage;
+      const passageB = evidence[right].passage;
+      if (hasSharedTensionAnchor(passageA, passageB) && hasExplicitTensionCue(passageA, passageB)) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+/** Apply conservative semantic constraints to a model-proposed support label. */
+export const validateProposedSupportLevel = (
+  proposed: ClaimSupportLevel,
+  claim: string,
+  evidence: AtomicClaim['evidence'],
+  hasEmbeddings: boolean,
+): ClaimSupportLevel => {
+  if (!isDisagreementMetaClaim(claim)) return proposed;
+
+  // Two exact source passages with a shared object and an explicit directional
+  // incompatibility directly support a claim that disagreement existed.
+  if (evidenceContainsExplicitDisagreement(evidence)) return 'supported';
+
+  // The available retrieval is not a census. Lack of a retrieved opposing pair
+  // can mean unsupported or uncertain, but it cannot establish consensus and
+  // therefore cannot contradict a claim that disagreement existed.
+  if (proposed === 'contradicted') return classifyClaim(claim, evidence, hasEmbeddings);
+  return proposed;
 };
 
 /**
@@ -269,7 +316,11 @@ Classification rules:
 - "unsupported": the evidence is unrelated to or provides no basis for the claim
 - "contradicted": the evidence and claim are about the same topic but assert opposing positions (e.g. source says "rejected the proposal", claim says "the proposal was welcomed")
 
-Key: only classify as "contradicted" when there is clear semantic opposition on the SAME subject — not just because different words are used.
+Important distinctions:
+- Compare every evidence passage with the CLAIM. Do not label a claim contradicted merely because evidence passages disagree with one another.
+- A claim such as "participants disagreed over X" is a relational meta-claim. Two sources taking incompatible positions on X SUPPORT that claim.
+- A retrieved source taking one side of a dispute does not contradict the claim that a dispute existed.
+- Use "contradicted" only when a source directly asserts the opposite of the claim itself.
 
 Return ONLY a JSON array of ${batch.length} strings in order, e.g. ["supported", "inferrable", "contradicted"]`;
 
@@ -287,13 +338,29 @@ Return ONLY a JSON array of ${batch.length} strings in order, e.g. ["supported",
         for (let i = 0; i < Math.min(labels.length, batch.length); i++) {
           const label = labels[i]?.toLowerCase().trim();
           if (valid.includes(label as ClaimSupportLevel)) {
-            results[batch[i].idx] = label as ClaimSupportLevel;
+            results[batch[i].idx] = validateProposedSupportLevel(
+              label as ClaimSupportLevel,
+              batch[i].claim,
+              batch[i].evidence,
+              batch[i].hasEmbeddings,
+            );
           }
         }
       }
     } catch (e) {
       console.warn('[ClaimAttribution] Batch LLM classification failed, using deterministic fallback:', e);
     }
+  }
+
+  // Enforce the relational guard even when a batch response was incomplete or
+  // malformed and the deterministic fallback remained in place.
+  for (let index = 0; index < claims.length; index++) {
+    results[index] = validateProposedSupportLevel(
+      results[index],
+      claims[index].claim,
+      claims[index].evidence,
+      claims[index].hasEmbeddings,
+    );
   }
 
   return results;

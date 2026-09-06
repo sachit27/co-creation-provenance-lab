@@ -11,7 +11,7 @@ const SUPPORT_CONFIG: Record<ClaimSupportLevel, { label: string; color: string; 
   supported: { label: 'Supported', color: '#059669', bg: '#d1fae5', icon: '\u2713', description: 'Directly stated in source text' },
   inferrable: { label: 'Inferrable', color: '#2563eb', bg: '#dbeafe', icon: '\u2197', description: 'Reasonable derivation from evidence' },
   unsupported: { label: 'No support retrieved', color: '#dc2626', bg: '#fee2e2', icon: '\u2717', description: 'Automated search/judge did not establish source support; not proof of hallucination' },
-  contradicted: { label: 'Contradicted', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'Source evidence says the opposite' },
+  contradicted: { label: 'Contradicted by source', color: '#7c3aed', bg: '#ede9fe', icon: '\u26A0', description: 'A source asserts the opposite of this summary claim' },
   unassessed: { label: 'Unassessed', color: '#64748b', bg: '#f1f5f9', icon: '?', description: 'Retrieval or evaluation did not establish usable evidence' },
 };
 
@@ -149,6 +149,9 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
             </div>
           ))}
         </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+          These labels compare summary claims with source evidence. Disagreement between participants is assessed separately in Tension Mapping.
+        </p>
       </div>
 
       <SentenceNav />
