@@ -158,8 +158,19 @@ export const ClaimAttributionViz: React.FC<Props> = ({ data, summarySentences })
 
       {/* Selected sentence context */}
       {selectedSentence !== null && summarySentences[selectedSentence] && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900 italic">
-          "{summarySentences[selectedSentence]}"
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-blue-500">
+            Original summary sentence S{selectedSentence + 1}
+          </div>
+          <div className="text-sm text-blue-900 italic">
+            "{summarySentences[selectedSentence]}"
+          </div>
+        </div>
+      )}
+
+      {selectedSentence !== null && (
+        <div className="text-[11px] text-slate-500">
+          Verified claim unit{visibleClaims.length === 1 ? '' : 's'} derived from this sentence ({visibleClaims.length}). If a faithful atomic split cannot be established, the original sentence is retained as one unit.
         </div>
       )}
 

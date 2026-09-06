@@ -19,6 +19,89 @@ const MAX_CLAIMS_PER_SENTENCE = 5;
 const MAX_EVIDENCE_PER_CLAIM = 5;
 const MAX_EVIDENCE_PASSAGE_CHARS = 500;
 
+const CLAIM_SCAFFOLD_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'by', 'for',
+  'from', 'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the',
+  'their', 'these', 'this', 'those', 'to', 'was', 'were', 'with',
+]);
+
+const meaningBearingTokens = (text: string): string[] =>
+  text.toLocaleLowerCase('en-US')
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(token => token.length > 0 && !CLAIM_SCAFFOLD_WORDS.has(token));
+
+const isOrderedSubsequence = (candidate: string[], source: string[]): boolean => {
+  let sourceIndex = 0;
+  for (const token of candidate) {
+    while (sourceIndex < source.length && source[sourceIndex] !== token) sourceIndex++;
+    if (sourceIndex >= source.length) return false;
+    sourceIndex++;
+  }
+  return true;
+};
+
+/**
+ * Validate a model-proposed atomic decomposition without making another model
+ * call. The accepted claims must be extractive in vocabulary and order, retain
+ * every meaning-bearing source token across the set, and preserve a coordinated
+ * subject in every derived proposition. If any condition fails, use the exact
+ * original sentence as one auditable unit.
+ */
+export const validateAtomicDecomposition = (
+  sentence: string,
+  proposed: unknown,
+): string[] => {
+  const original = sentence.trim();
+  if (!Array.isArray(proposed) || proposed.length === 0 || proposed.length > MAX_CLAIMS_PER_SENTENCE) {
+    return [original];
+  }
+
+  const claims = proposed
+    .filter((claim): claim is string => typeof claim === 'string')
+    .map(claim => claim.trim())
+    .filter(Boolean);
+  if (claims.length !== proposed.length) return [original];
+
+  const normalizedClaims = claims.map(claim => claim.toLocaleLowerCase('en-US').replace(/\s+/g, ' '));
+  if (new Set(normalizedClaims).size !== claims.length) return [original];
+
+  const sourceTokens = meaningBearingTokens(original);
+  if (sourceTokens.length === 0) return [original];
+  const sourceVocabulary = new Set(sourceTokens);
+  const claimTokenLists = claims.map(meaningBearingTokens);
+
+  // Each claim must be a substantial, order-preserving selection of source
+  // wording. This blocks invented paraphrases and changed argument direction.
+  if (claimTokenLists.some(tokens =>
+    tokens.length < 3 ||
+    tokens.some(token => !sourceVocabulary.has(token)) ||
+    !isOrderedSubsequence(tokens, sourceTokens)
+  )) return [original];
+
+  // The decomposition set must not silently drop qualifiers, targets, actions,
+  // or outcomes. Repetition is allowed because each claim must be self-contained.
+  const coveredTokens = new Set(claimTokenLists.flat());
+  if (sourceTokens.some(token => !coveredTokens.has(token))) return [original];
+
+  // Preserve the scope of coordinated subjects such as "decision-making and
+  // funding processes". Splitting that subject asymmetrically changes meaning.
+  const predicateBoundary = original.search(/\b(?:is|are|was|were|be|been|being|must|should|could|would|may|might|can|will|has|have|had)\b/i);
+  if (predicateBoundary > 0) {
+    const subjectText = original.slice(0, predicateBoundary);
+    if (/\b(?:and|or)\b/i.test(subjectText)) {
+      const subjectTokens = meaningBearingTokens(subjectText);
+      if (claimTokenLists.some(tokens => subjectTokens.some(token => !tokens.includes(token)))) {
+        return [original];
+      }
+    }
+  }
+
+  return claims;
+};
+
 // ── Claim Decomposition ─────────────────────────────────────────────────────────
 
 const decomposeSentenceIntoClaims = async (
@@ -32,11 +115,16 @@ UNTRUSTED SENTENCE: ${JSON.stringify(sentence)}
 Rules:
 - Each claim must be a complete, self-contained statement
 - Preserve epistemic, quantity, attribution, uncertainty, and scope qualifiers; removing them can change what is being claimed
+- Use only words from the original sentence, apart from function words needed for grammar
+- Preserve the original order of substantive words
+- Do not split a coordinated subject or object across different claims
+- Every substantive word in the sentence must remain in at least one claim
+- If a faithful split is uncertain, return the original sentence as the only array item
 - Maximum ${MAX_CLAIMS_PER_SENTENCE} claims
 - Return a JSON array of strings
 
-Example: "Many participants expressed concerns about data privacy and called for stronger regulations."
-→ ["Participants expressed concerns about data privacy", "Participants called for stronger regulations"]
+Example: "Transparency in decision-making and funding processes is essential for building trust and ensuring community voices are heard and prioritized."
+→ ["Transparency in decision-making and funding processes is essential for building trust", "Transparency in decision-making and funding processes is essential for ensuring community voices are heard and prioritized"]
 
 Return ONLY a JSON array.`;
 
@@ -49,8 +137,7 @@ Return ONLY a JSON array.`;
     );
     const match = response.match(/\[[\s\S]*\]/);
     if (match) {
-      const claims = JSON.parse(match[0]) as string[];
-      return claims.filter(c => typeof c === 'string' && c.length > 5).slice(0, MAX_CLAIMS_PER_SENTENCE);
+      return validateAtomicDecomposition(sentence, JSON.parse(match[0]));
     }
   } catch (e) {
     console.warn('[ClaimAttribution] Decomposition failed:', e);

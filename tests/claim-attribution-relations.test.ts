@@ -2,6 +2,7 @@ import {
   evidenceContainsExplicitDisagreement,
   isDisagreementMetaClaim,
   selectEvidencePassage,
+  validateAtomicDecomposition,
   validateProposedSupportLevel,
 } from './.modules/services/claimAttribution.ts';
 
@@ -44,6 +45,30 @@ check('ordinary claim-evidence contradiction labels remain available',
     oneSidedEvidence,
     true,
   ) === 'contradicted');
+
+console.log('\n[Meaning-preserving atomic decomposition]');
+const compoundSentence = 'Transparency in decision-making and funding processes is deemed essential for building trust and ensuring that community voices are heard and prioritized.';
+const faithfulClaims = [
+  'Transparency in decision-making and funding processes is deemed essential for building trust',
+  'Transparency in decision-making and funding processes is deemed essential for ensuring that community voices are heard and prioritized',
+];
+const flawedClaims = [
+  'Transparency in decision-making processes is deemed essential for building trust',
+  'Transparency in funding processes is deemed essential for building trust',
+  'Transparency in decision-making processes is deemed essential for ensuring that community voices are heard',
+];
+check('accepts a complete decomposition that preserves coordinated-subject scope',
+  validateAtomicDecomposition(compoundSentence, faithfulClaims).length === 2);
+check('rejects the exact asymmetric and incomplete decomposition seen in S16',
+  validateAtomicDecomposition(compoundSentence, flawedClaims)[0] === compoundSentence);
+check('falls back to the original sentence when a qualifier is dropped',
+  validateAtomicDecomposition(compoundSentence, [faithfulClaims[0], faithfulClaims[1].replace(' and prioritized', '')])[0] === compoundSentence);
+check('falls back to the original sentence when new substantive wording is invented',
+  validateAtomicDecomposition(compoundSentence, [compoundSentence.replace('essential', 'critical')])[0] === compoundSentence);
+check('falls back to the original sentence when substantive word order changes',
+  validateAtomicDecomposition(compoundSentence, [compoundSentence.replace('building trust', 'trust building')])[0] === compoundSentence);
+check('retains an unchanged sentence as one valid claim unit',
+  validateAtomicDecomposition(compoundSentence, [compoundSentence])[0] === compoundSentence);
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} - passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);
