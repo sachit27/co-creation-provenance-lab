@@ -161,6 +161,29 @@ tests/            Deterministic application regression tests
 docs/             Methodology and deployment documentation
 ```
 
+## Citation
+
+If you use this work, please cite:
+
+```bibtex
+@article{mahajan2025participatory,
+  title={Participatory Provenance as Representational Auditing for AI-Mediated Public Consultation},
+  author={Mahajan, Sachit},
+  journal={arXiv preprint arXiv:2604.20711},
+  year={2025},
+  url={https://arxiv.org/abs/2604.20711},
+  doi={10.48550/arXiv.2604.20711}
+}
+
+@article{mahajan2025measuring,
+  title={Participatory Provenance: Measuring Input Transformation in AI-Mediated Collective Synthesis},
+  author={Mahajan, Sachit},
+  journal={SSRN},
+  year={2025},
+  url={https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5709064}
+}
+```
+
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE). Contributions are welcome through issues and pull requests.
