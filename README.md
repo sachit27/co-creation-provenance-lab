@@ -166,13 +166,11 @@ docs/             Methodology and deployment documentation
 If you use this work, please cite:
 
 ```bibtex
-@article{mahajan2025participatory,
-  title={Participatory Provenance as Representational Auditing for AI-Mediated Public Consultation},
+@article{mahajan2026participatory,
+  title={Participatory provenance as representational auditing for AI-mediated public consultation},
   author={Mahajan, Sachit},
   journal={arXiv preprint arXiv:2604.20711},
-  year={2025},
-  url={https://arxiv.org/abs/2604.20711},
-  doi={10.48550/arXiv.2604.20711}
+  year={2026}
 }
 
 @article{mahajan2025measuring,
