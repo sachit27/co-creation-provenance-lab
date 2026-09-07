@@ -170,7 +170,8 @@ If you use this work, please cite:
   title={Participatory provenance as representational auditing for AI-mediated public consultation},
   author={Mahajan, Sachit},
   journal={arXiv preprint arXiv:2604.20711},
-  year={2026}
+  year={2026},
+  url={https://arxiv.org/abs/2604.20711}
 }
 
 @article{mahajan2025measuring,
