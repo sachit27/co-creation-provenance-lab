@@ -6,7 +6,7 @@ import { ConfigPanel } from './components/ui/ConfigPanel';
 import { ProcessingState } from './components/ui/ProcessingState';
 import { InfoIcon } from './components/ui/MetricGlossary';
 import { ThresholdSensitivityMini, ThresholdImpactBadges } from './components/visualizations/ThresholdSensitivityMini';
-import { FeedbackPanel, FeedbackSummary } from './components/ui/FeedbackPanel';
+import { FeedbackSummary } from './components/ui/FeedbackSummary';
 import { ExecutiveSummary } from './components/ui/ExecutiveSummary';
 import { MissedPerspectives } from './components/ui/MissedPerspectives';
 import { StrategyComparison } from './components/ui/StrategyComparison';
@@ -260,6 +260,37 @@ export default function App() {
     0,
   ) ?? 0;
 
+  const settledEnrichmentMessage = (() => {
+    if (!data || data.enrichmentStatus === 'complete' || data.enrichmentStatus === 'pending') return '';
+    const unavailableStages = Object.entries(data.enrichmentStages ?? {})
+      .filter(([, stage]) => stage.status === 'failed' || stage.status === 'cancelled')
+      .map(([name]) => ({
+        language: 'language analysis',
+        affect: 'source-unit transformation analysis',
+        claims: 'claim evidence review',
+        tensions: 'tension mapping',
+        knowledgeGraph: 'knowledge graph',
+        sankey: 'association map',
+      }[name] ?? name));
+    const unavailable = unavailableStages.length > 0
+      ? ` Unavailable: ${unavailableStages.join(', ')}.`
+      : '';
+    if (data.enrichmentStatus === 'partial') {
+      return `Deep analysis completed partially.${unavailable} Completed stages remain available.`;
+    }
+    if (data.enrichmentStatus === 'cancelled') {
+      return `Deep analysis was cancelled.${unavailable} Completed stages remain available.`;
+    }
+    return `Deep analysis did not complete.${unavailable} Core results remain available.`;
+  })();
+  const knowledgeGraphStage = data?.enrichmentStages?.knowledgeGraph;
+  const knowledgeGraphIsRunning = Boolean(isEnriching && knowledgeGraphStage?.status === 'pending');
+  const knowledgeGraphUnavailable = Boolean(
+    !data?.knowledgeGraph
+    && knowledgeGraphStage
+    && ['failed', 'cancelled', 'skipped'].includes(knowledgeGraphStage.status),
+  );
+
   useEffect(() => () => {
     enrichmentAbortRef.current?.abort();
     causalAbortRef.current?.abort();
@@ -300,15 +331,6 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
-
-  // Feedback handler
-  const handleFeedbackSubmit = (feedback: ParticipantFeedback) => {
-    setFeedbacks(prev => {
-      const newMap = new Map(prev);
-      newMap.set(feedback.participantId, feedback);
-      return newMap;
-    });
   };
 
   /** Open the interactive revision editor, pre-filled with the current summary. */
@@ -970,7 +992,7 @@ export default function App() {
                     <div className="font-bold text-sm">Interactive Demo</div>
                     <div className="text-blue-100 text-xs">
                       {data.runManifest
-                        ? `Pre-computed full application run of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} · embedding: ${data.runManifest.actualEmbedding.model} · generator: ${data.runManifest.actualGenerator?.model ?? 'non-generative'} · evaluator: ${data.runManifest.actualEvaluator?.model ?? 'unavailable'}.`
+                        ? `Pre-computed ${data.enrichmentStatus === 'complete' ? 'complete' : 'partial'} application run of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} · embedding: ${data.runManifest.actualEmbedding.model} · generator: ${data.runManifest.actualGenerator?.model ?? 'non-generative'} · evaluator: ${data.runManifest.actualEvaluator?.model ?? 'unavailable'}.`
                         : `Pre-computed archived analysis of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} using ${data.config.embeddingModel ?? data.embeddingTierUsed ?? 'an archived embedding method'}; newer enrichment modules may be unavailable.`}
                     </div>
                   </div>
@@ -1491,13 +1513,25 @@ export default function App() {
                         />
                       </Card>
                     ) : (
-                      <Card title="Knowledge Graph" subtitle="Building knowledge graph from participant inputs..." className="border-t-4 border-t-indigo-500">
+                      <Card
+                        title="Knowledge Graph"
+                        subtitle={knowledgeGraphUnavailable
+                          ? 'This result is unavailable for the current run.'
+                          : 'Building knowledge graph from participant inputs...'}
+                        className="border-t-4 border-t-indigo-500"
+                      >
                         <div className="flex items-center gap-2 text-sm text-slate-500 py-8 justify-center">
-                          <svg className="animate-spin h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                          </svg>
-                          {isEnriching ? 'Extracting entities and relationships via GraphRAG...' : 'Knowledge graph will be available after enrichment completes.'}
+                          {knowledgeGraphIsRunning && (
+                            <svg className="animate-spin h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                            </svg>
+                          )}
+                          {knowledgeGraphIsRunning
+                            ? 'Extracting entities and relationships via GraphRAG...'
+                            : knowledgeGraphUnavailable
+                              ? (knowledgeGraphStage?.message || 'Knowledge graph extraction did not complete for this run.')
+                              : 'Knowledge graph data is not available for this run.'}
                         </div>
                       </Card>
                     )
@@ -1713,7 +1747,7 @@ export default function App() {
               </div>
 
               {/* Right Column (Details) */}
-              <div className="space-y-6">
+              <div className="min-w-0 space-y-6">
                 <Card title="Details Panel" className="h-[650px] flex flex-col sticky top-6" flexContent={true}>
 
                   {/* Jump To Selector */}
@@ -1814,14 +1848,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Feedback Panel */}
-                              <div className="mt-4 pb-2">
-                                <FeedbackPanel
-                                  participantId={p.id}
-                                  currentFeedback={feedbacks.get(p.id)}
-                                  onSubmit={handleFeedbackSubmit}
-                                />
-                              </div>
                             </div>
 
                             <div className="flex-shrink-0 pt-3 border-t border-slate-100">
@@ -1907,7 +1933,11 @@ export default function App() {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
           )}
-          <span className="flex-1">{enrichProgressMsg || 'Running deep analysis in background (fidelity, claims, tensions)...'}</span>
+          <span className="flex-1">
+            {isEnriching
+              ? (enrichProgressMsg || 'Running deep analysis in background (fidelity, claims, tensions)...')
+              : (enrichProgressMsg || settledEnrichmentMessage)}
+          </span>
           {isEnriching ? (
             <button type="button" onClick={() => enrichmentAbortRef.current?.abort()} className="rounded border border-indigo-300 bg-white px-2 py-1 font-semibold hover:bg-indigo-100">
               Cancel deep analysis
