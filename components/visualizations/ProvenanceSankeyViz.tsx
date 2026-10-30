@@ -3,10 +3,11 @@ import { SankeyData, SankeyNode, SankeyLink, TransformationType } from '../../ty
 
 interface Props {
   data: SankeyData;
+  clusteringUsable?: boolean;
   /**
    * Brushing: participant selected elsewhere in the dashboard. Their input node
-   * is focused here so a facilitator can follow one contribution from the map
-   * straight through themes to the summary sentences it reached.
+   * is focused here to inspect its theme membership. Theme-to-sentence bands
+   * aggregate several records and cannot trace an individual record onward.
    */
   selectedParticipantId?: string | null;
 }
@@ -44,9 +45,10 @@ interface LayoutLink extends SankeyLink {
   sy0: number; sy1: number; ty0: number; ty1: number;
 }
 
-export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipantId }) => {
+export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipantId, clusteringUsable }) => {
   const [hovered, setHovered] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [showDiagram, setShowDiagram] = useState(false);
 
   // An externally selected participant focuses their input node, unless the user
   // has clicked a node inside this chart (local interaction wins).
@@ -75,8 +77,19 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
   // Responsive layout: compute dimensions based on content
   const inputCount = columns.input.length;
   const themeCount = columns.theme.length;
-  const summaryCount = columns.summary.length;
-  const maxCol = Math.max(inputCount, themeCount, summaryCount);
+  const summaryCount = columns.summary.filter(n => n.id.startsWith('summary-')).length;
+  const sourceRecordCount = columns.input.reduce((sum, node) => sum + node.value, 0);
+  const residualUnits = realLinks.filter(link => link.isLoss).reduce((sum, link) => sum + link.value, 0);
+  const percent = (value: number, denominator: number) => denominator > 0
+    ? `${(100 * value / denominator).toFixed(1)}%`
+    : '—';
+  const units = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(2);
+  const themeRows = columns.theme.map(theme => {
+    const routes = realLinks.filter(link => link.source === theme.id);
+    const unmatched = routes.filter(link => link.isLoss).reduce((sum, link) => sum + link.value, 0);
+    return { theme, routes, unmatched };
+  });
+  const maxCol = Math.max(inputCount, themeCount, columns.summary.length);
 
   // Dynamic sizing: grow height with node count, but set reasonable bounds
   const PAD = { top: 45, bottom: 25, left: 160, right: 180 };
@@ -183,8 +196,9 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
   }, [selectedNode, hovered, realLinks]);
 
   const dimNode = (id: string) => connectedNodes ? !connectedNodes.has(id) : false;
-  const dimLink = (link: SankeyLink) => connectedNodes ? (!connectedNodes.has(link.source) && !connectedNodes.has(link.target)) : false;
-  const hlLink = (link: SankeyLink) => connectedNodes ? (connectedNodes.has(link.source) || connectedNodes.has(link.target)) : false;
+  const activeNode = selectedNode || hovered;
+  const hlLink = (link: SankeyLink) => Boolean(activeNode && (link.source === activeNode || link.target === activeNode));
+  const dimLink = (link: SankeyLink) => Boolean(activeNode && !hlLink(link));
 
   // Label truncation based on available space
   const truncLabel = (label: string, col: 'input' | 'theme' | 'summary') => {
@@ -192,14 +206,29 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
     return label.length > max ? label.slice(0, max - 1) + '\u2026' : label;
   };
 
+  const nodeLabel = (node: SankeyNode) => node.id.startsWith('summary-')
+    ? `Sentence ${Number(node.id.slice('summary-'.length)) + 1}: ${node.label}`
+    : node.label;
+  const hasMissingEndpoints = realLinks.some(link => !layoutNodes.has(link.source) || !layoutNodes.has(link.target));
+
+  if (clusteringUsable === false || hasMissingEndpoints) {
+    return <p className="text-sm text-slate-600 rounded-lg border border-slate-200 bg-slate-50 p-4">Theme comparison is unavailable because a usable source grouping is missing. Review individual associations in Contribution Matches or retrieved passages in Claim Evidence.</p>;
+  }
+
   return (
     <div className="space-y-3">
+      <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
+        <p className="font-medium text-slate-800">Compare where each source theme has stored sentence matches, and which themes have unmatched records.</p>
+        <p>Each source record contributes 1 association unit, split equally across up to 3 stored sentence matches; a record with none goes to “No stored summary match.” Units are normalized counts, not similarity scores or observed influence.</p>
+        <p>Theme totals cannot establish an individual record’s path or whether a claim is supported. Use Contribution Matches or Claim Evidence to inspect those questions. In the optional diagram, input → theme shows group membership; theme → sentence aggregates those records.</p>
+      </div>
       {/* Header with info */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex flex-wrap gap-3 text-xs text-slate-600">
-          <span><strong className="text-slate-800">{inputCount}</strong> input{inputCount !== 1 ? 's' : ''}</span>
+          <span><strong className="text-slate-800">{units(sourceRecordCount)}</strong> source records{data.aggregationLevel !== 'individual' ? ` in ${inputCount} groups` : ''}</span>
           <span><strong className="text-slate-800">{themeCount}</strong> theme{themeCount !== 1 ? 's' : ''}</span>
           <span><strong className="text-slate-800">{summaryCount}</strong> sentence{summaryCount !== 1 ? 's' : ''}</span>
+          <span><strong className="text-slate-800">{units(residualUnits)}/{units(sourceRecordCount)}</strong> records without a stored match ({percent(residualUnits, sourceRecordCount)})</span>
           {orphanThemes.size > 0 && (
             <span className="text-red-600 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-red-500" />
@@ -213,26 +242,28 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
             </span>
           )}
         </div>
-        <button onClick={() => setShowInfo(!showInfo)} className="text-slate-400 hover:text-slate-600 transition-colors" title="How to read this diagram">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setShowDiagram(!showDiagram)} className="text-xs font-medium text-teal-700 hover:underline" aria-expanded={showDiagram}>{showDiagram ? 'Hide association diagram' : 'Show association diagram'}</button>
+          {showDiagram && <button onClick={() => setShowInfo(!showInfo)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Diagram display details" aria-label="Diagram display details" aria-expanded={showInfo}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+          </button>}
+        </div>
       </div>
 
-      {showInfo && (
+      {showDiagram && showInfo && (
         <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-1">
-          <p><strong>How to read:</strong> This is a conserved semantic-association map, not observed provenance or information flow. Each source record contributes one unit, split across its stored sentence matches.</p>
-          <p><strong>Band width</strong> shows source-record-equivalent association units. Band color follows the source theme; it does not prove a linguistic transformation.</p>
+          <p><strong>Band width</strong> approximates normalized association units. Minimum node heights keep small or zero-match nodes visible, so use the table and selected-node totals for exact comparisons. Band color follows its source node, not a support or transformation score.</p>
           <p><strong>No stored match</strong> channels make partial residuals visible. A sentence without a stored edge is a retrieval flag, not proof that it is unsourced or hallucinated.</p>
-          <p><strong>Hover</strong> a node to highlight its connections. <strong>Click</strong> for details. When inputs are grouped by cluster, each input node represents multiple participants.</p>
+          <p><strong>Hover</strong> a node to highlight its immediate connections. <strong>Click</strong> for totals. Theme names describe source clusters; the names are not independently validated categories. Grouped input nodes repeat theme membership.</p>
         </div>
       )}
 
       {/* SVG diagram */}
-      <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minHeight: Math.min(H, 500) }} preserveAspectRatio="xMidYMid meet">
+      {showDiagram && <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minHeight: Math.min(H, 500) }} preserveAspectRatio="xMidYMid meet" role="group" aria-label="Source group membership and aggregate theme-to-summary associations">
           {/* Column headers */}
-          <text x={COL_X.input + NODE_W / 2} y={PAD.top - 16} textAnchor="start" fill="#475569" fontSize={10} fontWeight="bold">Participant Inputs</text>
-          <text x={COL_X.theme + NODE_W / 2} y={PAD.top - 16} textAnchor="start" fill="#475569" fontSize={10} fontWeight="bold">Semantic Themes</text>
+          <text x={COL_X.input + NODE_W / 2} y={PAD.top - 16} textAnchor="start" fill="#475569" fontSize={10} fontWeight="bold">Source Records / Groups</text>
+          <text x={COL_X.theme + NODE_W / 2} y={PAD.top - 16} textAnchor="start" fill="#475569" fontSize={10} fontWeight="bold">Source Themes</text>
           <text x={COL_X.summary + NODE_W / 2} y={PAD.top - 16} textAnchor="start" fill="#475569" fontSize={10} fontWeight="bold">Summary / No-Match Outcomes</text>
 
           {/* Links — render before nodes so nodes sit on top */}
@@ -250,7 +281,7 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
                 className="transition-opacity duration-100 cursor-pointer"
                 onClick={() => setSelectedNode(selectedNode === link.source ? link.target : link.source)}
               >
-                <title>{layoutNodes.get(link.source)?.label} → {layoutNodes.get(link.target)?.label}{link.transformationType ? ` (${TRANSFORM_LABELS[link.transformationType]})` : ''} — {link.value.toFixed(2)} flow units</title>
+                <title>{layoutNodes.get(link.source)?.label} → {layoutNodes.get(link.target)?.label} — {units(link.value)} association units; {percent(link.value, layoutNodes.get(link.source)?.value || 0)} of source node; {percent(link.value, sourceRecordCount)} of all source records</title>
               </path>
             );
           })}
@@ -269,6 +300,16 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
 
             return (
               <g key={node.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${node.label}: ${units(node.value)} association units. Show immediate connections.`}
+                aria-pressed={selectedNode === node.id}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setSelectedNode(selectedNode === node.id ? null : node.id);
+                  }
+                }}
                 onMouseEnter={() => setHovered(node.id)}
                 onMouseLeave={() => setHovered(null)}
                 onClick={() => setSelectedNode(selectedNode === node.id ? null : node.id)}
@@ -291,17 +332,39 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
                     fontSize={fontSize}
                     className="pointer-events-none select-none"
                   >
-                    {truncLabel(node.label, node.column)}
+                    {truncLabel(nodeLabel(node), node.column)}
                   </text>
                 )}
               </g>
             );
           })}
         </svg>
+      </div>}
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-xs text-left">
+          <caption className="text-left p-3 text-slate-600 bg-slate-50">Theme comparison. Shares use the number of source records in that theme as the denominator. Select a theme for its sentence-level totals.</caption>
+          <thead className="text-slate-600 bg-slate-50 border-t border-slate-200"><tr>
+            <th scope="col" className="px-3 py-2">Source theme</th>
+            <th scope="col" className="px-3 py-2">Records</th>
+            <th scope="col" className="px-3 py-2">With stored match</th>
+            <th scope="col" className="px-3 py-2">Without stored match</th>
+            <th scope="col" className="px-3 py-2">Linked sentences</th>
+          </tr></thead>
+          <tbody>{themeRows.map(({ theme, routes, unmatched }) => (
+            <tr key={theme.id} className={selectedNode === theme.id ? 'bg-teal-50 border-t border-slate-100' : 'border-t border-slate-100'}>
+              <th scope="row" className="px-3 py-2 font-medium"><button className="text-teal-700 hover:underline text-left" aria-pressed={selectedNode === theme.id} onClick={() => setSelectedNode(selectedNode === theme.id ? null : theme.id)}>{theme.label}</button></th>
+              <td className="px-3 py-2">{units(theme.value)}</td>
+              <td className="px-3 py-2">{units(theme.value - unmatched)}/{units(theme.value)} ({percent(theme.value - unmatched, theme.value)})</td>
+              <td className="px-3 py-2">{units(unmatched)}/{units(theme.value)} ({percent(unmatched, theme.value)})</td>
+              <td className="px-3 py-2">{routes.filter(link => !link.isLoss).length}/{summaryCount}</td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
 
       {/* Streamlined 3-Item Provenance Legend */}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200">
+      {showDiagram && <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Association Status:</span>
           <div className="flex items-center gap-1.5">
@@ -320,7 +383,7 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
         <div className="text-[11px] text-slate-400">
           Click any node or ribbon for details-on-demand
         </div>
-      </div>
+      </div>}
 
       {/* Selected node detail (Details on Demand) */}
       {selectedNode && (() => {
@@ -339,20 +402,20 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
         return (
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="w-3 h-3 rounded" style={{ backgroundColor: node.color || '#64748b' }} />
-                <span className="text-sm font-semibold text-slate-800">{node.label}</span>
+                <span className="text-sm font-semibold text-slate-800">{nodeLabel(node)}</span>
                 <span className="text-[10px] text-slate-400 uppercase font-mono px-1 bg-slate-200/60 rounded">{node.column}</span>
                 {orphanThemes.has(node.id) && <span className="text-[10px] text-red-600 font-bold px-1.5 py-0.5 bg-red-100 rounded">HAS RESIDUAL</span>}
                 {phantomSummaries.has(node.id) && <span className="text-[10px] text-purple-600 font-bold px-1.5 py-0.5 bg-purple-100 rounded">NO STORED MATCH</span>}
               </div>
-              <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+              <button onClick={() => setSelectedNode(null)} className="text-slate-400 hover:text-slate-600 text-xs" aria-label="Close selected association details">✕</button>
             </div>
 
             {/* Transformation tags if present */}
             {transforms.length > 0 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
-                <span className="font-medium text-slate-700">Linguistic Transformation:</span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                <span className="font-medium text-slate-700">Model-coded labels (dominant per route):</span>
                 {transforms.map(t => (
                   <span key={t} className="px-1.5 py-0.5 rounded text-[10px] font-medium border"
                     style={{ backgroundColor: `${TRANSFORM_COLORS[t]}15`, borderColor: TRANSFORM_COLORS[t], color: TRANSFORM_COLORS[t] }}>
@@ -362,18 +425,19 @@ export const ProvenanceSankeyViz: React.FC<Props> = ({ data, selectedParticipant
               </div>
             )}
 
+            <p className="text-slate-600">{units(node.value)} association units · {percent(node.value, sourceRecordCount)} of all {units(sourceRecordCount)} source records. {node.column === 'theme' ? 'Sentence shares below use this theme’s record count.' : node.column === 'summary' ? 'Fractional units are not a count of distinct matched records.' : 'Only theme membership is shown for this input; outgoing theme routes combine all records in the theme.'}</p>
+
             {incoming.length > 0 && (
               <div className="text-slate-600">
-                <span className="font-medium text-slate-700">Sources ({incoming.length}):</span>{' '}
-                {incoming.slice(0, 8).map(l => layoutNodes.get(l.source)?.label || l.source).join(' · ')}
-                {incoming.length > 8 && ` and ${incoming.length - 8} more`}
+                <span className="font-medium text-slate-700">Immediate sources ({incoming.length}):</span>
+                <ul className="mt-1 space-y-1">{incoming.slice(0, 8).map(l => <li key={l.source}>{nodeLabel(layoutNodes.get(l.source)!)} — {units(l.value)} units / {units(node.value)} ({percent(l.value, node.value)} of this node)</li>)}</ul>
+                {incoming.length > 8 && <p className="mt-1">{incoming.length - 8} more source nodes. Inspect individual records in Contribution Matches.</p>}
               </div>
             )}
             {outgoing.length > 0 && (
               <div className="text-slate-600">
-                <span className="font-medium text-slate-700">Targets ({outgoing.length}):</span>{' '}
-                {outgoing.slice(0, 8).map(l => layoutNodes.get(l.target)?.label || l.target).join(' · ')}
-                {outgoing.length > 8 && ` and ${outgoing.length - 8} more`}
+                <span className="font-medium text-slate-700">Immediate destinations ({outgoing.length}):</span>
+                <ul className="mt-1 space-y-1">{outgoing.map(l => <li key={l.target}>{nodeLabel(layoutNodes.get(l.target)!)} — {units(l.value)} units / {units(node.value)} ({percent(l.value, node.value)})</li>)}</ul>
               </div>
             )}
           </div>

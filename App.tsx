@@ -167,7 +167,7 @@ const WORKSPACES: Workspace[] = [
     hint: 'What automated evidence links sources and summary text?',
     items: [
       { id: 'flow', purpose: 'Follow matches between contributions and summary sentences.', label: 'Contribution Matches', icon: 'Flow' },
-      { id: 'sankey', purpose: 'See how sources and summary text are associated.', label: 'Association Map', icon: 'Layers', pending: (_d, e) => e },
+      { id: 'sankey', purpose: 'Compare theme-level sentence matches and records with no stored match.', label: 'Theme–summary overview', icon: 'Layers', pending: (_d, e) => e },
       { id: 'claims', purpose: 'Inspect source passages retrieved for summary claims.', label: 'Claim Evidence', icon: 'CheckSquare', pending: (_d, e) => e },
       { id: 'provenance', purpose: 'Review source matches for each summary sentence.', label: 'Sentence–Source Similarity', icon: 'citation' },
     ],
@@ -1713,12 +1713,6 @@ export default function App() {
                 <header id="audit-workspace" tabIndex={-1} className="scroll-mt-20 outline-none">
                   <h1 className="text-2xl font-bold text-slate-900">{activeView?.label}</h1>
                   <p className="mt-1 text-sm text-slate-600">{activeView?.purpose}</p>
-                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                    <button onClick={() => switchTab('stats')} className="font-semibold text-indigo-700 hover:underline">Back to audit overview</button>
-                    <button onClick={handleOpenRevisionEditor} className="font-semibold text-emerald-700 hover:underline">Revise summary</button>
-                    <a href="#audit-summary" className="font-semibold text-slate-600 hover:underline">Read summary</a>
-                    <a href="#audit-source-details" onClick={() => { const panel = document.getElementById('audit-source-details') as HTMLDetailsElement | null; if (panel) panel.open = true; }} className="font-semibold text-slate-600 hover:underline">Inspect source records</a>
-                  </div>
                 </header>
               )}
               <VizErrorBoundary tabName={activeTab}>
@@ -1742,7 +1736,7 @@ export default function App() {
                   )}
 
                   {activeTab === 'blindspot' && (
-                    <Card title="Alignment Review Quadrants" subtitle="A descriptive median split of source-network centrality and source-to-summary alignment." className="border-t-4 border-t-red-500" expandable>
+                    <Card title="Alignment Review Quadrants" subtitle="Compare each contribution’s similarity to the source collection’s center with its strongest match to a summary sentence. The lines split the valid records at their medians." className="border-t-4 border-t-red-500" expandable>
                       <BlindSpotPlot data={data.participants} onSelect={setSelectedParticipant} selectedId={selectedParticipant} />
                     </Card>
                   )}
@@ -1907,11 +1901,11 @@ export default function App() {
 
                   {activeTab === 'sankey' && (
                     data.sankeyData ? (
-                      <Card title="Conserved Semantic Association Map" subtitle="Source-record-equivalent links through themes, with explicit no-match residuals. Not observed provenance." className="border-t-4 border-t-teal-500" expandable>
-                        <ProvenanceSankeyViz data={data.sankeyData} selectedParticipantId={selectedParticipant} />
+                      <Card title="Theme–summary overview" subtitle="An aggregate view of which summary sentences receive matches from each theme, including records with no stored match." className="border-t-4 border-t-teal-500" expandable>
+                        <ProvenanceSankeyViz data={data.sankeyData} selectedParticipantId={selectedParticipant} clusteringUsable={data.clusteringDiagnostics?.usableForDownstream === true} />
                       </Card>
                     ) : (
-                      <Card title="Semantic Association Map" subtitle="Building the association diagram..." className="border-t-4 border-t-teal-500">
+                      <Card title="Theme–summary overview" subtitle="Building the association diagram..." className="border-t-4 border-t-teal-500">
                         <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
                           <svg className="animate-spin h-4 w-4 text-teal-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

@@ -34,7 +34,7 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   },
   'isolation': {
     label: 'Semantic Isolation',
-    description: 'How far a participant\'s contribution is from the semantic center of all inputs. Measures uniqueness of perspective.',
+    description: 'Embedding distance from the source collection’s center, clipped to the 0–1 display range. A distant contribution is not necessarily unique or an outlier.',
     implication: 'High isolation means a record is far from the majority-weighted centroid. It may be a distinct perspective, a coherent minority cluster, or noise.',
     idealRange: 'Context dependent',
     formula: 'Isolation = 1 - cos_sim(embedding, global_centroid)',
@@ -153,11 +153,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     thresholdJustification: 'Single-pass model extraction, fuzzy resolution, and Louvain community detection introduce unvalidated errors. Graph structure must be treated as exploratory unless checked against source evidence.'
   },
   'blindspots': {
-    label: 'Low-centrality / Low-alignment Quadrant',
-    description: 'Records below the median source-network centrality and below the median source-to-summary alignment score.',
+    label: 'Lower centroid similarity / Lower alignment',
+    description: 'Records below both medians: non-negative similarity to the source collection’s center and strongest source-to-summary sentence similarity.',
     implication: 'This is a median-split review quadrant, not proof that a perspective is unique, absent, or critically harmed.',
     idealRange: 'Descriptive; inspect the records and thresholds',
-    formula: 'Blind spot if centrality < median AND representation < median',
+    formula: 'Horizontal = 1 − isolation; lower/lower quadrant if horizontal < its median AND alignment < its median',
     thresholdJustification: 'Median splits guarantee relative partitions and have no external validity threshold. They are used only to organize review.'
   }
 };

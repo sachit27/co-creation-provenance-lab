@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { TensionAnalysis, TensionHandling, ClusterData } from '../../types';
 import { InfoIcon } from '../ui/MetricGlossary';
 
@@ -34,20 +34,34 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
     );
   }
 
-  const total = data.pairs.length || 1;
+  const total = data.pairs.length;
+  const assessedTotal = total - data.unassessedCount;
   const sampling = data.samplingCoverage;
 
   // Overall bar
   const OverallBar = () => (
     <div className="mb-6">
-      <div className="flex items-center justify-between mb-2">
-        <p className="mb-3 text-xs leading-relaxed text-slate-600">These are model-generated candidates. Exact quotes verify text locations, not that two views conflict. Complementary proposals can be misclassified; review both sources before accepting a tension or its handling label.</p>
-        <div className="text-sm font-semibold text-slate-700">Model-coded candidate handling <InfoIcon metricKey="tensions" /></div>
-        <div className="text-sm font-bold text-slate-700">
-          {data.tensionFidelityScore === null ? 'Handling assessment unavailable' : `${(data.tensionFidelityScore * 100).toFixed(0)}% of assessed candidates coded acknowledged`}
+      <div className="space-y-3 mb-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="text-sm font-semibold text-slate-700">
+            <span className="inline-flex items-center">Model-coded candidate handling <InfoIcon metricKey="tensions" /></span>
+          </div>
+          <div className="text-xs text-slate-600 sm:max-w-[55%] sm:text-right">
+            <div className="font-semibold">{assessedTotal} of {total} candidates assessed</div>
+            {assessedTotal > 0 && data.tensionFidelityScore !== null && (
+              <div>{(data.tensionFidelityScore * 100).toFixed(0)}% of assessed candidates coded acknowledged</div>
+            )}
+          </div>
         </div>
+        <p className="text-xs leading-relaxed text-slate-600">These are model-generated candidates. Exact quotes verify text locations, not that two views conflict. Complementary proposals can be misclassified; review both sources before accepting a tension or its handling label.</p>
+        {total > 0 && assessedTotal === 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+            <strong>Summary handling is unassessed.</strong> Source candidates were retained, but no valid handling assessments were recorded. An acknowledged rate is unavailable. This limits this panel's handling conclusions; other analyses have their own checks.
+          </div>
+        )}
       </div>
-      <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
+      {total > 0 && <><div className="text-[11px] text-slate-500 mb-1">Distribution of retained candidates · counts and shares, not a quality score</div>
+      <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200" role="img" aria-label={`Candidate handling distribution: ${assessedTotal} assessed and ${data.unassessedCount} unassessed out of ${total}`}>
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
             : h === 'suppressed' ? data.suppressedCount
@@ -60,11 +74,11 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
               className="flex items-center justify-center text-[10px] font-bold transition-all hover:opacity-80"
               style={{ width: `${pct}%`, backgroundColor: HANDLING_CONFIG[h].bg, color: HANDLING_CONFIG[h].color, minWidth: pct > 3 ? undefined : '2px' }}
             >
-              {pct >= 12 ? `${pct.toFixed(0)}%` : ''}
+              {pct >= 25 ? `${HANDLING_CONFIG[h].label} (${count})` : pct >= 12 ? `${pct.toFixed(0)}%` : ''}
             </div>
           );
         })}
-      </div>
+      </div></>}
       <div className="flex flex-wrap gap-3 mt-2">
         {HANDLINGS.map(h => {
           const count = h === 'acknowledged' ? data.acknowledgedCount
