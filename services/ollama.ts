@@ -182,10 +182,12 @@ const fetchOllamaTags = async (host: string, isLoopback: boolean): Promise<Respo
  * permission. Network and CORS failures are intentionally grouped because
  * Fetch exposes both as an opaque TypeError.
  */
-export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagnostic> => {
+export const diagnoseOllamaConnection = async (
+  isDevelopment: boolean = import.meta.env?.DEV === true,
+): Promise<OllamaConnectionDiagnostic> => {
   const host = getOllamaHost();
   const origin = browserOrigin();
-  if (host === VITE_PROXY_HOST && import.meta.env?.DEV !== true) {
+  if (host === VITE_PROXY_HOST && !isDevelopment) {
     return {
       connected: false,
       code: 'static-proxy-unavailable',
@@ -197,11 +199,11 @@ export const diagnoseOllamaConnection = async (): Promise<OllamaConnectionDiagno
 
   let parsedHost: URL;
   try {
-    parsedHost = new URL(host);
+    parsedHost = host === VITE_PROXY_HOST ? new URL(host, origin) : new URL(host);
   } catch {
     return { connected: false, code: 'invalid-url', host, message: 'Enter a complete valid Ollama URL (e.g. http://localhost:11434).', models: [] };
   }
-  const isLoopback = isLoopbackHostname(parsedHost.hostname);
+  const isLoopback = host !== VITE_PROXY_HOST && isLoopbackHostname(parsedHost.hostname);
   if (origin.startsWith('https:') && parsedHost.protocol === 'http:' && !isLoopback) {
     return {
       connected: false,

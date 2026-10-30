@@ -7,6 +7,7 @@ import { BrandLogo } from '../ui/BrandLogo';
 import { livePollingDelay } from '../../live/polling';
 import { AuditReviewQueue } from '../ui/AuditReviewQueue';
 import { BeforeAfterComparison } from '../ui/BeforeAfterComparison';
+import { LiveSessionGuide } from './LiveSessionGuide';
 import { isPopulationScopeClaim } from '../../services/claimAttribution';
 
 type Status = 'waiting' | 'open' | 'closed' | 'published';
@@ -391,7 +392,7 @@ export const LiveExperience: React.FC<{ onOpenDashboard: (result: AnalysisResult
   });
 
   if (available === null) return <main className="min-h-screen grid place-items-center text-slate-600">Connecting to live sessions…</main>;
-  if (!available) return <main className="min-h-screen p-6 grid place-items-center"><div className="max-w-lg bg-white p-8 rounded-2xl border border-slate-200 shadow-sm"><h1 className="text-2xl font-bold">Live sessions need the session server</h1><p className="mt-3 text-slate-600">Run <code>npm run live:dev</code> locally, or deploy the built app with <code>npm run live:serve</code>. The static demo cannot host a shared session.</p><a className="text-indigo-700 underline inline-block mt-5" href={import.meta.env.BASE_URL}>Back to Provenance Lab</a></div></main>;
+  if (!available) return <LiveSessionGuide />;
   if (isHost && code && !sessionStorage.getItem(hostKey(code))) return <main className="min-h-screen p-6 grid place-items-center"><div className="max-w-lg w-full bg-white p-8 rounded-2xl border border-slate-200"><h1 className="text-2xl font-bold">Reclaim facilitator access</h1><p className="mt-3 text-slate-600">Enter the recovery key shown when this session was created. Treat it like a password.</p><label className="block mt-5 font-medium" htmlFor="recovery-key">Facilitator recovery key</label><input id="recovery-key" type="password" autoComplete="off" value={recoveryKey} onChange={event => setRecoveryKey(event.target.value)} className="w-full mt-2 p-3 rounded-lg border border-slate-300 font-mono" /><button disabled={busy || !recoveryKey.trim()} onClick={() => void reclaimHost()} className="mt-4 w-full px-4 py-2 rounded-lg bg-indigo-700 text-white font-semibold disabled:opacity-50">Restore access</button>{error && <p className="mt-4 p-3 rounded-lg bg-red-50 text-red-800" role="alert">{error}</p>}<a className="text-indigo-700 underline inline-block mt-5" href={`${import.meta.env.BASE_URL}?live=${code}`}>Open participant view</a></div></main>;
 
   return <main className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">

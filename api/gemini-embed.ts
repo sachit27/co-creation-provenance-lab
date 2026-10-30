@@ -43,10 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (!response.ok) {
-      const err = await response.text();
       return res.status(response.status).json({
         error: `Gemini API error: ${response.status}`,
-        details: err,
       });
     }
 
@@ -54,7 +52,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const values = data?.embedding?.values || [];
 
     return res.status(200).json({ values });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+  } catch {
+    // Upstream exceptions can contain the request URL, including its API key.
+    return res.status(500).json({ error: 'Gemini request failed. Please retry or check the server configuration.' });
   }
 }

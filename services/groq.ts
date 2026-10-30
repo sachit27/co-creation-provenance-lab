@@ -12,11 +12,12 @@
  */
 
 import type { CompletionResult } from '../types';
+import { sanitizeProviderErrorText } from './providerErrors';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 const GROQ_KEY_STORAGE = 'cprov_groq_key';
 
-// Build-time key from env (local dev via vite.config.ts — never present in production)
+// Browser builds replace this with an empty string; Node scripts may use their own environment.
 const buildTimeKey = process.env.GROQ_API_KEY || '';
 
 // ── API key management (sessionStorage — cleared when tab is closed) ──────────
@@ -58,9 +59,8 @@ export const verifyGroqConnection = async (): Promise<boolean> => {
  * Static fallback — used when the API call fails or key is missing.
  */
 export const GROQ_FREE_MODELS = [
-  'qwen/qwen3.6-27b',
-  'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
+  'openai/gpt-oss-120b',
 ];
 
 /**
@@ -86,7 +86,8 @@ export const fetchGroqModels = async (): Promise<string[]> => {
       !id.includes('whisper') &&
       !id.includes('guard') &&
       !id.includes('embed') &&
-      !id.includes('tts')
+      !id.includes('tts') &&
+      !id.includes('orpheus')
     );
 
     if (chatModels.length === 0) return GROQ_FREE_MODELS;
@@ -139,14 +140,14 @@ export const generateGroqCompletionResult = async (
     if (response.status === 429 || err.toLowerCase().includes('rate limit') || err.toLowerCase().includes('quota')) {
       throw new Error('[QUOTA] Groq rate limit reached. Wait a minute and try again, or switch to Gemini.');
     }
-    throw new Error(`Groq API error (${response.status}): ${err}`);
+    throw new Error(`Groq API error (${response.status}). Check the selected model, API key, and account access.`);
   }
 
   const data = await response.json();
   const choice = data.choices?.[0];
   if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') {
-    const refusal = choice?.message?.refusal ? String(choice.message.refusal) : 'content_filter';
-    const error = new Error(`[REFUSAL] Groq declined the completion${choice?.message?.refusal ? `: ${choice.message.refusal}` : '.'}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+    const refusal = choice?.message?.refusal ? sanitizeProviderErrorText(choice.message.refusal, key) : 'content_filter';
+    const error = new Error(`[REFUSAL] Groq declined the completion${choice?.message?.refusal ? `: ${sanitizeProviderErrorText(choice.message.refusal, key)}` : '.'}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
     error.completionMetadata = {
       provider: 'groq', requestedModel: model, returnedModel: data.model,
       responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,

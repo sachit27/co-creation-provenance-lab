@@ -10,11 +10,12 @@
  */
 
 import type { CompletionResult } from '../types';
+import { sanitizeProviderErrorText } from './providerErrors';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1';
 const OPENAI_KEY_STORAGE = 'cprov_openai_key';
 
-// Build-time key from env (local dev via vite.config.ts — never present in production)
+// Browser builds replace this with an empty string; Node scripts may use their own environment.
 const buildTimeKey = (process.env as any).OPENAI_API_KEY || '';
 
 // ── API key management ────────────────────────────────────────────────────────
@@ -68,6 +69,10 @@ export const OPENAI_EMBEDDING_MODELS = [
     'text-embedding-3-large',
     'text-embedding-ada-002',
 ];
+
+/** Reasoning families require completion-token limits and omit sampling controls. */
+export const isOpenAIReasoningModel = (id: string): boolean =>
+    /^gpt-[56](?:[.-]|$)/.test(id) || /^o[134](?:-|$)/.test(id);
 
 /** Conservative compatibility screen for this adapter's text-only Chat Completions call. */
 export const isOpenAIChatModelId = (id: string): boolean =>
@@ -134,7 +139,7 @@ export const generateOpenAICompletionResult = async (
                 { role: 'system', content: systemInstruction },
                 { role: 'user', content: prompt },
             ],
-            ...(model.startsWith('gpt-5')
+            ...(isOpenAIReasoningModel(model)
                 ? { reasoning_effort: 'low', max_completion_tokens: 4096 }
                 : { temperature, max_tokens: 4096 }),
         }),
@@ -146,19 +151,19 @@ export const generateOpenAICompletionResult = async (
         if (response.status === 429 || err.toLowerCase().includes('rate limit') || err.toLowerCase().includes('quota')) {
             throw new Error('[QUOTA] OpenAI rate limit reached. Wait a minute and try again, or switch to another provider.');
         }
-        throw new Error(`OpenAI API error (${response.status}): ${err}`);
+        throw new Error(`OpenAI API error (${response.status}). Check the selected model, API key, and account access.`);
     }
 
     const data = await response.json();
     const choice = data.choices?.[0];
     if (choice?.message?.refusal) {
-        const error = new Error(`[REFUSAL] OpenAI declined the completion: ${choice.message.refusal}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        const error = new Error(`[REFUSAL] OpenAI declined the completion: ${sanitizeProviderErrorText(choice.message.refusal, key)}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
         error.completionMetadata = {
             provider: 'openai', requestedModel: model, returnedModel: data.model,
             responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,
             createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
-            finishReason: choice?.finish_reason, refusal: String(choice.message.refusal),
-            effectiveParameters: model.startsWith('gpt-5')
+            finishReason: choice?.finish_reason, refusal: sanitizeProviderErrorText(choice.message.refusal, key),
+            effectiveParameters: isOpenAIReasoningModel(model)
                 ? { temperature: null, maxOutputTokens: 4096, reasoningEffort: 'low' }
                 : { temperature, maxOutputTokens: 4096 },
         };
@@ -171,7 +176,7 @@ export const generateOpenAICompletionResult = async (
             responseId: data.id, requestId: response.headers.get('x-request-id') || undefined,
             createdAt: typeof data.created === 'number' ? new Date(data.created * 1000).toISOString() : new Date().toISOString(),
             finishReason: 'content_filter', refusal: 'content_filter',
-            effectiveParameters: model.startsWith('gpt-5')
+            effectiveParameters: isOpenAIReasoningModel(model)
                 ? { temperature: null, maxOutputTokens: 4096, reasoningEffort: 'low' }
                 : { temperature, maxOutputTokens: 4096 },
         };
@@ -181,7 +186,7 @@ export const generateOpenAICompletionResult = async (
     if (typeof content !== 'string' || content.length === 0) {
         throw new Error(`OpenAI returned no text (finish reason: ${choice?.finish_reason ?? 'unknown'}).`);
     }
-    const reasoningModel = model.startsWith('gpt-5');
+    const reasoningModel = isOpenAIReasoningModel(model);
     return {
         text: content,
         metadata: {
@@ -228,8 +233,7 @@ export const generateOpenAIEmbedding = async (
     });
 
     if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`OpenAI embedding error (${response.status}): ${err}`);
+        throw new Error(`OpenAI embedding error (${response.status}). Check the embedding model, API key, and account access.`);
     }
 
     const data = await response.json();

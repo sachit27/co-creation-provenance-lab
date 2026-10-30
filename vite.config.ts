@@ -7,13 +7,6 @@ import { handleLiveApi } from './live/http';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
-  // The public GitHub Pages build contains no shared provider keys.
-  // Development-only environment keys support local testing.
-  const isProduction = mode === 'production';
-  const clientApiKey = isProduction ? '' : (env.GEMINI_API_KEY || '');
-  const groqKey = isProduction ? '' : (env.GROQ_API_KEY || '');
-  const openAIKey = isProduction ? '' : (env.OPENAI_API_KEY || '');
-
   return {
     // GitHub Pages hosts the application below the academic site's /apps path.
     // Root deployments retain the default `/` base.
@@ -55,10 +48,15 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     define: {
-      'process.env.API_KEY': JSON.stringify(clientApiKey),
-      'process.env.GEMINI_API_KEY': JSON.stringify(clientApiKey),
-      'process.env.GROQ_API_KEY': JSON.stringify(groqKey),
-      'process.env.OPENAI_API_KEY': JSON.stringify(openAIKey),
+      // Browser credentials must be supplied explicitly for the current tab.
+      // Never copy local/server environment keys into a browser response or
+      // bundle, including development and custom build modes such as staging.
+      'process.env.API_KEY': JSON.stringify(''),
+      'process.env.GEMINI_API_KEY': JSON.stringify(''),
+      'process.env.GROQ_API_KEY': JSON.stringify(''),
+      'process.env.OPENAI_API_KEY': JSON.stringify(''),
+      'process.env.ANTHROPIC_API_KEY': JSON.stringify(''),
+      'process.env.PUBLICAI_API_KEY': JSON.stringify(''),
     },
     resolve: {
       alias: {

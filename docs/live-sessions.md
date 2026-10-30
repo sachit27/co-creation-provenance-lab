@@ -1,13 +1,42 @@
 # Live sessions
 
-## Run locally
+## Optional app mode
+
+The hosted website focuses on the Audit Lab. Its **Live sessions** tab explains how to run the optional workshop app. GitHub Pages cannot run the session server. Download the source from GitHub and run it on your computer or an appropriately configured organizational server.
+
+## Install and run
+
+Install Node.js 22.18 or newer and Git. In a terminal:
 
 ```bash
-npm install
-npm run dev
+git clone https://github.com/sachit27/co-creation-provenance-lab.git
+cd co-creation-provenance-lab
+npm ci
+npm run build
+npm run live:serve
 ```
 
-Open `http://localhost:5173`, then select **Live Session**. The standard development command includes the live API and listens on the local network. The join panel proposes a detected LAN address for phones on the same network; check that the address is reachable and edit **Join URL host** if another network interface was selected. `npm run live:dev` also works, but its standalone server defaults to loopback; use `HOST=0.0.0.0 npm run live:dev` for phones. For a built app, run `npm run build` followed by `HOST=0.0.0.0 npm run live:serve` on a trusted network. `PORT` selects the port. `LIVE_DATA_DIR` selects the data directory; the default is `.live-data/`, which is ignored by Git.
+Open `http://localhost:5173` and select **Live sessions**. This starts on loopback for a first check on your own computer. Browser provider keys must be entered in the app; local `.env` keys are not injected into the browser.
+
+## Join from phones
+
+Connect phones and the facilitator computer to the same trusted Wi-Fi. Stop the server with Ctrl+C and restart it with network access:
+
+macOS / Linux:
+
+```bash
+HOST=0.0.0.0 npm run live:serve
+```
+
+Windows PowerShell:
+
+```powershell
+$env:HOST="0.0.0.0"; npm run live:serve
+```
+
+Create a session, check **Join URL host**, and share the generated link or QR code. Use the computer's detected network address, such as `http://192.168.1.20:5173`, rather than localhost. Keep the app running. If a phone cannot connect, check the firewall and whether the Wi-Fi isolates guest devices; a laptop hotspot or another trusted network may be needed. Do not use router port forwarding to expose this pilot directly to the internet.
+
+`PORT` selects the server port. `LIVE_DATA_DIR` selects storage; the default `.live-data/` is ignored by Git. Save the facilitator recovery key privately and download the session record when finished. For development, `npm run dev` includes the API and Vite proxies; `npm run live:dev` is another development entry point. Rebuild after source updates before running `live:serve`.
 
 ## Workflow and visibility
 
@@ -17,7 +46,7 @@ Open `http://localhost:5173`, then select **Live Session**. The standard develop
 4. After at least three responses, the facilitator chooses the existing summary, embedding, and optional review methods, runs the existing audit, and reviews its summary and measures. The audit runs in the facilitator's browser. Selecting a cloud provider may send the contributions to that provider, as disclosed in the configuration panel.
 5. Publication is a separate facilitator action. The server rejects an audit if the input snapshot changed after it ran. Participants see the fixed summary and their personal provenance. A questionnaire appears only when the facilitator explicitly selects **Save and open survey**. Participants can submit it or continue without rating.
 6. The facilitator can edit the six-question pilot, its five response labels, question order, and add up to 12 total questions. Custom questions are marked facilitator-authored with an unspecified construct. Saving changed wording creates a new instrument version and digest; older responses remain bound to the wording participants saw.
-7. A facilitator can edit a summary draft and select **Recalculate revised summary**. Publication stays disabled until the revised text is rescored. Each published version receives an immutable ID and digest, points to its parent, and remains in the session export with its full analysis record and revision note.
+7. A facilitator can edit a summary draft and select **Audit revised summary**. Publication stays disabled until the revised text is rescored. Each published version receives an immutable ID and digest, points to its parent, and remains in the session export with its full analysis record and revision note.
 8. The facilitator sees per-item feedback means and valid response counts for the current summary and instrument. Ratings are never combined into one score. **Download session data** exports the event history, final contributions, every publication and full audit record, revision lineage, method metadata, source-to-summary associations, provisional themes, every questionnaire definition, and raw responses as versioned JSON. Host and participant tokens and their hashes are excluded.
 
 Alignment remains the strongest source-to-summary sentence similarity. It is not proof of agreement, influence, inclusion of every claim, or a participant's satisfaction. Extractive summaries use the existing leave-self-out rule; scores that cannot be independently computed remain unavailable. Gini is descriptive inequality among valid alignment indicators. Theme groups are shown only when the exploratory clustering diagnostics permit downstream use; similarity may still group opposing positions. The facilitator can open the full audit in the existing dashboard; that dashboard is not distributed to participant phones.
@@ -34,7 +63,7 @@ The JSON export uses `live-session-export-v1`. Survey definitions include exact 
 
 This is a functional local or single-process pilot. Sessions persist as private JSON files and a process handles writes serially. Deploy behind HTTPS and an authenticated reverse proxy before collecting sensitive data or opening to the public. For a multi-instance deployment, replace file storage with a transactional database, add durable facilitator accounts, explicit retention/deletion controls, abuse limits, and organizational privacy review. The current join token identifies a browser tab, not a person; it cannot prevent one person from joining in several tabs. A participant who closes the tab or clears session storage loses their personal view. A facilitator can restore access with the recovery key.
 
-The hosted GitHub Pages build has no session service, so it shows a clear unavailable message for live mode. The ordinary upload workflow remains available there.
+The hosted GitHub Pages build has no session service, so it shows the app setup guide for live mode. The ordinary upload workflow remains available there.
 
 The server checks publication shape and source revision. It does not independently recompute a facilitator browser's analysis. The live export includes the full analysis record for each published version when the facilitator published through the app. Session files retain raw responses and feedback until the operator removes them under the applicable retention policy.
 

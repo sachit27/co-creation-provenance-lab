@@ -20,7 +20,7 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1';
 const CLAUDE_API_VERSION = '2023-06-01';
 const CLAUDE_KEY_STORAGE = 'cprov_claude_key';
 
-// Build-time key from env (local dev via vite.config.ts — never present in production)
+// Browser builds replace this with an empty string; Node scripts may use their own environment.
 const buildTimeKey = (process.env as any).ANTHROPIC_API_KEY || '';
 
 // ── API key management ────────────────────────────────────────────────────────
@@ -73,10 +73,15 @@ export const verifyClaudeConnection = async (): Promise<boolean> => {
  */
 export const CLAUDE_MODELS = [
     'claude-sonnet-4-6',            // Balanced default
-    'claude-opus-4-8',              // Current Opus-tier fallback
-    'claude-fable-5',               // Current broadly released frontier family
+    'claude-opus-4-8',
+    'claude-fable-5',
     'claude-haiku-4-5-20251001',    // Fastest, cheapest
 ];
+
+// API 2023-06-01 preserves custom sampling for older models; Claude 4.7+
+// rejects sampling parameters even on that version.
+export const supportsClaudeTemperature = (model: string): boolean =>
+    !/^claude-(?:(?:opus|sonnet|haiku)-(?:[5-9]|4-(?:[7-9]|[1-9]\d))(?:-|$)|fable-)/.test(model);
 
 export const parseClaudeModelCatalog = (payload: unknown): string[] => {
     if (typeof payload !== 'object' || payload === null || !('data' in payload)) return [];
@@ -135,6 +140,7 @@ export const generateClaudeCompletionResult = async (
     const key = getClaudeApiKey();
     if (!key) throw new Error('Claude API key not set. Enter your key in the configuration panel.');
 
+    const supportsTemperature = supportsClaudeTemperature(model);
     const response = await fetch(`${CLAUDE_API_URL}/messages`, {
         method: 'POST',
         headers: {
@@ -149,7 +155,7 @@ export const generateClaudeCompletionResult = async (
             system: systemInstruction,
             messages: [{ role: 'user', content: prompt }],
             max_tokens: 4096,
-            temperature,
+            ...(supportsTemperature ? { temperature } : {}),
         }),
         signal: signal ?? AbortSignal.timeout(120_000),
     });
@@ -159,7 +165,7 @@ export const generateClaudeCompletionResult = async (
         if (response.status === 429 || err.toLowerCase().includes('rate_limit') || err.toLowerCase().includes('overloaded')) {
             throw new Error('[QUOTA] Claude rate limit reached. Wait a moment and try again, or switch to another provider.');
         }
-        throw new Error(`Claude API error (${response.status}): ${err}`);
+        throw new Error(`Claude API error (${response.status}). Check the selected model, API key, and account access.`);
     }
 
     const data = await response.json();
@@ -169,7 +175,7 @@ export const generateClaudeCompletionResult = async (
             provider: 'claude', requestedModel: model, returnedModel: data.model,
             responseId: data.id, requestId: response.headers.get('request-id') || undefined,
             createdAt: new Date().toISOString(), finishReason: 'refusal', refusal: 'refusal',
-            effectiveParameters: { temperature, maxOutputTokens: 4096 },
+            effectiveParameters: { temperature: supportsTemperature ? temperature : null, maxOutputTokens: 4096 },
         };
         throw error;
     }
@@ -197,7 +203,7 @@ export const generateClaudeCompletionResult = async (
                     ? data.usage.input_tokens + data.usage.output_tokens
                     : undefined,
             } : undefined,
-            effectiveParameters: { temperature, maxOutputTokens: 4096 },
+            effectiveParameters: { temperature: supportsTemperature ? temperature : null, maxOutputTokens: 4096 },
         },
     };
 };

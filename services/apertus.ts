@@ -22,6 +22,7 @@
  */
 
 import type { CompletionResult } from '../types';
+import { sanitizeProviderErrorText } from './providerErrors';
 
 // Vite dev proxy path: /api/apertus/* → https://api.publicai.co/v1/*
 // Node.js adds the required User-Agent header server-side (browsers can't).
@@ -45,7 +46,7 @@ export const setApertusApiBase = (url: string): void => {
 
 const APERTUS_KEY_STORAGE = 'cprov_apertus_key';
 
-// Build-time key from env for local development only.
+// Browser builds replace this with an empty string; Node scripts may use their own environment.
 const buildTimeKey = (process.env as any).PUBLICAI_API_KEY || '';
 
 // ── API key management ────────────────────────────────────────────────────────
@@ -159,26 +160,25 @@ export const generateApertusCompletionResult = async (
     } catch (networkErr) {
         if ((networkErr as Error)?.name === 'AbortError' || (networkErr as Error)?.name === 'TimeoutError') throw networkErr;
         throw new Error(
-            `Apertus/PublicAI network error. The static hosted demonstration has no relay; use local development or a secured compatible API base. Details: ${networkErr}`
+            `Apertus/PublicAI network error. The static hosted demonstration has no relay; use local development or a secured compatible API base. Check that the configured API URL is reachable from this browser.`
         );
     }
 
     if (!response.ok) {
-        const err = await response.text();
         if (response.status === 429) {
             throw new Error('[QUOTA] PublicAI rate limit reached. Limits depend on the active plan; wait or review the PublicAI account limits.');
         }
         if (response.status === 401 || response.status === 403) {
             throw new Error(`Apertus auth error (${response.status}): check your PublicAI API key at platform.publicai.co.`);
         }
-        throw new Error(`Apertus API error (${response.status}): ${err}`);
+        throw new Error(`Apertus API error (${response.status}). Check the selected model, API key, and account access.`);
     }
 
     const data = await response.json();
     const choice = data.choices?.[0];
     if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') {
-        const refusal = choice?.message?.refusal ? String(choice.message.refusal) : 'content_filter';
-        const error = new Error(`[REFUSAL] Apertus/PublicAI declined the completion${choice?.message?.refusal ? `: ${choice.message.refusal}` : '.'}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
+        const refusal = choice?.message?.refusal ? sanitizeProviderErrorText(choice.message.refusal, key) : 'content_filter';
+        const error = new Error(`[REFUSAL] Apertus/PublicAI declined the completion${choice?.message?.refusal ? `: ${sanitizeProviderErrorText(choice.message.refusal, key)}` : '.'}`) as Error & { completionMetadata?: CompletionResult['metadata'] };
         error.completionMetadata = {
             provider: 'apertus', requestedModel: model, returnedModel: data.model,
             responseId: data.id, requestId: response.headers.get('x-request-id') || response.headers.get('request-id') || undefined,
@@ -190,7 +190,7 @@ export const generateApertusCompletionResult = async (
     }
     const content = choice?.message?.content;
     if (!content) {
-        throw new Error(`Apertus returned an empty response. Model: ${model}. Raw: ${JSON.stringify(data)}`);
+        throw new Error('Apertus returned no completion text. Check the selected model.');
     }
     return {
         text: content,

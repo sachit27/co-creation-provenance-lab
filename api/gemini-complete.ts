@@ -55,15 +55,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (!response.ok) {
-      const err = await response.text();
       return res.status(response.status).json({
         error: `Gemini API error: ${response.status}`,
-        details: err,
       });
     }
 
     const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.filter((part: any) => part.thought !== true && typeof part.text === 'string')
+        .map((part: any) => part.text).join('')
+      : '';
     const finishReason = data?.candidates?.[0]?.finishReason;
 
     if (!text) {
@@ -77,7 +79,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       responseId: data?.responseId,
       usageMetadata: data?.usageMetadata,
     });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+  } catch {
+    // Upstream exceptions can contain the request URL, including its API key.
+    return res.status(500).json({ error: 'Gemini request failed. Please retry or check the server configuration.' });
   }
 }

@@ -10,7 +10,7 @@ import type { CompletionResult } from '../types';
  *      relays. The public GitHub Pages build does not provide these routes.
  */
 
-// Client-side key from build-time env (local dev only via vite.config.ts)
+// Browser builds replace this with an empty string; Node scripts may use their own environment.
 const buildTimeKey = process.env.API_KEY || '';
 
 export const DEFAULT_GEMINI_GENERATION_MODEL = 'gemini-3.7-flash';
@@ -92,10 +92,10 @@ export const getGeminiModels = async (): Promise<GeminiModelLists> => {
       for await (const m of pager) {
         const id = m.name?.replace('models/', '') || '';
         if (!id) continue;
-        const methods: string[] = (m as any).supportedGenerationMethods || [];
+        const methods: string[] = m.supportedActions || [];
         const isGen = methods.length > 0
           ? methods.includes('generateContent')
-          : /^gemini-/.test(id) && !id.includes('embed');
+          : /^gemini-/.test(id) && !/(embed|image|tts|live|transcribe|robotics)/i.test(id);
         const isEmbed = methods.length > 0
           ? methods.includes('embedContent')
           : /embed/i.test(id);
@@ -104,7 +104,7 @@ export const getGeminiModels = async (): Promise<GeminiModelLists> => {
       }
       if (generation.length > 0) return { generation, embedding };
     } catch (err) {
-      console.warn('Direct SDK model list failed', err);
+      console.warn('Direct Gemini model discovery failed. Check the API key and account access.');
     }
   }
 
@@ -204,7 +204,7 @@ export const generateEmbedding = async (text: string, model: string = DEFAULT_GE
     const fallbackDim = 768;
     return new Array(fallbackDim).fill(0);
   } catch (error) {
-    console.warn(`Gemini Embedding Error for text: "${text.substring(0, 20)}..."`, error);
+    console.warn('Gemini embedding request failed. Check the embedding model and account access.');
     const fallbackDim = 768;
     return new Array(fallbackDim).fill(0);
   }
@@ -226,7 +226,7 @@ export const generateCompletionResult = async (
   temperature: number = 0.5,
   signal?: AbortSignal,
 ): Promise<CompletionResult> => {
-  const supportsTemperature = !/^gemini-3\.7(?:-|$)/.test(model);
+  const supportsTemperature = !/^gemini-(?:3\.[7-9]|[4-9])(?:[.-]|$)/.test(model);
   const generationConfig = supportsTemperature
     ? { systemInstruction, temperature, abortSignal: signal }
     : { systemInstruction, abortSignal: signal };
@@ -369,8 +369,11 @@ export const generateCompletionResult = async (
     if (isQuotaError(error?.status, msg)) {
       throw new Error('[QUOTA] Gemini API quota exhausted. Try again later, switch to Groq (free), or use a different API key.');
     }
-    console.error('Gemini Completion Error:', error);
-    throw error;
+    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') throw error;
+    // Preserve local no-text/refusal diagnostics, but never expose raw SDK errors
+    // (which can include an authenticated URL or the upstream response body).
+    if (error?.completionMetadata || msg.startsWith('Gemini returned no text') || msg.startsWith('Gemini proxy returned no text') || msg === 'No Gemini backend available') throw error;
+    throw new Error('Gemini request failed. Check the selected model, API key, and account access.');
   }
 };
 

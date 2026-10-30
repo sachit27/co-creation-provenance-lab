@@ -6,7 +6,7 @@
 
 **Whose views are reflected in the AI summary?**
 
-Trace source contributions, inspect possible omissions and changes in meaning, gather participant feedback, and document revisions.
+An Audit Lab for facilitators and research teams to trace source contributions, inspect possible omissions and changes in meaning, and document revisions.
 
 [Explore the demo](https://sachit27.github.io/apps/provenance-lab/) · [Get started](#run-locally) · [Methodology](docs/methodology.md) · [Live sessions](docs/live-sessions.md)
 
@@ -18,7 +18,7 @@ Trace source contributions, inspect possible omissions and changes in meaning, g
 
 Summaries bring many contributions into a smaller space. A readable result can still lose conditions, disagreements, or the details that matter to someone. Provenance Lab gives researchers, facilitators, cities, and policy teams a way to inspect those changes and keep a record of the review.
 
-Use it with public consultations, participatory workshops, research synthesis, or organizational feedback. Bring an existing summary, generate a draft, or collect contributions during a live session.
+Use it with public consultations, participatory workshops, research synthesis, or organizational feedback. Bring source material and an existing summary, or generate a draft with your chosen provider. The Audit Lab is the main workflow; an optional app mode supports live workshops.
 
 ## What you can do
 
@@ -69,11 +69,17 @@ P3,"Provide protected bike lanes and a skate park",youth
 
 IDs and groups are optional. Preview the selected columns and excluded rows before running. Keep question context when short responses depend on it.
 
-### Facilitate a live session
+### Live sessions: optional app mode
+
+Select **Live sessions** in the website navigation for the setup guide. To run a workshop from your downloaded GitHub copy:
 
 ```bash
-npm run live:dev
+npm ci
+npm run build
+npm run live:serve
 ```
+
+Open `http://localhost:5173` and choose **Live sessions**. For phones on the same trusted Wi-Fi, stop the server and restart with `HOST=0.0.0.0 npm run live:serve` (macOS/Linux), or `$env:HOST="0.0.0.0"; npm run live:serve` (Windows PowerShell). Use the network address in the invitation panel, rather than localhost. Keep the computer running during the session.
 
 Create a session, share a link or QR code, and open input. Participants can edit their responses until the facilitator closes input. Review the audit, revise if needed, and publish results to participant devices. Switch the optional survey on when ready; edit the template, anchors, or questions to suit the session. The session download retains publications, review history, survey definitions, and feedback.
 
@@ -81,7 +87,7 @@ Phones need a reachable server address on the same network or an appropriate hos
 
 ## Providers and data
 
-Generation, evaluation, and embedding services can be configured separately. The run record captures requested methods, effective methods, and available provider metadata.
+Generation, evaluation, and embedding services can be configured separately. The run record captures requested methods, effective methods, and available provider metadata. See the [provider endpoint reference](docs/provider-endpoints.md) for API routes and hosting requirements.
 
 | Service | Generation / evaluation | Embeddings | Destination |
 |---|:---:|:---:|---|
@@ -94,7 +100,7 @@ Generation, evaluation, and embedding services can be configured separately. The
 | Groq | Yes | — | Groq API |
 | Apertus / PublicAI | Yes | — | PublicAI via the local development proxy |
 
-Cloud services receive the text sent to them. Browser-entered keys are held in the current tab's `sessionStorage` and are accessible to page JavaScript and browser extensions. Production builds contain no shared provider keys. Live session files remain on the operator's server; published summaries and pseudonymous visual data can reveal information from contributions. Choose services and access controls appropriate to the material.
+Cloud services receive the text sent to them. Browser-entered keys are held in the current tab's `sessionStorage` and are accessible to page JavaScript and browser extensions. Browser builds and local development do not receive provider keys from `.env`. Enter a key in the app when needed. Node-based generation scripts can load `.env` privately; never commit that file. Live session files remain on the operator's server; published summaries and pseudonymous visual data can reveal information from contributions. Choose services and access controls appropriate to the material.
 
 ## Development and deployment
 

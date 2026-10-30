@@ -150,7 +150,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Subhead - Punchy & Direct */}
           <p className="mt-4 text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Trace summaries back to the contributions behind them. Explore possible omissions, changes in meaning, and differences across groups. Review the evidence, gather participant feedback, and document revisions.
+            Trace summaries back to the contributions behind them. Explore possible omissions, changes in meaning, and differences across groups. Use the Audit Lab to inspect evidence, compare perspectives, and document revisions.
           </p>
 
           {/* Primary Call-to-Actions */}
@@ -174,10 +174,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-2xs active:scale-[0.98]"
             >
               <Icons.Upload />
-              <span>Review existing material</span>
+              <span>Start an audit</span>
             </button>
-
-            <a href={`${import.meta.env.BASE_URL}?live=new`} className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs sm:text-sm font-semibold text-blue-800 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-all shadow-2xs">Start a Live Session <Icons.ArrowRight /></a>
 
             <button
               onClick={onOpenMethodology}
@@ -196,22 +194,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       <section aria-labelledby="workflows-heading" className="py-12 bg-white border-b border-slate-200/80">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 id="workflows-heading" className="text-2xl sm:text-3xl font-extrabold tracking-tight text-center">Two ways to bring people into the review</h2>
-          <div className="grid md:grid-cols-2 gap-5 mt-7">
-            <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-              <p className="text-xs font-semibold text-indigo-700">Existing material</p>
-              <h3 className="mt-2 text-lg font-bold">Review contributions and a summary</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">Bring comments and a summary into the workspace. Inspect possible links, compare perspectives, and record the evidence behind revisions.</p>
-              <button onClick={onOpenSetup} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">Set up a review <Icons.ArrowRight /></button>
-            </article>
-            <article className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6">
-              <p className="text-xs font-semibold text-blue-700">Live session</p>
-              <h3 className="mt-2 text-lg font-bold">Gather contributions and feedback together</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">Invite participants to contribute during a facilitated session, review the emerging summary, and share feedback on how their views are reflected.</p>
-              <a href={`${import.meta.env.BASE_URL}?live=new`} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-600">Start a live session <Icons.ArrowRight /></a>
-            </article>
+          <h2 id="workflows-heading" className="text-2xl sm:text-3xl font-extrabold tracking-tight text-center">A clear workflow for the Audit Lab</h2>
+          <p className="mt-3 text-center text-sm text-slate-600">For facilitators, researchers, and policy teams reviewing how a synthesis reflects its sources.</p>
+          <div className="grid md:grid-cols-3 gap-5 mt-7">
+            {[
+              { step: '01', title: 'Bring your material', text: 'Upload comments or documents. Paste an existing summary or generate a draft with your chosen provider.' },
+              { step: '02', title: 'Inspect the evidence', text: 'Follow source matches, compare groups, and review possible changes in language, claims, and disagreement.' },
+              { step: '03', title: 'Revise and keep a record', text: 'Record your decisions, compare a rescored revision, and export the evidence behind your review.' },
+            ].map(item => <article key={item.step} className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+              <p className="text-xs font-semibold text-indigo-700">{item.step}</p>
+              <h3 className="mt-2 text-lg font-bold">{item.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">{item.text}</p>
+            </article>)}
           </div>
-          <p className="mt-6 text-center text-sm leading-relaxed text-slate-600">Potential uses include public consultations, policy workshops, research synthesis, and organizational feedback.</p>
+          <p className="mt-6 text-center text-sm leading-relaxed text-slate-600">Use with public consultations, policy workshops, research synthesis, and organizational feedback.</p>
         </div>
       </section>
 

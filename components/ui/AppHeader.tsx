@@ -136,15 +136,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             {/* Audit Lab */}
             <button
               type="button"
-              disabled={!canAccessDashboard}
               onClick={() => onNavigate('dashboard')}
-              title={canAccessDashboard ? 'View audit analytics and visualizations' : 'Load data or demo first'}
+              title="Open the current audit or explore the saved demo"
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 currentView === 'dashboard'
                   ? 'bg-white text-blue-700 shadow-xs font-semibold border border-slate-200/60'
-                  : canAccessDashboard
-                  ? 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  : 'text-slate-400 cursor-not-allowed opacity-60'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -185,7 +182,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <path d="M15 10l4.55-2.28A1 1 0 0 1 21 8.62v6.76a1 1 0 0 1-1.45.9L15 14" />
                 <rect x="3" y="6" width="12" height="12" rx="2" />
               </svg>
-              <span>Live Session</span>
+              <span>Live sessions</span>
             </a>
 
             {/* Methodology */}
@@ -403,7 +400,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
               <button
                 type="button"
-                disabled={!canAccessDashboard}
                 onClick={() => {
                   onNavigate('dashboard');
                   setMobileMenuOpen(false);
@@ -411,9 +407,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium ${
                   currentView === 'dashboard'
                     ? 'bg-blue-50 text-blue-700 font-semibold'
-                    : canAccessDashboard
-                    ? 'text-slate-700 bg-slate-50'
-                    : 'text-slate-400 bg-slate-50 opacity-50 cursor-not-allowed'
+                    : 'text-slate-700 bg-slate-50'
                 }`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -451,7 +445,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <path d="M15 10l4.55-2.28A1 1 0 0 1 21 8.62v6.76a1 1 0 0 1-1.45.9L15 14" />
                   <rect x="3" y="6" width="12" height="12" rx="2" />
                 </svg>
-                Live Session
+                Live sessions
               </a>
 
               <button
