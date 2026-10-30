@@ -293,7 +293,32 @@ export interface WhatIfResult {
   description: string;
 }
 
+export interface AuditReviewDecision {
+  issueId: string;
+  status: 'unresolved' | 'confirmed' | 'dismissed';
+  note: string;
+  updatedAt: string;
+}
+
+export interface AuditRevisionSnapshot {
+  /** Full earlier evidence, excluding embeddings and recursive history. */
+  analysisRecord?: Omit<AnalysisResult, 'revisionHistory' | 'inputEmbeddings'>;
+  savedAt: string;
+  summary: string;
+  summarySentences: string[];
+  participants: ParticipantAnalysis[];
+  runManifest?: AnalysisResult['runManifest'];
+  reviewDecisions: AuditReviewDecision[];
+}
+
 export interface AnalysisResult {
+  /** Human judgments belong to this exact summary/run, never a revised summary. */
+  reviewDecisions?: AuditReviewDecision[];
+  revisionHistory?: AuditRevisionSnapshot[];
+  /** Explicit lineage for a separately generated and rescored saved example. */
+  revisionOfRunId?: string;
+  revisionCandidateIds?: string[];
+  revisionDraftCompletionCalls?: CompletionMetadata[];
   config: AnalysisConfig;
   summary: string;
   summarySentences: string[];

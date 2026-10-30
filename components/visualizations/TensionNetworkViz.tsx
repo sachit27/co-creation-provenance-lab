@@ -41,9 +41,10 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
   const OverallBar = () => (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm font-semibold text-slate-700">Conditional tension handling <InfoIcon metricKey="tensions" /></div>
+        <p className="mb-3 text-xs leading-relaxed text-slate-600">These are model-generated candidates. Exact quotes verify text locations, not that two views conflict. Complementary proposals can be misclassified; review both sources before accepting a tension or its handling label.</p>
+        <div className="text-sm font-semibold text-slate-700">Model-coded candidate handling <InfoIcon metricKey="tensions" /></div>
         <div className="text-sm font-bold text-slate-700">
-          {data.tensionFidelityScore === null ? 'Handling assessment unavailable' : `${(data.tensionFidelityScore * 100).toFixed(0)}% acknowledged among assessed`}
+          {data.tensionFidelityScore === null ? 'Handling assessment unavailable' : `${(data.tensionFidelityScore * 100).toFixed(0)}% of assessed candidates coded acknowledged`}
         </div>
       </div>
       <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
@@ -182,7 +183,7 @@ export const TensionNetworkViz: React.FC<Props> = ({ data, clusters }) => {
                   {pair.summaryEvidence ? (
                     <p className="text-sm text-slate-700 italic">"{pair.summaryEvidence}"</p>
                   ) : (
-                    <p className="text-sm text-slate-400 italic">No evidence of this tension in the summary.</p>
+                    <p className="text-sm text-slate-400 italic">{pair.summaryHandling === 'unassessed' ? 'The model did not return a verified handling assessment for this candidate.' : 'No verified summary passage was recorded for this candidate.'}</p>
                   )}
                   <p className="text-[10px] text-slate-500 mt-1">{cfg.description}</p>
                 </div>

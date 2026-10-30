@@ -71,6 +71,8 @@ $$
 
 The centroid is majority-weighted. High isolation can mean a legitimate minority cluster, noise, or an unusual contribution. The alignment-quadrant view uses median centrality and alignment splits only to organize review; it is not a hypothesis test or validated risk class.
 
+Input diversity is the exact mean pairwise cosine distance over valid source vectors. For normalized vectors $u_i$, it is calculated in linear time from $1-(\|\sum_i u_i\|^2-\sum_i\|u_i\|^2)/(n(n-1))$; no row-order-dependent subsample is taken. Zero/invalid vectors have zero cosine to other vectors under the implementation's convention. The distinct-representation gap sorts valid records by isolation, takes $\lfloor n q\rfloor$ records at the configured isolation share $q$, and subtracts their mean alignment from the remaining records' mean. The same split rule and configured $q$ are used for the observed value and participant-resampling interval.
+
 The mutual-k-nearest-neighbour graph, PCA map, clusters, and Sankey-style view are semantic-association visualizations. Their edges do not establish information flow or derivation.
 
 ### Internally screened exploratory semantic grouping
@@ -201,6 +203,8 @@ The rhetoric screen uses one deterministic English-oriented marker lexicon for a
 ## 11. Counterfactual utility attribution
 
 The optional Shapley-style module estimates changes in a specified deterministic coverage utility when source coalitions are summarized. It is labelled **stochastic counterfactual utility attribution**, not causal influence. Coalition inputs are canonicalized and cached, but each model-generated coalition summary is still one stochastic realization. Above the direct-participant limit, results are cluster-level only. Sampling error does not include generator variability.
+
+When antithetic forward/reverse permutations are used, Monte Carlo standard errors are estimated across independent pair means. An incomplete pair yields unavailable standard errors. Display tiers separate adjacent estimates only when their difference exceeds the combined two-standard-error screen; this is a descriptive uncertainty aid, not a simultaneous confidence procedure or proof of ordering.
 
 The arithmetic what-if panel only recomputes outcomes under explicit score-change assumptions. It is not a forecast of recruitment, facilitation, or policy outcomes.
 

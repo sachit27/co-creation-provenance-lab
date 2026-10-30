@@ -94,7 +94,7 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
   const tensionActivityId = `cprov:TensionAudit-${safeId(runId)}`;
   const isGeneratedInRun = origin === 'generated-in-run' || origin === 'algorithmic-extractive';
   const evaluator = manifest?.actualEvaluator ?? data.affectiveFidelity?.evaluator ?? data.languageFidelity?.evaluator;
-  const generator = manifest?.actualGenerator ?? manifest?.requestedGenerator;
+  const generator = origin === 'algorithmic-extractive' ? null : (manifest?.actualGenerator ?? manifest?.requestedGenerator);
   const evaluatorAgentId = `cprov:Evaluator-${safeId(runId)}`;
   const evaluatorRelationship = evaluator
     ? manifest?.requestedGenerator && manifest?.requestedEvaluator
@@ -370,7 +370,8 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
       'prov:wasGeneratedBy': { '@id': auditActivityId },
       'cprov:assessesContribution': { '@id': `cprov:Contribution-${safeId(participant.id)}` },
       'cprov:assessesSummary': { '@id': 'cprov:Summary' },
-      'cprov:representationScore': participant.embeddingFailed ? null : participant.representationScore,
+      'cprov:representationScore': participant.embeddingFailed || participant.alignmentUnavailableReason ? null : participant.representationScore,
+      ...(participant.alignmentUnavailableReason ? { 'cprov:alignmentUnavailableReason': participant.alignmentUnavailableReason } : {}),
       'cprov:semanticDistinctiveness': participant.semanticIsolation,
       'cprov:topMatchedSentenceIndex': participant.topSentenceMatchIndex,
       'cprov:embeddingFailed': !!participant.embeddingFailed,
@@ -410,6 +411,15 @@ export const generateProvenanceRecord = async (data: AnalysisResult): Promise<Re
     'cprov:integrityScope': 'SHA-256 content digests detect later content changes; they do not authenticate an author or signer.',
     'cprov:softwareVersion': manifest?.softwareVersion ?? 'legacy-result-unknown',
     'cprov:fallbackEvents': manifest?.fallbackEvents ?? [],
+    'cprov:revisionOfRunId': data.revisionOfRunId ?? null,
+    'cprov:revisionDraftCompletionCalls': data.revisionDraftCompletionCalls ?? [],
+    'cprov:humanReviewDecisions': data.reviewDecisions ?? [],
+    'cprov:revisionHistory': await Promise.all((data.revisionHistory ?? []).map(async revision => ({
+      savedAt: revision.savedAt,
+      summaryDigest: await sha256(revision.summary),
+      runId: revision.runManifest?.runId ?? null,
+      reviewDecisions: revision.reviewDecisions,
+    }))),
     '@graph': graph,
   };
   const recordDigest = await sha256(canonicalizeProvenanceJson(unsignedRecord));

@@ -14,16 +14,21 @@
   },
   "scripts": {
     "dev": "vite",
+    "live:dev": "LIVE_DEV=1 node --import tsx scripts/live-server.ts",
+    "live:serve": "node --import tsx scripts/live-server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node tests/run-tests.mjs",
     "verify": "npm test && npm run typecheck && npm run build",
-    "demo:generate": "tsx scripts/generate-demo.ts",
-    "demo:check": "tsx scripts/audit-sample-topology.ts"
+    "demo:generate": "node --env-file-if-exists=.env --import tsx scripts/generate-demo.ts",
+    "demo:check": "tsx scripts/audit-sample-topology.ts",
+    "demo:revise": "node --env-file-if-exists=.env --import tsx scripts/generate-demo-revision.ts",
+    "demo:validate": "node --import tsx scripts/validate-demo.ts"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-force-graph-2d": "^1.29.1",
@@ -32,6 +37,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.14.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",

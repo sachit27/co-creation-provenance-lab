@@ -1,339 +1,122 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ParticipantAnalysis } from '../../types';
-import { getResponsiveColumns, truncateText, formatMetric } from '../../hooks/useResponsiveChart';
 
 interface ContributionLineageProps {
   data: ParticipantAnalysis[];
   sentences: string[];
-  /**
-   * Brushing: the participant selected elsewhere in the dashboard. When
-   * provided, this view becomes a controlled component so a participant picked
-   * on the Discussion Map stays highlighted here (and vice versa) instead of
-   * each chart keeping its own private selection.
-   */
   selectedId?: string | null;
   onSelectParticipant?: (id: string | null) => void;
 }
 
-export const ContributionLineage: React.FC<ContributionLineageProps> = ({
-  data, sentences, selectedId, onSelectParticipant,
-}) => {
-  const [hoveredInput, setHoveredInput] = useState<string | null>(null);
-  const [hoveredSentence, setHoveredSentence] = useState<number | null>(null);
-  const [localSelected, setLocalSelected] = useState<string | null>(null);
+const PAGE_SIZE = 10;
 
-  // Controlled when the parent supplies a selection, uncontrolled otherwise —
-  // so the component still works standalone.
-  const isControlled = onSelectParticipant !== undefined;
-  const selectedInput = isControlled ? (selectedId ?? null) : localSelected;
-  const setSelectedInput = (id: string | null) => {
-    if (isControlled) onSelectParticipant!(id);
-    else setLocalSelected(id);
+export const ContributionLineage: React.FC<ContributionLineageProps> = ({ data, sentences, selectedId, onSelectParticipant }) => {
+  const [localSelection, setLocalSelection] = useState<string | null>(null);
+  const [sentenceIndex, setSentenceIndex] = useState<number | null>(null);
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const selection = onSelectParticipant ? selectedId : localSelection;
+  const select = (id: string | null) => {
+    if (onSelectParticipant) onSelectParticipant(id);
+    else setLocalSelection(id);
+    setSentenceIndex(null);
   };
-  const [currentPage, setCurrentPage] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(800);
+  // Validate candidates before drawing; a missing score is not a zero score.
+  const matchesFor = (p: ParticipantAnalysis) => p.sentenceMatches.filter(m =>
+    Number.isInteger(m.sentenceIndex) && m.sentenceIndex >= 0 && m.sentenceIndex < sentences.length &&
+    Number.isFinite(m.similarity) && m.similarity >= -1 && m.similarity <= 1
+  ).sort((a, b) => b.similarity - a.similarity);
+  const filtered = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase();
+    return data.filter(p => `${p.id} ${p.originalText}`.toLocaleLowerCase().includes(term));
+  }, [data, query]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pages - 1);
+  const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const selected = data.find(p => p.id === selection);
+  const selectedMatches = selected ? matchesFor(selected) : [];
+  const activeSentence = sentenceIndex ?? selectedMatches[0]?.sentenceIndex ?? null;
+  const comparison = selectedMatches.find(m => m.sentenceIndex === activeSentence);
 
-  // Pagination: show 50 participants per page to prevent SVG explosion
-  const PAGE_SIZE = 50;
-  const totalPages = Math.ceil(data.length / PAGE_SIZE);
-  const needsPagination = data.length > PAGE_SIZE;
-
-  // ResizeObserver for responsive width
+  // Selections from another audit view remain visible in this view.
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (!selection) return;
+    const index = data.findIndex(p => p.id === selection);
+    if (index >= 0) { setQuery(''); setPage(Math.floor(index / PAGE_SIZE)); }
+  }, [selection, data]);
 
-    const updateWidth = () => {
-      const rect = container.getBoundingClientRect();
-      setContainerWidth(rect.width || 800);
-    };
-
-    requestAnimationFrame(updateWidth);
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width || 800);
-      }
-    });
-
-    resizeObserver.observe(container);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  // PRE-PROCESSING: Sort Data for cleaner flow lines
-  const sortedInputs = useMemo(() => {
-    return [...data].sort((a, b) => {
-      const primaryA = a.sentenceMatches[0]?.sentenceIndex ?? 999;
-      const primaryB = b.sentenceMatches[0]?.sentenceIndex ?? 999;
-      return primaryA - primaryB;
-    });
-  }, [data]);
-
-  // Paginated view: only render the current page of participants
-  const visibleInputs = useMemo(() => {
-    if (!needsPagination) return sortedInputs;
-    return sortedInputs.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-  }, [sortedInputs, currentPage, needsPagination]);
-
-  // Calculate connection statistics
-  const connectionStats = useMemo(() => {
-    const totalConnections = data.reduce((sum, p) => sum + p.sentenceMatches.length, 0);
-    const strongConnections = data.reduce((sum, p) =>
-      sum + p.sentenceMatches.filter(m => m.similarity >= 0.6).length, 0);
-    return { total: totalConnections, strong: strongConnections };
-  }, [data]);
-
-  // Dynamic layout calculations based on container width
-  const { leftColWidth, rightColWidth, rightColX, controlOffset, gapWidth } = useMemo(
-    () => getResponsiveColumns(containerWidth),
-    [containerWidth]
-  );
-
-  // Layout constants with better scaling
-  const isMobile = containerWidth < 500;
-  const isCompact = containerWidth < 600;
-  const inputRowHeight = isMobile ? 26 : 30;
-  const sentenceRowHeight = Math.max(55, (visibleInputs.length * inputRowHeight) / Math.max(1, sentences.length));
-  const containerHeight = Math.max(
-    visibleInputs.length * inputRowHeight,
-    sentences.length * sentenceRowHeight,
-    400
-  ) + 60;
-
-  // Responsive font sizes
-  const labelFontSize = isMobile ? '10px' : isCompact ? '11px' : '12px';
-  const scoreFontSize = isMobile ? '9px' : '10px';
-  const labelTruncateLength = isMobile ? 8 : isCompact ? 12 : 18;
-
-  // Get gradient color based on similarity
-  const getConnectionColor = (similarity: number, isActive: boolean) => {
-    if (isActive) return '#3b82f6';
-    if (similarity >= 0.7) return '#10b981';
-    if (similarity >= 0.5) return '#f59e0b';
-    return '#94a3b8';
-  };
+  const height = Math.max(visible.length * 58, sentences.length * 60, 280);
+  const sourceY = (index: number) => (index + 0.5) * height / Math.max(visible.length, 1);
+  const targetY = (index: number) => (index + 0.5) * height / Math.max(sentences.length, 1);
+  const buttonClass = 'min-w-0 overflow-hidden rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2';
 
   return (
-    <div ref={containerRef} className="w-full overflow-hidden border border-slate-200 rounded-lg bg-white shadow-sm">
-      {/* Header */}
-      <div className="p-3 md:p-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-        <div className="flex flex-wrap justify-between items-start gap-2">
-          <div>
-            <h3 className="font-semibold text-slate-700 text-sm md:text-base">Contribution-to-Sentence Matches</h3>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              {isCompact ? 'Hover to inspect similarity links' : 'Semantic similarity candidates between source records and summary sentences'}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <div className="bg-slate-100 rounded px-2 py-1 text-center">
-              <div className="text-slate-700 font-bold text-sm">{connectionStats.total}</div>
-              <div className="text-slate-500 text-[9px]">Candidates</div>
-            </div>
-            <div className="bg-green-50 border border-green-200 rounded px-2 py-1 text-center">
-              <div className="text-green-700 font-bold text-sm">{connectionStats.strong}</div>
-              <div className="text-green-600 text-[9px]">Strong</div>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="block w-full sm:max-w-sm text-sm font-medium text-slate-700">
+          Find a contribution
+          <input type="search" value={query} onChange={e => { setQuery(e.target.value); setPage(0); }} placeholder="Search by ID or words in the original text" className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </label>
+        <p className="text-xs text-slate-500">{data.length} contributions · {sentences.length} summary sentences</p>
+      </div>
 
-        {/* Legend */}
-        <div className="flex flex-wrap gap-3 mt-2 text-[10px]">
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-green-500 rounded"></span>
-            <span className="text-slate-500">Strong (≥0.7)</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-amber-500 rounded"></span>
-            <span className="text-slate-500">Medium (0.5-0.7)</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-0.5 bg-slate-400 rounded"></span>
-            <span className="text-slate-500">Weak (&lt;0.5)</span>
-          </span>
+      <div className="rounded-xl border border-slate-200 overflow-hidden">
+        <div className="flex flex-wrap justify-between gap-2 bg-slate-50 px-4 py-3 text-xs text-slate-600 border-b border-slate-200">
+          <span>Select a contribution, then a summary sentence.</span>
+          <span><span className="inline-block w-5 h-0.5 bg-indigo-500 align-middle mr-2" />Highlighted lines belong to your selection</span>
         </div>
-
-        {/* Pagination controls */}
-        {needsPagination && (
-          <div className="flex items-center gap-2 mt-2 bg-slate-100 rounded px-3 py-1.5">
-            <button
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0}
-              className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:text-slate-300 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white transition-colors"
-            >
-              ← Prev
-            </button>
-            <span className="text-[10px] text-slate-500 flex-1 text-center">
-              Showing {currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, data.length)} of {data.length} participants
-              {' '}(Page {currentPage + 1}/{totalPages})
-            </span>
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
-              disabled={currentPage >= totalPages - 1}
-              className="text-xs font-bold text-slate-600 hover:text-blue-600 disabled:text-slate-300 disabled:cursor-not-allowed px-1.5 py-0.5 rounded hover:bg-white transition-colors"
-            >
-              Next →
-            </button>
+        {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No contributions match your search.</p> : (
+          <><div className="sm:hidden p-3 space-y-3">
+            <label className="block text-sm font-medium text-slate-700">Summary sentence
+              <select value={activeSentence ?? ''} onChange={e => setSentenceIndex(e.target.value === '' ? null : Number(e.target.value))} className="block mt-2 w-full min-w-0 rounded-lg border border-slate-300 p-2 text-sm">
+                <option value="">Choose a sentence</option>{sentences.map((_, index) => <option value={index} key={index}>Sentence {index + 1}</option>)}
+              </select>
+            </label>
+            <p className="text-xs text-slate-500">Choose an original contribution. Its wording and the selected summary sentence appear below.</p>
+            <div className="max-h-60 overflow-y-auto space-y-2">{visible.map(p => <button type="button" key={p.id} aria-pressed={selection === p.id} onClick={() => select(p.id)} className={`${buttonClass} block w-full ${selection === p.id ? 'border-indigo-400 bg-indigo-50 text-indigo-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className="block text-xs font-semibold">{p.id}</span><span className="block text-sm line-clamp-2">{p.originalText}</span></button>)}</div>
           </div>
+          <div className="hidden sm:block overflow-auto max-h-[440px]">
+            <div className="min-w-[640px] p-4">
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_minmax(0,1.3fr)] gap-0 mb-3 text-xs font-semibold text-slate-500">
+                <span>Original contributions</span><span className="text-center font-normal">Similarity links</span><span>Summary sentences</span>
+              </div>
+              <div className="relative grid grid-cols-[minmax(0,1fr)_minmax(0,0.65fr)_minmax(0,1.3fr)]" style={{ height }}>
+                <div className="min-w-0 flex flex-col justify-around gap-1">
+                  {visible.map(p => <button type="button" key={p.id} aria-pressed={selection === p.id} onClick={() => select(selection === p.id ? null : p.id)} className={`${buttonClass} h-12 ${selection === p.id ? 'border-indigo-400 bg-indigo-50 text-indigo-900' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300'}`}>
+                    <span className="block text-xs font-semibold truncate">{p.id}</span>
+                    <span className="block truncate text-xs text-slate-500">{p.originalText}</span>
+                  </button>)}
+                </div>
+                <svg viewBox={`0 0 200 ${height}`} preserveAspectRatio="none" className="w-full h-full" aria-hidden="true">
+                  {visible.flatMap((p, index) => matchesFor(p).map((m, i) => {
+                    const active = selection ? p.id === selection && (sentenceIndex === null || m.sentenceIndex === sentenceIndex) : sentenceIndex === m.sentenceIndex;
+                    const focused = !!selection || sentenceIndex !== null;
+                    return <path key={`${p.id}-${m.sentenceIndex}-${i}`} d={`M 0 ${sourceY(index)} C 90 ${sourceY(index)}, 110 ${targetY(m.sentenceIndex)}, 200 ${targetY(m.sentenceIndex)}`} fill="none" stroke={active ? '#6366f1' : '#94a3b8'} strokeWidth={active ? 2.5 : 1} opacity={active ? 0.85 : focused ? 0.1 : 0.3} vectorEffect="non-scaling-stroke" />;
+                  }))}
+                </svg>
+                <div className="min-w-0 flex flex-col justify-around gap-1">
+                  {sentences.map((sentence, index) => <button type="button" key={index} aria-pressed={activeSentence === index} onClick={() => setSentenceIndex(index)} className={`${buttonClass} min-h-12 ${activeSentence === index ? 'border-indigo-400 bg-indigo-50 text-indigo-900' : 'border-slate-200 text-slate-700 hover:border-indigo-300'}`} style={{ maxHeight: height / Math.max(sentences.length, 1) - 4 }}>
+                    <span className="block text-xs font-semibold mb-0.5">Sentence {index + 1}</span><span className="block text-xs leading-relaxed line-clamp-2">{sentence}</span>
+                  </button>)}
+                </div>
+              </div>
+            </div>
+          </div></>
         )}
-      </div>
-
-      {/* Flow Diagram */}
-      <div className="w-full overflow-y-auto max-h-[550px] overflow-x-auto relative custom-scrollbar bg-slate-50/30">
-        <div className="relative" style={{ width: Math.max(containerWidth, 450), minWidth: 450, height: containerHeight }}>
-
-          {/* SVG Layer */}
-          <svg
-            className="absolute top-0 left-0 pointer-events-none"
-            style={{ zIndex: 0 }}
-            width={Math.max(containerWidth, 450)}
-            height={containerHeight}
-          >
-            <defs>
-              <linearGradient id="gradStrong" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#10b981" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#10b981" stopOpacity="0.8" />
-              </linearGradient>
-              <linearGradient id="gradMedium" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.6" />
-              </linearGradient>
-              <linearGradient id="gradWeak" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#94a3b8" stopOpacity="0.2" />
-                <stop offset="100%" stopColor="#94a3b8" stopOpacity="0.3" />
-              </linearGradient>
-            </defs>
-
-            {visibleInputs.map((p, inputIndex) => {
-              const startY = (inputIndex * inputRowHeight) + (inputRowHeight / 2) + 30;
-              const startX = leftColWidth;
-
-              const isInputHovered = hoveredInput === p.id || selectedInput === p.id;
-
-              return p.sentenceMatches.map((match, mIdx) => {
-                // Only draw weak matches if hovering/selecting specific participant
-                if (match.similarity < 0.45 && !isInputHovered && hoveredSentence !== match.sentenceIndex) return null;
-
-                const endY = (match.sentenceIndex * sentenceRowHeight) + (sentenceRowHeight / 2) + 30;
-                const endX = rightColX;
-
-                const isSentenceHovered = hoveredSentence === match.sentenceIndex;
-                const isActive = isInputHovered || isSentenceHovered;
-                const isBackground = (hoveredInput || hoveredSentence !== null || selectedInput) && !isActive;
-
-                // Dynamic bezier control points
-                const path = `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
-
-                // Visual styling based on strength
-                const strokeWidth = isActive ? 3.5 : Math.max(1.5, match.similarity * 3);
-                const strokeColor = getConnectionColor(match.similarity, isActive);
-                const opacity = isActive ? 0.95 : isBackground ? 0.08 : Math.max(0.2, match.similarity * 0.6);
-
-                return (
-                  <path
-                    key={`${p.id}-${match.sentenceIndex}-${mIdx}`}
-                    d={path}
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth={strokeWidth}
-                    strokeOpacity={opacity}
-                    strokeLinecap="round"
-                  />
-                );
-              });
-            })}
-          </svg>
-
-          {/* Left Column: Participants */}
-          <div
-            className="absolute top-[30px] left-0 flex flex-col gap-0"
-            style={{ width: leftColWidth, zIndex: 10 }}
-          >
-            {visibleInputs.map((p) => {
-              const isHovered = hoveredInput === p.id;
-              const isSelected = selectedInput === p.id;
-              const hasConnection = hoveredSentence !== null && p.sentenceMatches.some(m => m.sentenceIndex === hoveredSentence);
-
-              return (
-                <div
-                  key={p.id}
-                  style={{ height: inputRowHeight, fontSize: labelFontSize }}
-                  className={`
-                    px-2 md:px-3 flex items-center justify-between border-r-4 cursor-pointer transition-all
-                    ${isHovered || isSelected ? 'bg-blue-50 border-blue-500 text-blue-800 shadow-sm' : 'hover:bg-slate-50 border-transparent text-slate-600'}
-                    ${(hoveredSentence !== null && !hasConnection) ? 'opacity-25' : 'opacity-100'}
-                  `}
-                  onMouseEnter={() => setHoveredInput(p.id)}
-                  onMouseLeave={() => setHoveredInput(null)}
-                  onClick={() => setSelectedInput(selectedInput === p.id ? null : p.id)}
-                  title={`${p.id}: ${p.originalText.substring(0, 150)}`}
-                >
-                  <span className="truncate font-medium" style={{ maxWidth: leftColWidth - 55 }}>
-                    {truncateText(p.id, labelTruncateLength)}
-                  </span>
-                  <span
-                    className={`px-1.5 rounded font-mono ${p.representationScore >= 0.6 ? 'bg-green-100 text-green-700' :
-                      p.representationScore >= 0.4 ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
-                      }`}
-                    style={{ fontSize: scoreFontSize }}
-                  >
-                    {formatMetric(p.representationScore)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Center Label */}
-          {gapWidth > 80 && (
-            <div
-              className="absolute top-2 text-[9px] text-slate-400 font-medium text-center"
-              style={{ left: leftColWidth + gapWidth / 2 - 40, width: 80 }}
-            >
-              Semantic Links
-            </div>
-          )}
-
-          {/* Right Column: Sentences */}
-          <div
-            className="absolute top-[30px] flex flex-col gap-0"
-            style={{ left: rightColX, width: rightColWidth, zIndex: 10 }}
-          >
-            {sentences.map((sent, i) => {
-              const isHovered = hoveredSentence === i;
-              const connectedInput = hoveredInput || selectedInput;
-              const hasConnection = connectedInput &&
-                visibleInputs.find(p => p.id === connectedInput)?.sentenceMatches.some(m => m.sentenceIndex === i);
-
-              return (
-                <div
-                  key={i}
-                  style={{ height: sentenceRowHeight, fontSize: labelFontSize }}
-                  className={`
-                    p-2 border-l-4 flex items-center cursor-pointer transition-all
-                    ${isHovered ? 'bg-orange-50 border-orange-400 text-slate-900 shadow-sm' : 'hover:bg-white border-slate-200 text-slate-600'}
-                    ${(connectedInput && !hasConnection) ? 'opacity-25' : 'opacity-100'}
-                  `}
-                  onMouseEnter={() => setHoveredSentence(i)}
-                  onMouseLeave={() => setHoveredSentence(null)}
-                  title={sent}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[9px] text-slate-400 font-medium mb-0.5">S{i + 1}</div>
-                    <span className="line-clamp-2 leading-tight">{sent}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          <span>{filtered.length ? `${safePage * PAGE_SIZE + 1}–${Math.min((safePage + 1) * PAGE_SIZE, filtered.length)} of ${filtered.length} contributions${query ? ' matching search' : ''}` : '0 contributions'}</span>
+          <div className="flex gap-2"><button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)} className="rounded border border-slate-300 px-3 py-2 hover:bg-white disabled:opacity-40">Previous</button><button type="button" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)} className="rounded border border-slate-300 px-3 py-2 hover:bg-white disabled:opacity-40">Next</button></div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-2 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500">
-        <strong>Tip:</strong> Click a participant to lock selection. Thicker lines = stronger semantic match.
-      </div>
+      <section aria-label="Compare original and summary wording" className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 md:p-5">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-4"><h3 className="text-sm font-semibold text-slate-900">Compare the actual wording</h3>{selected && <button type="button" onClick={() => select(null)} className="text-xs text-indigo-700 underline underline-offset-4">Clear selection</button>}</div>
+        <div className="grid md:grid-cols-2 gap-5">
+          <div><p className="text-xs font-semibold text-slate-500 mb-2">Original contribution{selected ? ` · ${selected.id}` : ''}</p><p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">{selected?.originalText ?? 'Choose a contribution above to read it in full.'}</p></div>
+          <div><p className="text-xs font-semibold text-slate-500 mb-2">{activeSentence !== null ? `Summary · Sentence ${activeSentence + 1}` : 'Summary sentence'}</p><p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap">{activeSentence !== null ? sentences[activeSentence] : 'Select a sentence to compare its wording with the original.'}</p>{selected && <p className="mt-3 text-xs text-indigo-800">{comparison ? `Text similarity: ${comparison.similarity.toFixed(2)} · This score does not establish whether the meaning was preserved.` : 'No recorded similarity link for this pair. This alone does not establish omission.'}</p>}</div>
+        </div>
+        <p className="mt-4 pt-3 border-t border-indigo-100 text-xs leading-relaxed text-slate-600">Look for what is included, softened, or missing. Links guide your review; they do not prove agreement, influence, or fair representation.</p>
+      </section>
     </div>
   );
 };

@@ -991,6 +991,7 @@ export const buildKnowledgeGraph = async (
 
     // Glean in batches (same batch structure as extraction)
     for (let bi = 0; bi < batches.length; bi++) {
+      onProgress?.(`Knowledge graph: checking missed entities in batch ${bi + 1}/${batches.length}`);
       const { entities, relationships } = await runStructuredBatchWithRetry(
         () => gleanMissedEntities(batches[bi], existingNames, config),
         `gleaning batch ${bi + 1}/${batches.length}`,

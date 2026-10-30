@@ -10,8 +10,8 @@
  *     DEMO_EMBEDDING_PROVIDER=openai npm run demo:generate
  */
 
-import { writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -42,7 +42,12 @@ const embeddingProvider = process.env.DEMO_EMBEDDING_PROVIDER === 'openai' ? 'op
 const generatorModel = process.env.DEMO_GENERATOR_MODEL ?? (provider === 'openai' ? 'gpt-4o-mini' : 'qwen2.5:14b');
 const evaluatorModel = process.env.DEMO_EVALUATOR_MODEL ?? (evaluatorProvider === 'openai' ? 'gpt-4o-mini' : 'phi4:14b');
 const embeddingModel = process.env.DEMO_EMBEDDING_MODEL ?? (embeddingProvider === 'openai' ? 'text-embedding-3-small' : 'qwen3-embedding:8b');
-const outputPath = resolve(process.env.DEMO_OUTPUT ?? 'public/demo-result.json');
+// Generate a review candidate; replacing the published fixture is a separate,
+// explicit step after validation.
+const outputPath = resolve(process.env.DEMO_OUTPUT ?? 'tmp/demo-result.candidate.json');
+if (outputPath === resolve('public/demo-result.json')) {
+  throw new Error('DEMO_OUTPUT must be a candidate path; validate it before replacing public/demo-result.json.');
+}
 
 session.setItem('cprov_ollama_host', ollamaHost);
 
@@ -118,6 +123,12 @@ process.stdout.write(JSON.stringify({
 }, null, 2));
 process.stdout.write('\n');
 
+// Preserve the actual run for diagnosis even when tutorial acceptance gates fail.
+// Rejected artifacts are never loaded by the application.
+const { inputEmbeddings: _checkpointEmbeddings, ...checkpoint } = result;
+await mkdir(dirname(outputPath), { recursive: true });
+await writeFile(`${outputPath}.review.json`, `${JSON.stringify(checkpoint, null, 2)}\n`, 'utf8');
+
 if (result.config.summaryMethod !== 'ai') {
   throw new Error(`Demo generation fell back to ${result.config.summaryMethod}; refusing to keep the artifact.`);
 }
@@ -133,14 +144,15 @@ if (result.clusteringDiagnostics.selectedK !== 4 || result.clusters.length !== 4
 if ((result.networkGraph?.analysis.bridgeNodes.length ?? 0) === 0) {
   throw new Error('Demo has no cross-group connector in the participant similarity network.');
 }
-if (result.tensionAnalysis?.methodVersion !== 'conservative-exact-span-v3' ||
+if (result.tensionAnalysis?.methodVersion !== 'conservative-exact-span-v4' ||
     result.tensionAnalysis.basis !== 'stable-semantic-groups' ||
     result.tensionAnalysis.pairs.length === 0) {
-  throw new Error('Demo has no verified exact-span tension candidate from the conservative v3 method.');
+  throw new Error('Demo has no verified exact-span tension candidate from the conservative v4 method.');
 }
 if (result.enrichmentStatus !== 'complete' || failedStages.length > 0) {
   throw new Error(`Demo enrichment was ${result.enrichmentStatus}; failed stages: ${failedStages.join(', ') || 'none'}.`);
 }
 
 const { inputEmbeddings: _privateEmbeddings, ...portableResult } = result;
+await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(portableResult, null, 2)}\n`, 'utf8');

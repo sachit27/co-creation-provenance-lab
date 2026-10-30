@@ -178,6 +178,9 @@ const run = async () => {
   console.log(`   antithetic : ${anti.evaluations} evals, RMSE ${rmseA(anti.values).toExponential(2)}`);
   check('antithetic is more accurate at comparable cost', rmseA(anti.values) < rmseA(iid.values));
   check('antithetic does not materially increase evaluations', anti.evaluations <= iid.evaluations * 1.1);
+  const orGame = (S: number[]) => S.length > 0 ? 1 : 0;
+  const pairedOr = await computeShapleyValues(2, orGame, { samples: 10, seed: 2, antithetic: true, truncationTolerance: 0 });
+  check('antithetic SE uses independent pair means', pairedOr.standardErrors.every(se => close(se, 0, 1e-12)), `SE ${pairedOr.standardErrors}`);
 
   // ── 11. Equivalence tiers ─────────────────────────────────────────────────
   console.log('\n[11] Statistical equivalence tiers');
@@ -188,6 +191,10 @@ const run = async () => {
   check('near-zero tier is flagged', sep[sep.length - 1].indistinguishableFromZero);
   const flat = computeEquivalenceTiers(ids6, [0.31, 0.30, 0.30, 0.29, 0.29, 0.28], ids6.map(() => 0.05));
   check('a flat landscape collapses to ONE tier (no invented hierarchy)', flat.length === 1, `got ${flat.length}`);
+  const chained = computeEquivalenceTiers(['A', 'B', 'C'], [.3, .2, .1], [.05, .05, .05]);
+  check('unresolved adjacent differences stay in one tier', chained.length === 1);
+  const unresolved = computeEquivalenceTiers(['A', 'B'], [.3, .1], [Number.NaN, .01]);
+  check('missing standard error does not create a tier boundary', unresolved.length === 1);
 
   // ── 12. Cluster-level attribution is cheaper AND more stable at scale ─────
   console.log('\n[12] Cluster vs individual attribution');

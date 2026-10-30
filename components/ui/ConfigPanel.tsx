@@ -13,6 +13,9 @@ import { ColumnSelector } from './ColumnSelector';
 import { clearEmbeddingCache, isPersistentEmbeddingCacheEnabled, setPersistentEmbeddingCacheEnabled } from '../../services/embeddingCache';
 
 interface ConfigPanelProps {
+  initialInputs?: ParticipantInput[];
+  initialDatasetName?: string;
+  initialSummaryMethod?: AnalysisConfig['summaryMethod'];
   onRun: (
     inputs: ParticipantInput[],
     config: AnalysisConfig,
@@ -50,9 +53,9 @@ const DOMAIN_PRESETS = [
   { id: 'media', label: 'Journalism / Media', context: 'These are press releases, interview transcripts, and media statements.', biasHint: 'Watch for cross-source claims becoming speculative or abstracted.' },
 ];
 
-export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
-  const [step, setStep] = useState<number>(1);
-  const [inputs, setInputs] = useState<ParticipantInput[]>([]);
+export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun, initialInputs, initialDatasetName, initialSummaryMethod }) => {
+  const [step, setStep] = useState<number>(initialInputs ? 2 : 1);
+  const [inputs, setInputs] = useState<ParticipantInput[]>(initialInputs ?? []);
   const [inputType, setInputType] = useState<'sample' | 'paste' | 'upload' | 'multi_doc' | 'single_doc'>('sample');
   // Multi-document mode state
   const [multiDocTexts, setMultiDocTexts] = useState<string[]>(['', '']);
@@ -114,7 +117,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   const apertusValidationSequence = useRef(0);
 
   const [config, setConfig] = useState<AnalysisConfig>({
-    datasetName: 'Citizen Feedback Project',
+    datasetName: initialDatasetName ?? 'Citizen Feedback Project',
     strategy: 'balanced',
     aiProvider: checkGroqConnection() ? 'groq'
       : checkOpenAIConnection() ? 'openai'
@@ -126,12 +129,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
         : checkClaudeConnection() ? claudeModels[0]
           : checkApertusConnection() ? APERTUS_MODELS[0]
             : DEFAULT_GEMINI_GENERATION_MODEL,
-    embeddingModel: checkOpenAIConnection() ? 'text-embedding-3-small' : DEFAULT_GEMINI_EMBEDDING_MODEL,
-    embeddingProvider: checkOpenAIConnection() ? 'openai' : 'gemini',
+    embeddingModel: initialInputs ? 'tfidf' : checkOpenAIConnection() ? 'text-embedding-3-small' : DEFAULT_GEMINI_EMBEDDING_MODEL,
+    embeddingProvider: initialInputs ? 'tfidf' : checkOpenAIConnection() ? 'openai' : 'gemini',
     runLOO: true,
-    summaryMethod: 'ai',
+    summaryMethod: initialSummaryMethod ?? (initialInputs ? 'extractive' : 'ai'),
     manualSummaryText: '',
-    summaryProvenance: { origin: 'generated-in-run' },
+    summaryProvenance: { origin: initialSummaryMethod === 'manual' ? 'unknown' : initialSummaryMethod === 'ai' ? 'generated-in-run' : initialInputs ? 'algorithmic-extractive' : 'generated-in-run' },
   });
 
   const reconcileCompletionCatalog = (prev: AnalysisConfig, provider: AIProvider, models: string[]): AnalysisConfig => {
@@ -293,6 +296,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   useEffect(() => {
     setUploadError(null);
     setPreviewPage(1);
+
+    if (initialInputs) {
+      setInputs(initialInputs);
+      setParsedPreview(initialInputs);
+      return;
+    }
 
     if (inputType === 'sample') {
       const ds = SAMPLE_DATASETS[selectedDataset] || SAMPLE_DATASETS.citizen;
@@ -480,6 +489,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       setUploadError("Invalid file type. Please upload a .csv, .tsv, or .txt file.");
       return;
     }
+    // Parsing and preview run on the main thread; reject unexpectedly large
+    // files before reading them into browser memory.
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('This file is over 20 MB. Split it into smaller CSV or TSV files before uploading.');
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -502,10 +517,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
           textColumnIndices: textCols.map(c => c.index),
           groupColumnIndex: groupCol?.index ?? -1,
         });
-      } catch {
-        setUploadError("Failed to parse file. Please check the format.");
+      } catch (error) {
+        setUploadError(error instanceof Error ? `Could not parse file: ${error.message}` : 'Could not parse file. Check its format.');
       }
     };
+    reader.onerror = () => setUploadError('Could not read the selected file. Please try again.');
     reader.readAsText(file);
   };
 
@@ -558,7 +574,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
       setUploadError(`Verify a working ${providerLabel} connection or choose Extractive / Manual summary mode before running.`);
       return;
     }
-    if (inputType === 'upload' && multiColumnMode === 'per_question' && columnSelection.textColumnIndices.length > 1) {
+    if (initialInputs) {
+      onRun(initialInputs, config);
+    } else if (inputType === 'upload' && multiColumnMode === 'per_question' && columnSelection.textColumnIndices.length > 1) {
       onRun(inputs, config, { rawCsvText, selection: columnSelection, columns: scannedColumns });
     } else {
       onRun(inputs, config);
@@ -712,9 +730,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto mt-12 animate-slideUp">
+    <div className="max-w-4xl mx-auto mt-4 animate-slideUp">
       {/* Stepper */}
-      <div className="flex items-center justify-center mb-12">
+      <div className="flex items-center justify-center mb-8">
         <div className={`flex items-center gap-2 ${step >= 1 ? 'text-blue-600' : 'text-slate-300'}`}>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 ${step >= 1 ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>1</div>
           <span className="font-semibold text-sm">Data Source</span>
@@ -1116,7 +1134,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
               <div className="flex justify-between items-center">
                 <div className="text-left">
                   <h2 className="text-2xl font-bold text-slate-800">Analysis Settings</h2>
-                  <p className="text-slate-500 mt-2">Configure AI Provider and Summary Strategy.</p>
+                  <p className="text-slate-500 mt-2">Choose a summary and alignment method. The local extractive baseline needs no API key.</p>
                 </div>
 
                 {/* Combined Status Indicator */}
@@ -2016,9 +2034,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ onRun }) => {
 
         <div className="bg-slate-50 p-6 flex justify-between items-center border-t border-slate-200">
           <button
-            onClick={() => setStep(Math.max(1, step - 1))}
-            disabled={step === 1}
-            className={`px-4 py-2 font-medium rounded-lg transition-colors ${step === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}
+            onClick={() => setStep(Math.max(initialInputs ? 2 : 1, step - 1))}
+            disabled={step === 1 || !!initialInputs}
+            className={`px-4 py-2 font-medium rounded-lg transition-colors ${step === 1 || initialInputs ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'}`}
           >
             Back
           </button>

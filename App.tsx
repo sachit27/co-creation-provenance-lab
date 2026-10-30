@@ -13,6 +13,8 @@ import { StrategyComparison } from './components/ui/StrategyComparison';
 import { downloadReport } from './services/reportExport';
 import { downloadProvenanceRecord } from './services/provenanceExport';
 import { downloadVerificationPage } from './services/participantVerification';
+import { buildReviewQueue, restoreReviewDecisions } from './services/auditReview';
+import { AuditReviewQueue } from './components/ui/AuditReviewQueue';
 import { BeforeAfterComparison } from './components/ui/BeforeAfterComparison';
 import { FeedbackAnalytics } from './components/ui/FeedbackAnalytics';
 import { FacilitationCoPilotPanel } from './components/ui/FacilitationCoPilotPanel';
@@ -31,6 +33,12 @@ import {
   selectRevisionCandidates,
   type RevisionTargetMode,
 } from './services/revisionTargeting';
+import { LandingPage } from './components/ui/LandingPage';
+import { AppHeader } from './components/ui/AppHeader';
+import { MethodologyModal } from './components/ui/MethodologyModal';
+import { BrandLogo } from './components/ui/BrandLogo';
+import { MetricsBanner } from './components/ui/MetricsBanner';
+import { parseBundledDemo } from './services/demoValidation';
 
 // The dashboard contains many mutually exclusive visualization tabs. Loading
 // them on demand keeps charting and force-graph code out of the initial app
@@ -49,6 +57,7 @@ const KnowledgeGraphViz = React.lazy(() => import('./components/visualizations/K
 const SensitivityChart = React.lazy(() => import('./components/visualizations/SensitivityChart').then(m => ({ default: m.SensitivityChart })));
 const GroupEquityChart = React.lazy(() => import('./components/visualizations/GroupEquityChart').then(m => ({ default: m.GroupEquityChart })));
 const UncertaintyViz = React.lazy(() => import('./components/visualizations/UncertaintyViz').then(m => ({ default: m.UncertaintyViz })));
+const LiveExperience = React.lazy(() => import('./components/live/LiveExperience').then(m => ({ default: m.LiveExperience })));
 
 // Error boundary — prevents one crashing visualization from white-screening the entire app
 class VizErrorBoundary extends React.Component<{ children: React.ReactNode; tabName?: string }, { hasError: boolean; error?: Error }> {
@@ -98,7 +107,7 @@ const Icons = {
   Graph: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><line x1="6.7" y1="7.5" x2="10.8" y2="16.2" /><line x1="17.3" y1="7.5" x2="13.2" y2="16.2" /><line x1="7" y1="6" x2="17" y2="6" /></svg>
 };
 
-type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
+type ViewState = 'landing' | 'setup' | 'processing' | 'dashboard' | 'error' | 'live';
 /**
  * Sidebar navigation grouped into macro-workspaces.
  *
@@ -115,6 +124,7 @@ type ViewState = 'setup' | 'processing' | 'dashboard' | 'error';
 interface NavItem {
   id: TabState;
   label: string;
+  purpose?: string;
   icon: keyof typeof Icons | 'citation';
   visible?: (data: AnalysisResult | null) => boolean;
   pending?: (data: AnalysisResult | null, isEnriching: boolean) => boolean;
@@ -130,47 +140,49 @@ interface Workspace {
 const WORKSPACES: Workspace[] = [
   {
     id: 'triage',
-    label: 'Overview & Triage',
+    label: 'Review inclusion',
     hint: 'Start here: how even is representation overall?',
     items: [
-      { id: 'stats', label: 'Inclusion Metrics', icon: 'Bar' },
-      { id: 'blindspot', label: 'Alignment Quadrants', icon: 'Eye' },
-      { id: 'uncertainty', label: 'Uncertainty', icon: 'Activity' },
-      { id: 'groups', label: 'Group Comparison', icon: 'Users', visible: d => !!d?.groupAnalysis },
+      { id: 'stats', purpose: 'Review similarity patterns and perspectives that need closer inspection.', label: 'Audit overview', icon: 'Bar' },
+      { id: 'review', purpose: 'Inspect automated suggestions and record your evidence-based decisions.', label: 'Evidence review queue', icon: 'CheckSquare' },
+      { id: 'blindspot', purpose: 'Compare representation with distance from other contributions.', label: 'Who needs a closer look?', icon: 'Eye' },
+      { id: 'uncertainty', purpose: 'Check how stable the audit estimates are.', label: 'Uncertainty', icon: 'Activity' },
+      { id: 'groups', purpose: 'Compare representation across participant groups.', label: 'Group Comparison', icon: 'Users', visible: d => !!d?.groupAnalysis },
     ],
   },
   {
     id: 'spaces',
-    label: 'Participant & Topic Spaces',
+    label: 'Explore the discussion',
     hint: 'Who is in the discussion, and who sits apart?',
     items: [
-      { id: 'map', label: 'Discussion Map', icon: 'Map' },
-      { id: 'similarity', label: 'Similarity Network', icon: 'Graph' },
-      { id: 'knowledge', label: 'Knowledge Graph', icon: 'Network',
+      { id: 'map', purpose: 'Explore where contributions sit in a shared map.', label: 'Discussion Map', icon: 'Map' },
+      { id: 'similarity', purpose: 'Find contributions with similar meaning.', label: 'Similar contributions', icon: 'Graph' },
+      { id: 'knowledge', purpose: 'Explore extracted topics and their relationships.', label: 'Topics and relationships', icon: 'Network',
         pending: (d, e) => e && !d?.knowledgeGraph },
     ],
   },
   {
     id: 'trace',
-    label: 'Associations & Evidence',
+    label: 'Trace summary evidence',
     hint: 'What automated evidence links sources and summary text?',
     items: [
-      { id: 'flow', label: 'Contribution Matches', icon: 'Flow' },
-      { id: 'sankey', label: 'Association Map', icon: 'Layers', pending: (_d, e) => e },
-      { id: 'claims', label: 'Claim Evidence', icon: 'CheckSquare', pending: (_d, e) => e },
-      { id: 'provenance', label: 'Sentence–Source Similarity', icon: 'citation' },
+      { id: 'flow', purpose: 'Follow matches between contributions and summary sentences.', label: 'Contribution Matches', icon: 'Flow' },
+      { id: 'sankey', purpose: 'See how sources and summary text are associated.', label: 'Association Map', icon: 'Layers', pending: (_d, e) => e },
+      { id: 'claims', purpose: 'Inspect source passages retrieved for summary claims.', label: 'Claim Evidence', icon: 'CheckSquare', pending: (_d, e) => e },
+      { id: 'provenance', purpose: 'Review source matches for each summary sentence.', label: 'Sentence–Source Similarity', icon: 'citation' },
     ],
   },
   {
     id: 'audit',
-    label: 'Discourse & Counterfactual Audit',
+    label: 'Review changes and sensitivity',
     hint: 'How was language transformed, and whose input mattered?',
     items: [
-      { id: 'fidelity', label: 'Source-unit Transformation', icon: 'Flow', pending: (_d, e) => e },
-      { id: 'tensions', label: 'Tension Mapping', icon: 'Network', pending: (_d, e) => e },
-      { id: 'rhetoric', label: 'Rhetoric–Alignment Association', icon: 'User' },
-      { id: 'sensitivity', label: 'Sensitivity (LOO)', icon: 'Zap' },
-      { id: 'strategies', label: 'Compare Strategies', icon: 'Layers',
+      { id: 'revisions', purpose: 'Compare this summary with a retained earlier version.', label: 'Revision history', icon: 'Refresh', visible: d => !!d?.revisionHistory?.length },
+      { id: 'fidelity', purpose: 'Inspect changes in language between sources and summary.', label: 'How source language changed', icon: 'Flow', pending: (_d, e) => e },
+      { id: 'tensions', purpose: 'Review competing perspectives found in the discussion.', label: 'Tension Mapping', icon: 'Network', pending: (_d, e) => e },
+      { id: 'rhetoric', purpose: 'Compare language features with representation scores.', label: 'Language and representation', icon: 'User' },
+      { id: 'sensitivity', purpose: 'Check how removing one record shifts the center of the input collection. This does not regenerate the summary.', label: 'Input sensitivity', icon: 'Zap' },
+      { id: 'strategies', purpose: 'Compare summaries produced by different strategies.', label: 'Compare Strategies', icon: 'Layers',
         visible: d => !!d?.strategyComparison && d.strategyComparison.length > 0 },
     ],
   },
@@ -180,12 +192,25 @@ const WORKSPACES: Workspace[] = [
 const workspaceForTab = (tab: TabState): string =>
   WORKSPACES.find(w => w.items.some(it => it.id === tab))?.id ?? WORKSPACES[0].id;
 
-type TabState = 'map' | 'blindspot' | 'flow' | 'sankey' | 'stats' | 'sensitivity' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity' | 'fidelity' | 'claims' | 'tensions' | 'rhetoric' | 'knowledge';
+type TabState = 'revisions' | 'review' | 'map' | 'blindspot' | 'flow' | 'sankey' | 'stats' | 'sensitivity' | 'groups' | 'uncertainty' | 'strategies' | 'provenance' | 'similarity' | 'fidelity' | 'claims' | 'tensions' | 'rhetoric' | 'knowledge';
 
 export default function App() {
-  const [viewState, setViewState] = useState<ViewState>('setup');
+  const [viewState, setViewState] = useState<ViewState>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('live') || urlParams.has('host')) return 'live';
+      const requested = urlParams.get('view');
+      if (requested === 'dashboard' || requested === 'setup') return requested;
+    } catch {}
+    return 'landing';
+  });
+  const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
+  const [liveSessionCode, setLiveSessionCode] = useState<string | null>(null);
+  const [cachedDemoRevision, setCachedDemoRevision] = useState<AnalysisResult | null>(null);
+  const [cachedDemoData, setCachedDemoData] = useState<AnalysisResult | null>(null);
+  const [isDemoAvailable, setIsDemoAvailable] = useState(false);
   const [data, setData] = useState<AnalysisResult | null>(null);
-  const [activeTab, setActiveTab] = useState<TabState>('map');
+  const [activeTab, setActiveTab] = useState<TabState>('stats');
   // Per-question mode state
   const [questionResults, setQuestionResults] = useState<QuestionAnalysis[] | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<number>(0);
@@ -203,6 +228,7 @@ export default function App() {
   const [revisionThreshold, setRevisionThreshold] = useState(ANALYSIS_CONFIG.thresholds.matchingThreshold);
   const [revisionMaxCandidates, setRevisionMaxCandidates] = useState(12);
   const [revisionInstruction, setRevisionInstruction] = useState('');
+  const [reviewImportNotice, setReviewImportNotice] = useState('');
   const [revisionError, setRevisionError] = useState<string | null>(null);
   const [revisionTargetingNote, setRevisionTargetingNote] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
@@ -238,6 +264,7 @@ export default function App() {
   const enrichmentAbortRef = useRef<AbortController | null>(null);
   const [enrichmentNoticeDismissed, setEnrichmentNoticeDismissed] = useState(false);
   const analysisGenRef = useRef(0); // incremented on each new analysis; guards stale Phase 2 updates
+  const reviewSuggestionCount = React.useMemo(() => data ? buildReviewQueue(data).length : 0, [data]);
   // Mobile sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -283,6 +310,23 @@ export default function App() {
     }
     return `Deep analysis did not complete.${unavailable} Core results remain available.`;
   })();
+  const tensionStage = data?.enrichmentStages?.tensions;
+  const tensionIsRunning = Boolean(isEnriching && tensionStage?.status === 'pending');
+  const tensionUnavailableReason = (() => {
+    if (!data) return 'No audit is loaded.';
+    const minimum = data.clusteringDiagnostics?.thresholds.minimumSampleSize
+      ?? ANALYSIS_CONFIG.algorithms.minClusteringSampleSize;
+    const groupingReason = data.participants.length < minimum
+      ? `This audit has ${data.participants.length} records; semantic grouping requires at least ${minimum}. The current tension scan requires accepted groups.`
+      : data.clusteringDiagnostics?.usableForDownstream !== true
+        ? `Semantic grouping did not pass the checks required for tension sampling. ${data.clusteringDiagnostics?.reason ?? ''}`
+        : '';
+    const stageReason = tensionStage?.message
+      ?? (tensionStage?.status === 'cancelled' ? 'Tension evaluation was cancelled.'
+        : tensionStage?.status === 'failed' ? 'Tension evaluation failed.'
+        : 'No tension evaluation is available for this audit. A connected evaluator is required.');
+    return [groupingReason, stageReason, 'Unavailable analysis does not establish an absence of disagreement.'].filter(Boolean).join(' ');
+  })();
   const knowledgeGraphStage = data?.enrichmentStages?.knowledgeGraph;
   const knowledgeGraphIsRunning = Boolean(isEnriching && knowledgeGraphStage?.status === 'pending');
   const knowledgeGraphUnavailable = Boolean(
@@ -296,31 +340,98 @@ export default function App() {
     causalAbortRef.current?.abort();
   }, []);
 
-  // Load pre-computed demo data on startup (if available)
+  // Load pre-computed demo data on startup (if available). The files are static
+  // assets, but still cross a JSON boundary and must be checked before use.
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}demo-result.json`)
-      .then(res => {
-        if (!res.ok) throw new Error('No demo data');
-        return res.json();
-      })
-      .then((demoData: AnalysisResult) => {
-        // Validate it's a real result, not an empty placeholder
-        if (demoData?.participants?.length > 0 && demoData?.metrics && demoData?.summary) {
-          setData(demoData);
+    const controller = new AbortController();
+    const loadDemo = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.BASE_URL}demo-result.json`, {
+          cache: 'no-cache', signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('No demo data');
+        const demoData = parseBundledDemo(await response.json());
+        if (controller.signal.aborted) return;
+        setCachedDemoData(demoData);
+        setIsDemoAvailable(true);
+        // Cache the fixture without replacing a live/custom audit that may
+        // have opened while this request was in flight.
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('view') === 'dashboard' && !urlParams.has('live') && !urlParams.has('host') && analysisGenRef.current === 0) {
+          setData(structuredClone(demoData));
           setIsDemo(true);
           setViewState('dashboard');
         }
-      })
-      .catch(() => {
-        // No demo data available — stay in setup mode
-      });
+        try {
+          const revisionResponse = await fetch(`${import.meta.env.BASE_URL}demo-revision.json`, {
+            cache: 'no-cache', signal: controller.signal,
+          });
+          if (!revisionResponse.ok) return; // Older demo builds have no revision.
+          const revision = parseBundledDemo(await revisionResponse.json());
+          if (!controller.signal.aborted && revision.revisionOfRunId === demoData.runManifest?.runId
+            && revision.participants.length === demoData.participants.length
+            && revision.participants.every(participant => demoData.participants.some(source =>
+              source.id === participant.id && source.originalText === participant.originalText))) {
+            setCachedDemoRevision(revision);
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) console.warn('Saved demo revision unavailable:', error);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('Bundled demo unavailable:', error);
+          setIsDemoAvailable(false);
+        }
+      }
+    };
+    void loadDemo();
+    return () => controller.abort();
   }, []);
+
+  // Explicit demo actions always replace the current audit with the bundled
+  // fixture. Audit Lab navigation can still resume the active audit.
+  const handleOpenDemo = () => {
+    if (!cachedDemoData) {
+      setViewState('setup');
+      return;
+    }
+    analysisGenRef.current++;
+    causalAbortRef.current?.abort();
+    enrichmentAbortRef.current?.abort();
+    enrichmentAbortRef.current = null;
+    setData(structuredClone(cachedDemoData));
+    setIsDemo(true);
+    setLiveSessionCode(null);
+    setQuestionResults(null);
+    setActiveQuestion(0);
+    setSelectedParticipant(null);
+    setActiveTab('stats');
+    setFeedbacks(new Map());
+    setRevisedData(null);
+    setShowRevisionEditor(false);
+    setRevisionDraft('');
+    setRevisionError(null);
+    setRevisionTargetingNote(null);
+    setFacilitationPlan(null);
+    setShowFacilitationPanel(false);
+    setCausalResult(null);
+    setCausalError(null);
+    setShowCausalPanel(false);
+    setIsRunningCausal(false);
+    setIsEnriching(false);
+    setEnrichProgressMsg('');
+    setEnrichmentNoticeDismissed(false);
+    setErrorMsg('');
+    closeSidebar();
+    window.history.replaceState(null, '', `${import.meta.env.BASE_URL}?view=dashboard`);
+    setViewState('dashboard');
+  };
 
   // Export current analysis as demo JSON (for generating demo-result.json)
   const exportDemoData = () => {
     if (!data) return;
     // Strip inputEmbeddings to reduce file size
-    const { inputEmbeddings, ...exportData } = data as any;
+    const { inputEmbeddings: _inputEmbeddings, ...exportData } = data;
     const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -351,6 +462,11 @@ export default function App() {
     setRevisionError(null);
     setRevisionTargetingNote(null);
     setShowRevisionEditor(true);
+    requestAnimationFrame(() => {
+      const editor = document.getElementById('audit-revision-editor');
+      editor?.focus({ preventScroll: true });
+      editor?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
   };
 
   /** Ask AI to generate a draft revision (fills the editor textarea). */
@@ -380,6 +496,7 @@ export default function App() {
   /** Apply the current editor content and recompute scores for comparison. */
   const handleApplyRevision = async () => {
     if (!data || !revisionDraft.trim()) return;
+    const revisionGeneration = analysisGenRef.current;
     setIsApplyingRevision(true);
     try {
       const { recomputeWithNewSummary } = await import('./services/summaryRevision');
@@ -393,7 +510,11 @@ export default function App() {
           ? revisionTargetingNote ?? undefined
           : undefined,
       );
-      setRevisedData(revised);
+      if (revisionGeneration !== analysisGenRef.current) return;
+      setRevisedData({ ...revised, enrichmentStatus: 'partial', enrichmentStages: Object.fromEntries(
+        ['language', 'affect', 'claims', 'tensions', 'knowledgeGraph', 'sankey'].map(stage => [stage, { status: 'skipped', message: 'Not run for this revision. Run a new full audit to assess revised wording.' }])
+      ) });
+      requestAnimationFrame(() => document.getElementById('audit-revision-comparison')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }));
       setShowRevisionEditor(false);
     } catch (e: any) {
       console.error('Revision failed:', e);
@@ -489,6 +610,7 @@ export default function App() {
     enrichmentAbortRef.current?.abort();
     enrichmentAbortRef.current = null;
     setViewState('processing');
+    setLiveSessionCode(null);
     setErrorMsg('');
     setData(null);
     setQuestionResults(null);
@@ -582,7 +704,7 @@ export default function App() {
           setEnrichProgressMsg(msg);
         }, enrichmentController.signal).then(enriched => {
           if (gen !== analysisGenRef.current) return;
-          setData(enriched);
+          setData(current => ({ ...enriched, reviewDecisions: current?.reviewDecisions ?? [] }));
           setIsEnriching(false);
           enrichmentAbortRef.current = null;
           if (enriched.enrichmentStatus === 'complete') {
@@ -630,99 +752,146 @@ export default function App() {
     setSelectedParticipant(sorted[prevIdx].id);
   };
 
-  const MetricsBanner = ({ metrics, participants, uncertaintyMetrics, embeddingTier }: { metrics: any, participants: any[], uncertaintyMetrics?: any, embeddingTier?: string }) => {
-    const validParticipants = participants.filter((participant: any) => !participant.embeddingFailed && !participant.alignmentUnavailableReason);
-    const avgScore = validParticipants.reduce((acc: number, p: any) => acc + p.representationScore, 0) / Math.max(1, validParticipants.length);
-    const bands = getRepresentationBands(embeddingTier);
-    const atRiskCount = validParticipants.filter((p: any) => p.representationScore < bands.atRisk).length;
+  if (viewState === 'live') {
+    return <React.Suspense fallback={<div className="min-h-screen grid place-items-center">Opening live session…</div>}><LiveExperience onOpenDashboard={(result, code) => {
+      analysisGenRef.current++;
+      causalAbortRef.current?.abort();
+      enrichmentAbortRef.current?.abort();
+      setData(result);
+      setIsDemo(false);
+      setLiveSessionCode(code);
+      window.history.replaceState(null, '', `${import.meta.env.BASE_URL}?view=dashboard`);
+      setViewState('dashboard');
+    }} /></React.Suspense>;
+  }
 
-    // Format CI if available
-    const formatCI = (ci: { lower: number; upper: number } | undefined) => {
-      if (!ci) return null;
-      return `[${ci.lower.toFixed(2)}, ${ci.upper.toFixed(2)}]`;
-    };
-
+  if (viewState === 'landing') {
     return (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <Card className="border-l-4 border-l-blue-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
-          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-            Avg Representation <InfoIcon metricKey="representation" />
-          </div>
-          <div className="text-2xl font-bold mt-1 text-blue-700">
-            {avgScore.toFixed(2)}
-          </div>
-          <div className="text-xs mt-1 flex items-center gap-1 flex-wrap">
-            <span className="px-1 rounded bg-blue-50 text-blue-700">
-              Provisional reference: {'>'}{bands.target}
-            </span>
-            {uncertaintyMetrics?.avgRepresentationCI && (
-              <span className="text-slate-400 text-[10px]">
-                resampling range: {formatCI(uncertaintyMetrics.avgRepresentationCI)}
-              </span>
-            )}
-          </div>
-        </Card>
-        <Card className="border-l-4 border-l-purple-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
-          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-            Gini Coefficient <InfoIcon metricKey="gini" />
-          </div>
-          <div className="text-2xl font-bold mt-1 text-purple-700">
-            {metrics.giniCoefficient.toFixed(3)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
-            <span>Descriptive spread of valid alignment scores</span>
-          </div>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
-          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-            Distinct-record Gap <InfoIcon metricKey="gap" />
-          </div>
-          <div className="text-2xl font-bold mt-1 text-amber-700">
-            {metrics.distinctRepresentationGap.toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            Mean difference for the centroid-distant quartile
-          </div>
-        </Card>
-        <Card className="border-l-4 border-l-teal-500 hover:shadow-md transition-shadow metric-card" allowOverflow={true}>
-          <div className="text-slate-500 text-xs uppercase font-bold tracking-wider flex items-center">
-            Coverage Stats <InfoIcon metricKey="diversity" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-1">
-            <span className="text-2xl font-bold text-slate-800">{participants.length}</span>
-            <span className="text-sm text-slate-500">inputs</span>
-          </div>
-          <div className="text-xs mt-1 flex items-center gap-2 flex-wrap">
-            {atRiskCount > 0 ? (
-              <span className="bg-red-100 text-red-700 px-1.5 rounded flex items-center gap-1">
-                {atRiskCount} below review marker <InfoIcon metricKey="atRisk" />
-              </span>
-            ) : (
-              <span className="bg-slate-100 text-slate-700 px-1.5 rounded">None below marker</span>
-            )}
-            <span className="text-slate-400">Div: {metrics.inputDiversity.toFixed(2)}</span>
-          </div>
-        </Card>
+      <div className="min-h-screen bg-slate-50 flex flex-col view-transition">
+        <AppHeader
+          currentView="landing"
+          onNavigate={(v) => {
+            if (v === 'dashboard') {
+              if (data) {
+                setViewState('dashboard');
+              } else if (cachedDemoData) {
+                setData(structuredClone(cachedDemoData));
+                setIsDemo(true);
+                setViewState('dashboard');
+              } else {
+                setViewState('setup');
+              }
+            } else {
+              setViewState(v);
+            }
+          }}
+          onOpenMethodology={() => setIsMethodologyOpen(true)}
+          isDemo={isDemo}
+          dataLoaded={!!data}
+          participantCount={data?.participants.length}
+          embeddingTier={data?.embeddingTierUsed}
+        />
+        <LandingPage
+          onOpenDemo={handleOpenDemo}
+          onOpenSetup={() => setViewState('setup')}
+          onOpenMethodology={() => setIsMethodologyOpen(true)}
+          isDemoAvailable={isDemoAvailable}
+        />
+        <MethodologyModal
+          isOpen={isMethodologyOpen}
+          onClose={() => setIsMethodologyOpen(false)}
+        />
       </div>
     );
-  };
+  }
 
   if (viewState === 'setup') {
     return (
-      <div className="min-h-screen setup-bg p-6 md:p-8 view-transition">
-        <OnboardingOverlay />
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-8 animate-fadeIn">
-            <div className="logo-glow inline-block mb-5">
-              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Co-Creation Provenance Lab" className="h-20 w-20 mx-auto rounded-2xl animate-float" />
+      <div className="min-h-screen bg-slate-50 flex flex-col view-transition">
+        <AppHeader
+          currentView="setup"
+          onNavigate={(v) => {
+            if (v === 'landing') setViewState('landing');
+            else if (v === 'dashboard') {
+              if (data) setViewState('dashboard');
+              else if (cachedDemoData) {
+                setData(structuredClone(cachedDemoData));
+                setIsDemo(true);
+                setViewState('dashboard');
+              }
+            } else {
+              setViewState(v);
+            }
+          }}
+          onOpenMethodology={() => setIsMethodologyOpen(true)}
+          isDemo={isDemo}
+          dataLoaded={!!data}
+          participantCount={data?.participants.length}
+          embeddingTier={data?.embeddingTierUsed}
+          onReset={() => {
+            setData(null);
+            setIsDemo(false);
+            setViewState('landing');
+          }}
+        />
+        <div className="flex-1 p-6 md:p-8">
+          <OnboardingOverlay />
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <button
+                onClick={() => setViewState('landing')}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+              >
+                ← Back to Overview
+              </button>
+              {isDemoAvailable && (
+                <button
+                  onClick={handleOpenDemo}
+                  className="text-xs font-semibold px-3 py-1.5 bg-brand-50 text-brand-700 hover:bg-brand-100 rounded-lg border border-brand-200 transition-colors"
+                >
+                  Explore Precomputed Demo →
+                </button>
+              )}
             </div>
-            <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight animate-fadeIn stagger-1">Co-Creation Provenance Lab</h1>
-            <p className="text-lg text-slate-500 mt-3 max-w-2xl mx-auto animate-fadeIn stagger-2">Inspect execution provenance, semantic alignment, evidence gaps, and model-coded transformations in AI-assisted synthesis.</p>
-          </div>
-          <div className="animate-fadeIn stagger-3">
-            <ConfigPanel onRun={startAnalysis} />
+            <div className="text-center mb-8 animate-fadeIn">
+              <div className="inline-block mb-3">
+                <BrandLogo variant="mark" size={56} withBadge />
+              </div>
+              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Configure New Audit</h1>
+              <p className="text-base text-slate-500 mt-2 max-w-2xl mx-auto">Configure input sources, summarization method, and semantic alignment evaluation.</p>
+            </div>
+            <div className="animate-fadeIn">
+              <ConfigPanel onRun={startAnalysis} />
+            </div>
+
+            {/* Setup View Bottom Panel */}
+            <footer className="mt-12 pt-6 pb-6 border-t border-slate-200/80 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <BrandLogo variant="mark" size={18} />
+                <span className="font-semibold text-slate-700">Provenance Lab</span>
+              </div>
+              <div className="flex items-center gap-5">
+                <button
+                  type="button"
+                  onClick={() => setIsMethodologyOpen(true)}
+                  className="hover:text-slate-800 transition-colors font-medium cursor-pointer"
+                >
+                  Methodology & Math
+                </button>
+                <a
+                  href="mailto:sachitmahajan90@gmail.com"
+                  className="text-slate-600 hover:text-indigo-600 font-medium transition-colors"
+                >
+                  Contact: Sachit Mahajan
+                </a>
+              </div>
+            </footer>
           </div>
         </div>
+        <MethodologyModal
+          isOpen={isMethodologyOpen}
+          onClose={() => setIsMethodologyOpen(false)}
+        />
       </div>
     );
   }
@@ -779,6 +948,8 @@ export default function App() {
         p.representationScore < getRepresentationBands(data.embeddingTierUsed).low).length
     : 0;
 
+  const activeView = WORKSPACES.flatMap(workspace => workspace.items).find(item => item.id === activeTab);
+
   const switchTab = (tab: TabState) => {
     setActiveTab(tab);
     // Keep the owning workspace open. Several views switch tabs
@@ -792,219 +963,274 @@ export default function App() {
       return next;
     });
     closeSidebar();
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(tab === 'stats' ? 'audit-overview' : 'audit-workspace');
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 view-transition">
-      {/* Mobile hamburger button */}
-      <button
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed top-3 left-3 z-30 bg-slate-900/90 backdrop-blur text-white p-2.5 rounded-xl shadow-lg btn-hover"
-        aria-label="Toggle navigation"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          {sidebarOpen
-            ? <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
-            : <><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>
-          }
-        </svg>
-      </button>
+    <div className="min-h-screen flex flex-col bg-slate-50 view-transition">
+      <AppHeader
+        currentView="dashboard"
+        onNavigate={(v) => {
+          if (v === 'landing') setViewState('landing');
+          else if (v === 'setup') setViewState('setup');
+        }}
+        onOpenMethodology={() => setIsMethodologyOpen(true)}
+        isDemo={isDemo}
+        dataLoaded={!!data}
+        participantCount={data?.participants.length}
+        onExportReport={() => data && downloadReport(data)}
+        onExportProvenance={() => { if (data) void downloadProvenanceRecord(data); }}
+        onToggleSidebar={() => setSidebarOpen(prev => !prev)}
+        isSidebarOpen={sidebarOpen}
+        onReset={() => {
+          analysisGenRef.current++;
+          causalAbortRef.current?.abort();
+          enrichmentAbortRef.current?.abort();
+          enrichmentAbortRef.current = null;
+          setIsDemo(false);
+          setViewState('landing');
+          setData(null);
+          setQuestionResults(null);
+          setFeedbacks(new Map());
+          setRevisedData(null);
+          setShowRevisionEditor(false);
+          setFacilitationPlan(null);
+          setCausalResult(null);
+          setIsEnriching(false);
+          setEnrichProgressMsg('');
+          setEnrichmentNoticeDismissed(false);
+          closeSidebar();
+        }}
+      />
+      {liveSessionCode && <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-sm text-blue-900">Viewing a browser copy of the audit from live session {liveSessionCode}. Changes here are included in downloads; use the facilitator console to save live review notes and publish revisions. <a className="underline font-semibold" href={`${import.meta.env.BASE_URL}?host=${liveSessionCode}`}>Return to facilitator console</a></div>}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div className="md:hidden fixed inset-0 bg-black/50 z-10 sidebar-overlay" onClick={closeSidebar} />
+        )}
 
-      {/* Mobile backdrop */}
-      {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/50 z-10 sidebar-overlay" onClick={closeSidebar} />
-      )}
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-20 w-72 bg-slate-900 text-slate-300 flex-shrink-0 flex flex-col shadow-2xl
-        transform transition-transform duration-300 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:sticky md:top-0 md:h-screen md:translate-x-0 md:w-64
-      `}>
-        <div className="p-5 border-b border-slate-800 flex-shrink-0">
-          <div className="flex items-center gap-2.5 mb-1">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-8 w-8 rounded-lg flex-shrink-0" />
-            <h1 className="text-white font-bold text-lg tracking-tight">Provenance Lab</h1>
+        {/* Sidebar */}
+        <aside className={`
+          fixed inset-y-0 left-0 z-20 w-72 bg-white/95 backdrop-blur-md border-r border-slate-200/90 text-slate-700 flex-shrink-0 flex flex-col shadow-xl md:shadow-none
+          transform transition-transform duration-300 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:translate-x-0 md:w-64
+        `}>
+          <div className="p-3.5 border-b border-slate-100 bg-slate-50/60 flex-shrink-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <BrandLogo variant="mark" size={24} />
+              <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                AUDIT LAB
+              </span>
+            </div>
+            <p className="text-xs text-slate-900 font-bold truncate">
+              {data?.config.datasetName || 'Active Session'}
+            </p>
+            <p className="text-[11px] text-slate-500 font-medium">
+              {data?.participants.length} Sources · {data?.embeddingTierUsed ?? 'dense'} tier
+              {questionResults && questionResults.length > 1 && (
+                <span className="block text-indigo-600 mt-0.5 font-semibold">Q{activeQuestion + 1} of {questionResults.length} questions</span>
+              )}
+            </p>
+            <div className="mt-2 px-2 py-1 bg-white rounded text-[10px] font-mono text-slate-600 border border-slate-200 flex justify-between shadow-2xs">
+              <span>Strategy:</span>
+              <span className="font-bold text-indigo-700">{data?.config.strategy.toUpperCase()}</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 font-medium">
-            {data?.config.datasetName} • {data?.participants.length} Participants
-            {questionResults && questionResults.length > 1 && (
-              <span className="block text-blue-400 mt-0.5">Q{activeQuestion + 1} of {questionResults.length} questions</span>
-            )}
-          </p>
-          <div className="mt-4 px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-blue-300 border border-blue-900/50 flex justify-between">
-            <span>Strategy:</span>
-            <span className="font-bold">{data?.config.strategy.toUpperCase()}</span>
-          </div>
-        </div>
 
-        {/* min-h-0 is required: flex items default to min-height:auto, so without it
-            the nav grows to its content height instead of scrolling, pushing the
-            footer actions out of view. */}
-        <nav className="p-3 space-y-1 flex-1 min-h-0 overflow-y-auto sidebar-scroll">
-          {WORKSPACES.map(ws => {
-            const items = ws.items.filter(it => !it.visible || it.visible(data));
-            if (items.length === 0) return null;
-            const isOpen = expandedWorkspaces.has(ws.id);
-            const containsActive = items.some(it => it.id === activeTab);
-            const pendingCount = items.filter(it => it.pending?.(data, isEnriching)).length;
+          {/* min-h-0 is required: flex items default to min-height:auto, so without it
+              the nav grows to its content height instead of scrolling, pushing the
+              footer actions out of view. */}
+          <nav className="p-2.5 space-y-1 flex-1 min-h-0 overflow-y-auto sidebar-scroll">
+            {WORKSPACES.map(ws => {
+              const items = ws.items.filter(it => !it.visible || it.visible(data));
+              if (items.length === 0) return null;
+              const isOpen = expandedWorkspaces.has(ws.id);
+              const containsActive = items.some(it => it.id === activeTab);
+              const pendingCount = items.filter(it => it.pending?.(data, isEnriching)).length;
 
-            return (
-              <div key={ws.id} className="mb-1">
-                <button
-                  onClick={() => toggleWorkspace(ws.id)}
-                  aria-expanded={isOpen}
-                  aria-controls={`ws-${ws.id}`}
-                  title={ws.hint}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors ${
-                    containsActive ? 'text-blue-300' : 'text-slate-500 hover:text-slate-300'
-                  } hover:bg-slate-800/60`}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
-                    aria-hidden="true"
+              return (
+                <div key={ws.id} className="mb-1">
+                  <button
+                    onClick={() => toggleWorkspace(ws.id)}
+                    aria-expanded={isOpen}
+                    aria-controls={`ws-${ws.id}`}
+                    title={ws.hint}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      containsActive ? 'text-indigo-700 font-extrabold' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                    }`}
                   >
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                  <span className="flex-1 text-left">{ws.label}</span>
-                  {!isOpen && containsActive && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" aria-label="contains active view" />
-                  )}
-                  {!isOpen && pendingCount > 0 && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" aria-label="analyses still running" />
-                  )}
-                </button>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+                      aria-hidden="true"
+                    >
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                    <span className="flex-1 text-left">{ws.label}</span>
+                    {!isOpen && containsActive && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 flex-shrink-0" aria-label="contains active view" />
+                    )}
+                    {!isOpen && pendingCount > 0 && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" aria-label="analyses still running" />
+                    )}
+                  </button>
 
-                {isOpen && (
-                  <div id={`ws-${ws.id}`} className="mt-1 space-y-1">
-                    {items.map(it => {
-                      const Icon = it.icon === 'citation' ? null : Icons[it.icon as keyof typeof Icons];
-                      return (
-                        <button
-                          key={it.id}
-                          onClick={() => switchTab(it.id)}
-                          aria-current={activeTab === it.id ? 'page' : undefined}
-                          className={`nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                            activeTab === it.id
-                              ? 'active bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                              : 'hover:bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {Icon ? <Icon /> : <span aria-hidden="true">📜</span>}
-                          {it.label}
-                          {it.pending?.(data, isEnriching) && (
-                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
+                  {isOpen && (
+                    <div id={`ws-${ws.id}`} className="mt-0.5 space-y-0.5">
+                      <p className="px-3 py-1 text-[11px] text-slate-500 leading-relaxed">{ws.hint}</p>
+                      {items.map(it => {
+                        const Icon = it.icon === 'citation' ? null : Icons[it.icon as keyof typeof Icons];
+                        return (
+                          <button
+                            key={it.id}
+                            onClick={() => switchTab(it.id)}
+                            title={it.purpose}
+                            aria-current={activeTab === it.id ? 'page' : undefined}
+                            className={`nav-item w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                              activeTab === it.id
+                                ? 'active bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs'
+                                : 'hover:bg-slate-100/70 text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {Icon ? <Icon /> : <span aria-hidden="true">📜</span>}
+                            <span>{it.label}</span>
+                            {it.pending?.(data, isEnriching) && (
+                              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
 
-        <div className="p-3 border-t border-slate-800 space-y-1.5 flex-shrink-0 max-h-[45vh] overflow-y-auto sidebar-scroll">
-          <button onClick={() => { analysisGenRef.current++; causalAbortRef.current?.abort(); enrichmentAbortRef.current?.abort(); enrichmentAbortRef.current = null; setIsDemo(false); setViewState('setup'); setData(null); setQuestionResults(null); setFeedbacks(new Map()); setRevisedData(null); setShowRevisionEditor(false); setFacilitationPlan(null); setCausalResult(null); setIsEnriching(false); setEnrichProgressMsg(''); setEnrichmentNoticeDismissed(false); closeSidebar(); }} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-medium border border-slate-700 group btn-hover">
-            <Icons.Refresh /> <span className="group-hover:text-blue-200 transition-colors">New Analysis</span>
-          </button>
-          {data && (
-            <button
-              onClick={() => downloadReport(data)}
-              className="w-full bg-blue-800/50 hover:bg-blue-700 text-blue-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-blue-700/50 btn-hover"
-              title="Download a comprehensive HTML report for stakeholders"
-            >
-              📊 Export Report
-            </button>
-          )}
-          {data && (
-            <button
-              onClick={() => { void downloadProvenanceRecord(data); }}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover"
-              title="Download an unsigned W3C PROV-O-aligned audit record (JSON-LD)"
-            >
-              📜 Provenance (JSON-LD)
-            </button>
-          )}
-          {data && (
+          <div className="p-3 border-t border-slate-100 bg-slate-50/50 space-y-1.5 flex-shrink-0 max-h-[45vh] overflow-y-auto sidebar-scroll">
             <button
               onClick={() => {
-                void downloadVerificationPage(data).catch(error => {
-                  console.error('Participant-response page export failed:', error);
-                  alert(`Participant-response page export failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-                });
+                analysisGenRef.current++;
+                causalAbortRef.current?.abort();
+                enrichmentAbortRef.current?.abort();
+                enrichmentAbortRef.current = null;
+                setIsDemo(false);
+                setViewState('setup');
+                setData(null);
+                setQuestionResults(null);
+                setFeedbacks(new Map());
+                setRevisedData(null);
+                setShowRevisionEditor(false);
+                setFacilitationPlan(null);
+                setCausalResult(null);
+                setIsEnriching(false);
+                setEnrichProgressMsg('');
+                setEnrichmentNoticeDismissed(false);
+                closeSidebar();
               }}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover"
-              title="Download an offline, run-bound participant-response page (identity is not authenticated)"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2 px-3 rounded-xl flex items-center justify-center gap-2 transition-colors text-xs font-semibold shadow-2xs"
             >
-              ✅ Verification Page
+              <Icons.Refresh /> <span>New Analysis</span>
             </button>
-          )}
+            {data && (
+              <button
+                onClick={() => downloadReport(data)}
+                className="w-full bg-white hover:bg-slate-50 text-slate-700 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-200 shadow-2xs"
+                title="Download a comprehensive HTML report for stakeholders"
+              >
+                📊 Export Report
+              </button>
+            )}
+            {data && (
+              <button
+                onClick={() => { void downloadProvenanceRecord(data); }}
+                className="w-full bg-white hover:bg-slate-50 text-slate-700 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-200 shadow-2xs"
+                title="Download an unsigned W3C PROV-O-aligned audit record (JSON-LD)"
+              >
+                📜 Provenance (JSON-LD)
+              </button>
+            )}
+            {data && (
+              <button
+                onClick={() => {
+                  void downloadVerificationPage(data).catch(error => {
+                    console.error('Participant-response page export failed:', error);
+                    alert(`Participant-response page export failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+                  });
+                }}
+                className="w-full bg-white hover:bg-slate-50 text-slate-700 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-200 shadow-2xs"
+                title="Download an offline, run-bound participant-response page (identity is not authenticated)"
+              >
+                ✅ Verification Page
+              </button>
+            )}
+            {data && (
+              <button
+                onClick={handleGenerateFacilitationPlan}
+                disabled={isGeneratingPlan}
+                className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-semibold border border-emerald-200 shadow-2xs disabled:opacity-50"
+                title="Generate facilitation plan with follow-up questions and workshop exercises"
+              >
+                {isGeneratingPlan ? 'Generating...' : '🧭 Facilitation Co-Pilot'}
+              </button>
+            )}
+            {data && data.config?.summaryMethod === 'ai' && (
+              <button
+                onClick={() => setShowCausalPanel(v => !v)}
+                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-800 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-semibold border border-indigo-200 shadow-2xs"
+                title="Estimate counterfactual utility by regenerating summaries with inputs withheld (uses many model calls; not causal identification)"
+              >
+                🎯 Counterfactual Attribution
+              </button>
+            )}
+            {data && !isDemo && (
+              <button onClick={exportDemoData} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-200">
+                Export Demo Data
+              </button>
+            )}
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 p-4 md:p-8 relative">
           {data && (
-            <button
-              onClick={handleGenerateFacilitationPlan}
-              disabled={isGeneratingPlan}
-              className="w-full bg-emerald-800/60 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-wait text-emerald-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-emerald-700/50 btn-hover"
-              title="Generate facilitation plan with follow-up questions and workshop exercises"
-            >
-              {isGeneratingPlan ? (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" /><path d="M3 3v9h9" /></svg>
-                  Generating...
-                </>
-              ) : (
-                '🧭 Facilitation Co-Pilot'
-              )}
-            </button>
-          )}
-          {data && data.config?.summaryMethod === 'ai' && (
-            <button
-              onClick={() => setShowCausalPanel(v => !v)}
-              className="w-full bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-indigo-700/50 btn-hover"
-              title="Estimate counterfactual utility by regenerating summaries with inputs withheld (uses many model calls; not causal identification)"
-            >
-              🎯 Counterfactual Attribution
-            </button>
-          )}
-          {data && !isDemo && (
-            <button onClick={exportDemoData} className="w-full bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors text-xs font-medium border border-slate-700/50 btn-hover">
-              Export Demo Data
-            </button>
-          )}
-        </div>
-      </aside>
+            <div className="max-w-7xl mx-auto space-y-6">
 
-      {/* Main Content */}
-      <main className="flex-1 p-4 pt-14 md:pt-4 md:p-8 relative">
-        {data && (
-          <div className="max-w-7xl mx-auto space-y-6">
-
-            {/* Demo Mode Banner */}
-            {isDemo && (
-              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl p-4 shadow-lg flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">🔬</span>
-                  <div>
-                    <div className="font-bold text-sm">Interactive Demo</div>
-                    <div className="text-blue-100 text-xs">
-                      {data.runManifest
-                        ? `Pre-computed ${data.enrichmentStatus === 'complete' ? 'complete' : 'partial'} application run of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} · embedding: ${data.runManifest.actualEmbedding.model} · generator: ${data.runManifest.actualGenerator?.model ?? 'non-generative'} · evaluator: ${data.runManifest.actualEvaluator?.model ?? 'unavailable'}.`
-                        : `Pre-computed archived analysis of ${data.participants.length} source records from ${data.config.datasetName || 'the bundled tutorial dataset'} using ${data.config.embeddingModel ?? data.embeddingTierUsed ?? 'an archived embedding method'}; newer enrichment modules may be unavailable.`}
+              {/* Demo Mode Banner */}
+              {isDemo && (
+                <div className="bg-gradient-to-r from-indigo-50/90 via-white to-cyan-50/90 border border-indigo-200/80 rounded-2xl p-4 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-slate-800">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-100/80 text-indigo-700 flex items-center justify-center flex-shrink-0 text-base shadow-2xs font-bold">
+                      🔬
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[10px] uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          Benchmark Demo Run
+                        </span>
+                        <span className="text-xs font-semibold text-slate-800">
+                          {data.participants.length} Source Records · Nature-Based Solutions
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                        A synthetic citizen consultation about using trees, green spaces, and water-sensitive design in city planning. Explore how the summary reflects residents, ecology groups, public officials, and young people.
+                      </p>
                     </div>
                   </div>
+                  <button
+                    onClick={() => { setIsDemo(false); setViewState('setup'); closeSidebar(); }}
+                    className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold py-2 px-3.5 rounded-lg transition-all shadow-2xs whitespace-nowrap self-end sm:self-auto"
+                  >
+                    Audit Your Own Data →
+                  </button>
                 </div>
-                <button
-                  onClick={() => { setIsDemo(false); setViewState('setup'); closeSidebar(); }}
-                  className="bg-white/20 hover:bg-white/30 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors whitespace-nowrap btn-hover"
-                >
-                  Try Your Own Data
-                </button>
-              </div>
-            )}
+              )}
 
             {/* Question tab selector — shown only in per-question mode */}
             {questionResults && questionResults.length > 1 && (
@@ -1058,17 +1284,28 @@ export default function App() {
               </div>
             )}
 
+            {isDemo && cachedDemoRevision && cachedDemoRevision.revisionOfRunId === data.runManifest?.runId && <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div><p className="font-semibold text-sm text-indigo-900">Explore a separately scored revision</p><p className="text-xs text-indigo-800 mt-1">A synthetic AI-assisted example. Compare changed wording and source alignment; it has not been approved by participants.</p></div>
+              <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white" onClick={() => {
+                setRevisedData(structuredClone(cachedDemoRevision));
+                requestAnimationFrame(() => document.getElementById('audit-revision-comparison')?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+              }}>Compare saved revision</button>
+            </div>}
+
             {/* Executive Summary - The headline view */}
+            {activeTab === 'stats' && <section id="audit-overview" tabIndex={-1} aria-label="Audit overview" className="scroll-mt-20">
             <ExecutiveSummary
               data={data}
-              onViewDetails={(tab) => setActiveTab(tab as TabState)}
+              onViewDetails={(tab) => switchTab(tab as TabState)}
               onExportReport={() => downloadReport(data)}
               onRevise={handleOpenRevisionEditor}
             />
+            <button onClick={() => switchTab('review')} className="mt-4 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-left text-indigo-900 hover:bg-indigo-100"><span className="font-semibold">Open evidence review queue → <span className="ml-2 text-xs font-normal">{reviewSuggestionCount} automated suggestions</span></span><span className="block text-sm mt-1">Compare source evidence, record decisions, and follow up on concerns.</span></button>
+            </section>}
 
             {/* Interactive Revision Editor — opened by "Revise Summary" button */}
             {showRevisionEditor && (
-              <div className="bg-white border border-emerald-200 rounded-2xl shadow-lg overflow-hidden">
+              <div id="audit-revision-editor" tabIndex={-1} aria-label="Revise summary" className="bg-white border border-emerald-200 rounded-2xl shadow-lg overflow-hidden scroll-mt-20">
                 <div className="bg-emerald-700 px-6 py-4 flex items-center justify-between">
                   <div>
                     <h3 className="text-white font-bold text-lg">Revise Summary</h3>
@@ -1357,11 +1594,21 @@ export default function App() {
 
             {/* Revision Impact — shown after a revision is applied */}
             {revisedData && (
-              <BeforeAfterComparison
+              <div id="audit-revision-comparison" className="scroll-mt-20"><BeforeAfterComparison
                 before={data}
                 after={revisedData}
                 onClose={() => setRevisedData(null)}
-              />
+                onAdopt={() => {
+                  analysisGenRef.current++; enrichmentAbortRef.current?.abort(); causalAbortRef.current?.abort(); setIsEnriching(false);
+                  const { revisionHistory: retainedHistory, inputEmbeddings: omittedEmbeddings, ...priorAnalysisRecord } = data;
+                  setData({ ...revisedData, reviewDecisions: [], revisionHistory: [
+                    ...(data.revisionHistory ?? []),
+                    { analysisRecord: priorAnalysisRecord, savedAt: new Date().toISOString(), summary: data.summary, summarySentences: data.summarySentences,
+                      participants: data.participants, runManifest: data.runManifest, reviewDecisions: data.reviewDecisions ?? [] },
+                  ] });
+                  setRevisedData(null); setFacilitationPlan(null); setCausalResult(null); setShowCausalPanel(false); setShowFacilitationPanel(false); setFeedbacks(new Map()); setIsDemo(false); switchTab('review');
+                }}
+              /></div>
             )}
 
             {/* Facilitation Co-Pilot Panel */}
@@ -1416,6 +1663,7 @@ export default function App() {
                 Executive Summary only gives counts, not the actual contributions.
                 Collapsing (open by default) keeps it prominent without pushing
                 the interactive workspaces below the fold on smaller screens. */}
+            {activeTab === 'stats' && <>
             <details className="group" open={!missedCollapsed} onToggle={e => setMissedCollapsed(!(e.currentTarget as HTMLDetailsElement).open)}>
               <summary className="cursor-pointer list-none flex items-center gap-2 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -1455,10 +1703,24 @@ export default function App() {
             </details>
 
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            </>}
+
+            <div className={`grid grid-cols-1 ${activeTab === 'stats' ? 'xl:grid-cols-3' : ''} gap-6`}>
 
               {/* Left Column (Viz) — tab transitions via key remount */}
-              <div className="xl:col-span-2 space-y-6" key={activeTab}>
+              <div className={`${activeTab === 'stats' ? 'xl:col-span-2' : ''} min-w-0 space-y-6`} key={activeTab}>
+              {activeTab !== 'stats' && (
+                <header id="audit-workspace" tabIndex={-1} className="scroll-mt-20 outline-none">
+                  <h1 className="text-2xl font-bold text-slate-900">{activeView?.label}</h1>
+                  <p className="mt-1 text-sm text-slate-600">{activeView?.purpose}</p>
+                  <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                    <button onClick={() => switchTab('stats')} className="font-semibold text-indigo-700 hover:underline">Back to audit overview</button>
+                    <button onClick={handleOpenRevisionEditor} className="font-semibold text-emerald-700 hover:underline">Revise summary</button>
+                    <a href="#audit-summary" className="font-semibold text-slate-600 hover:underline">Read summary</a>
+                    <a href="#audit-source-details" onClick={() => { const panel = document.getElementById('audit-source-details') as HTMLDetailsElement | null; if (panel) panel.open = true; }} className="font-semibold text-slate-600 hover:underline">Inspect source records</a>
+                  </div>
+                </header>
+              )}
               <VizErrorBoundary tabName={activeTab}>
                 <React.Suspense fallback={(
                   <div className="flex h-48 items-center justify-center text-sm text-slate-500" role="status" aria-live="polite">
@@ -1478,7 +1740,6 @@ export default function App() {
                       />
                     </Card>
                   )}
-
 
                   {activeTab === 'blindspot' && (
                     <Card title="Alignment Review Quadrants" subtitle="A descriptive median split of source-network centrality and source-to-summary alignment." className="border-t-4 border-t-red-500" expandable>
@@ -1537,14 +1798,40 @@ export default function App() {
                     )
                   )}
 
+                  {activeTab === 'revisions' && !!data.revisionHistory?.length && (
+                    <div className="space-y-5">{[...data.revisionHistory].reverse().map((previous, index) => <div key={`${previous.savedAt}:${index}`}>
+                      <p className="text-xs text-slate-500 mb-2">Earlier version retained {previous.savedAt} · {previous.reviewDecisions.length} human review decisions retained in exports</p>
+                      <BeforeAfterComparison before={{ ...data, ...previous }} after={data} />
+                    </div>)}</div>
+                  )}
+
+                  {activeTab === 'review' && (
+                    <div className="space-y-4"><button className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700" onClick={() => {
+                      const { inputEmbeddings: omitted, ...record } = data;
+                      const url = URL.createObjectURL(new Blob([JSON.stringify(record, null, 2)], { type: 'application/json' }));
+                      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'audit-with-review-notes.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    }}>Download audit with review notes (JSON)</button>
+                    <label className="ml-3 inline-block text-sm text-indigo-700 underline cursor-pointer">Restore review notes from JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={async event => {
+                      const file = event.target.files?.[0]; event.target.value = ''; if (!file) return;
+                      try {
+                        if (file.size > 20 * 1024 * 1024) throw new Error('Choose a JSON file smaller than 20 MB.');
+                        const reviewDecisions = restoreReviewDecisions(data, JSON.parse(await file.text()));
+                        setData(current => current && current.summary === data.summary ? { ...current, reviewDecisions } : current);
+                        setReviewImportNotice(`${reviewDecisions.length} review decisions restored to this audit.`);
+                      } catch (error) { setReviewImportNotice(error instanceof Error ? error.message : 'Could not restore review notes.'); }
+                    }} /></label>
+                    {reviewImportNotice && <p role="status" className="text-sm text-slate-600">{reviewImportNotice}</p>}<AuditReviewQueue data={data} onChange={reviewDecisions => setData(current => current ? { ...current, reviewDecisions } : current)} onRevise={handleOpenRevisionEditor} /></div>
+                  )}
+
                   {activeTab === 'flow' && (
-                    <Card title="Contribution-to-Sentence Matches" subtitle="Similarity associations for review; they do not measure causal influence or verified derivation." className="border-t-4 border-t-blue-500" expandable>
+                    <Card title="Contribution-to-Sentence Matches" subtitle="Select a contribution or summary sentence to inspect its similarity links and exact wording." className="border-t-4 border-t-indigo-500" expandable>
                       <ContributionLineage
                         data={data.participants}
                         sentences={data.summarySentences}
                         selectedId={selectedParticipant}
                         onSelectParticipant={setSelectedParticipant}
                       />
+                      <p className="mt-3 text-xs text-slate-500">Links show semantic similarity. Review the original wording before concluding that an idea was included, changed, or omitted.</p>
                     </Card>
                   )}
 
@@ -1590,14 +1877,21 @@ export default function App() {
                         <TensionNetworkViz data={data.tensionAnalysis} clusters={data.clusters} />
                       </Card>
                     ) : (
-                      <Card title="Sampled Tension Review" subtitle="Sampling and assessing disagreement candidates across a validated computational partition..." className="border-t-4 border-t-red-500">
-                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
-                          <svg className="animate-spin h-4 w-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                          </svg>
-                          Running tension analysis in background...
-                        </div>
+                      <Card title="Sampled Tension Review" subtitle="Assessment of sampled disagreement candidates." className="border-t-4 border-t-red-500">
+                        {tensionIsRunning ? (
+                          <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12" role="status">
+                            <svg className="animate-spin h-4 w-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                            </svg>
+                            Running tension analysis in background...
+                          </div>
+                        ) : (
+                          <div className="text-sm text-slate-600 py-8 px-4" role="status">
+                            <p className="font-semibold text-slate-800 mb-2">Tension analysis unavailable</p>
+                            <p>{tensionUnavailableReason}</p>
+                          </div>
+                        )}
                       </Card>
                     )
                   )}
@@ -1703,6 +1997,7 @@ export default function App() {
                 </React.Suspense>
                 </VizErrorBoundary>
 
+                <section id="audit-summary" className="scroll-mt-20">
                 <Card
                   title="Summary"
                   /*
@@ -1744,11 +2039,13 @@ export default function App() {
                     <p className="text-lg leading-relaxed text-slate-700">{data.summary}</p>
                   </div>
                 </Card>
+                </section>
               </div>
 
-              {/* Right Column (Details) */}
-              <div className="min-w-0 space-y-6">
-                <Card title="Details Panel" className="h-[650px] flex flex-col sticky top-6" flexContent={true}>
+              {/* Source inspection stays available below the full-width chart. */}
+              <details id="audit-source-details" className="min-w-0 space-y-4 scroll-mt-20" open={activeTab === 'stats' || !!selectedParticipant}>
+                <summary className="cursor-pointer text-sm font-semibold text-indigo-700">Inspect source records{selectedParticipant ? ` — ${selectedParticipant}` : ' and participant feedback'}</summary>
+                <Card title="Source records and evidence" className="h-[650px] flex flex-col" flexContent={true}>
 
                   {/* Jump To Selector */}
                   <div className="mb-4 pb-4 border-b border-slate-100">
@@ -1917,12 +2214,36 @@ export default function App() {
                     </div>
                   )}
                 </Card>
-              </div>
+              </details>
+
+              {/* Dashboard View Bottom Panel */}
+              <footer className="mt-12 pt-6 pb-8 border-t border-slate-200/80 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <BrandLogo variant="mark" size={18} />
+                  <span className="font-semibold text-slate-700">Provenance Lab</span>
+                </div>
+                <div className="flex items-center gap-5">
+                  <button
+                    type="button"
+                    onClick={() => setIsMethodologyOpen(true)}
+                    className="hover:text-slate-900 transition-colors font-medium cursor-pointer"
+                  >
+                    Methodology & Math
+                  </button>
+                  <a
+                    href="mailto:sachitmahajan90@gmail.com"
+                    className="text-slate-600 hover:text-indigo-600 font-medium transition-colors"
+                  >
+                    Contact: Sachit Mahajan
+                  </a>
+                </div>
+              </footer>
 
             </div>
           </div>
         )}
       </main>
+      </div>
 
       {/* Phase 2 enrichment status bar */}
       {(isEnriching || (!enrichmentNoticeDismissed && !!data && ['partial', 'cancelled', 'failed'].includes(data.enrichmentStatus ?? ''))) && (
@@ -1949,6 +2270,11 @@ export default function App() {
           )}
         </div>
       )}
+
+      <MethodologyModal
+        isOpen={isMethodologyOpen}
+        onClose={() => setIsMethodologyOpen(false)}
+      />
     </div>
   );
 }

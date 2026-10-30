@@ -2,6 +2,7 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { handleLiveApi } from './live/http';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -11,6 +12,7 @@ export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production';
   const clientApiKey = isProduction ? '' : (env.GEMINI_API_KEY || '');
   const groqKey = isProduction ? '' : (env.GROQ_API_KEY || '');
+  const openAIKey = isProduction ? '' : (env.OPENAI_API_KEY || '');
 
   return {
     // GitHub Pages hosts the application below the academic site's /apps path.
@@ -40,11 +42,23 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      {
+        name: 'live-session-api',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            void handleLiveApi(req, res, server.httpServer?.address()).then(handled => { if (!handled) next(); }).catch(next);
+          });
+        },
+      },
+      react(),
+      tailwindcss(),
+    ],
     define: {
       'process.env.API_KEY': JSON.stringify(clientApiKey),
       'process.env.GEMINI_API_KEY': JSON.stringify(clientApiKey),
       'process.env.GROQ_API_KEY': JSON.stringify(groqKey),
+      'process.env.OPENAI_API_KEY': JSON.stringify(openAIKey),
     },
     resolve: {
       alias: {

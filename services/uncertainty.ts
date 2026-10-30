@@ -1,5 +1,5 @@
 import { UncertaintyMetrics, ParticipantAnalysis } from '../types';
-import { calculateGini, SeededRNG } from './mathUtils';
+import { calculateGini, computeDistinctRepresentationGap, SeededRNG } from './mathUtils';
 
 /**
  * Uncertainty Quantification Service
@@ -60,23 +60,6 @@ const computeAvgRepresentation = (participants: ParticipantAnalysis[]): number =
 };
 
 // Compute representation gap for a sample
-const computeGap = (participants: ParticipantAnalysis[]): number => {
-  if (participants.length < 4) return 0;
-
-  const sortedByIsolation = [...participants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
-  const splitIndex = Math.max(1, Math.min(participants.length - 1, Math.ceil(participants.length * 0.25)));
-
-  if (splitIndex === 0) return 0;
-
-  const distinctGroup = sortedByIsolation.slice(0, splitIndex);
-  const majorityGroup = sortedByIsolation.slice(splitIndex);
-
-  const avgRepDistinct = distinctGroup.reduce((sum, p) => sum + p.representationScore, 0) / distinctGroup.length;
-  const avgRepMajority = majorityGroup.reduce((sum, p) => sum + p.representationScore, 0) / majorityGroup.length;
-
-  return avgRepMajority - avgRepDistinct;
-};
-
 /**
  * Compute uncertainty metrics using bootstrap resampling.
  *
@@ -108,8 +91,10 @@ const computeGap = (participants: ParticipantAnalysis[]): number => {
 export const computeUncertaintyMetrics = (
   participants: ParticipantAnalysis[],
   numSamples: number = 1000,
-  confidenceLevel: number = 0.95
+  confidenceLevel: number = 0.95,
+  isolationPercentile: number = 0.25,
 ): UncertaintyMetrics => {
+  const computeGap = (sample: ParticipantAnalysis[]) => computeDistinctRepresentationGap(sample, isolationPercentile);
   if (participants.length < 3) {
     // Not enough data for meaningful bootstrap
     const scores = participants.map(p => p.representationScore);

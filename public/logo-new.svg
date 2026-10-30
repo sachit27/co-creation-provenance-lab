@@ -1,0 +1,313 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <!-- Background Gradients -->
+    <linearGradient id="pl-bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0f1d"/>
+      <stop offset="50%" stop-color="#080c16"/>
+      <stop offset="100%" stop-color="#05070e"/>
+    </linearGradient>
+    <linearGradient id="pl-border-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.45"/>
+      <stop offset="40%" stop-color="#0ea5e9" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#4f46e5" stop-opacity="0.1"/>
+    </linearGradient>
+    <radialGradient id="pl-ambient-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.24"/>
+      <stop offset="45%" stop-color="#0ea5e9" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#080c16" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Visual Filters -->
+    <filter id="pl-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="pl-glow-intense" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="blur1"/>
+      <feGaussianBlur stdDeviation="3" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Provenance Stream Gradients -->
+    <linearGradient id="pl-stream-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="50%" stop-color="#f43f5e"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="pl-stream-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="55%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="pl-stream-indigo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="pl-stream-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+
+    <!-- Node Color Palettes -->
+    <radialGradient id="pl-node-amber" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="35%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </radialGradient>
+    <radialGradient id="pl-node-emerald" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#d1fae5"/>
+      <stop offset="35%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </radialGradient>
+    <radialGradient id="pl-node-indigo" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#e0e7ff"/>
+      <stop offset="35%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </radialGradient>
+    <radialGradient id="pl-node-cyan" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="35%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </radialGradient>
+
+    <!-- Facet Gradients for the Analytical Central Lens -->
+    <linearGradient id="pl-facet-nw" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#4f46e5" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.75"/>
+    </linearGradient>
+    <linearGradient id="pl-facet-ne" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.85"/>
+      <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.9"/>
+      <stop offset="85%" stop-color="#e0f2fe" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="pl-facet-e" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#4f46e5" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#312e81" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="pl-facet-se" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.85"/>
+      <stop offset="60%" stop-color="#3730a3" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="pl-facet-sw" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338ca" stop-opacity="0.9"/>
+      <stop offset="60%" stop-color="#312e81" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="pl-facet-w" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#4338ca" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Central Verification Crucible -->
+    <radialGradient id="pl-crucible-grad" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#a5f3fc"/>
+      <stop offset="65%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#312e81"/>
+    </radialGradient>
+
+    <!-- Synthesis Output Beams -->
+    <linearGradient id="pl-beam-laser" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#38bdf8"/>
+      <stop offset="70%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="pl-beam-flare" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8"/>
+      <stop offset="30%" stop-color="#38bdf8" stop-opacity="0.45"/>
+      <stop offset="70%" stop-color="#6366f1" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="pl-out-emerald" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="50%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="pl-out-amber" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle Base for App Icon / Favicon / Standalone Logo -->
+  <rect width="512" height="512" rx="112" fill="url(#pl-bg-gradient)"/>
+  <rect width="510" height="510" x="1" y="1" rx="111" fill="none" stroke="url(#pl-border-gradient)" stroke-width="2"/>
+  <circle cx="256" cy="256" r="200" fill="url(#pl-ambient-glow)"/>
+
+  <!-- Analytical Reticle Rings & Geometric Topology -->
+  <g opacity="0.85">
+    <circle cx="256" cy="256" r="198" fill="none" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="3 9" opacity="0.32"/>
+    <circle cx="256" cy="256" r="144" fill="none" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 6" opacity="0.35"/>
+    <circle cx="256" cy="256" r="94" fill="none" stroke="#818cf8" stroke-width="1" stroke-dasharray="2 4" opacity="0.42"/>
+
+    <!-- Precision Axis Calibration Ticks -->
+    <line x1="256" y1="44" x2="256" y2="58" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" opacity="0.75"/>
+    <line x1="256" y1="454" x2="256" y2="468" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" opacity="0.75"/>
+    <line x1="44" y1="256" x2="58" y2="256" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" opacity="0.75"/>
+    <line x1="454" y1="256" x2="468" y2="256" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round" opacity="0.75"/>
+
+    <!-- Diagonal Reticle Markers -->
+    <circle cx="396" cy="116" r="2" fill="#38bdf8" opacity="0.65"/>
+    <circle cx="396" cy="396" r="2" fill="#818cf8" opacity="0.65"/>
+    <circle cx="116" cy="396" r="2" fill="#34d399" opacity="0.65"/>
+    <circle cx="116" cy="116" r="2" fill="#fbbf24" opacity="0.65"/>
+  </g>
+
+  <!-- Auxiliary Satellite Context Node -->
+  <line x1="142" y1="82" x2="108" y2="136" stroke="#c084fc" stroke-width="1.2" stroke-dasharray="2 4" opacity="0.5"/>
+  <circle cx="142" cy="82" r="4.5" fill="#c084fc" opacity="0.9"/>
+  <circle cx="142" cy="82" r="1.5" fill="#ffffff"/>
+
+  <!-- Provenance Arcs (Diverse Voice Streams Flowing into Synthesis Lens) -->
+  <!-- Amber Tension Arc -->
+  <path d="M 108 136 C 165 136, 195 180, 228 214" fill="none" stroke="url(#pl-stream-amber)" stroke-width="7" opacity="0.3" filter="url(#pl-glow)"/>
+  <path d="M 108 136 C 165 136, 195 180, 228 214" fill="none" stroke="url(#pl-stream-amber)" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Emerald Represented Voice Arc -->
+  <path d="M 76 214 C 120 236, 165 218, 210 244" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.55"/>
+  <path d="M 76 214 C 132 214, 172 232, 210 244" fill="none" stroke="url(#pl-stream-emerald)" stroke-width="8" opacity="0.3" filter="url(#pl-glow)"/>
+  <path d="M 76 214 C 132 214, 172 232, 210 244" fill="none" stroke="url(#pl-stream-emerald)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Electric Indigo Core Substrate Arc -->
+  <path d="M 64 298 C 115 315, 175 295, 212 270" fill="none" stroke="#818cf8" stroke-width="2" opacity="0.6"/>
+  <path d="M 64 298 C 125 298, 170 282, 212 270" fill="none" stroke="url(#pl-stream-indigo)" stroke-width="10" opacity="0.32" filter="url(#pl-glow)"/>
+  <path d="M 64 298 C 125 298, 170 282, 212 270" fill="none" stroke="url(#pl-stream-indigo)" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Cyan Evidence Arc -->
+  <path d="M 98 376 C 155 376, 190 332, 226 296" fill="none" stroke="url(#pl-stream-cyan)" stroke-width="7" opacity="0.28" filter="url(#pl-glow)"/>
+  <path d="M 98 376 C 155 376, 190 332, 226 296" fill="none" stroke="url(#pl-stream-cyan)" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Stream Data Transit Particles -->
+  <rect x="165" y="159" width="6" height="6" rx="1.5" transform="rotate(45 168 162)" fill="#fbbf24" filter="url(#pl-glow)"/>
+  <circle cx="148" cy="224" r="3.5" fill="#34d399" filter="url(#pl-glow)"/>
+  <circle cx="138" cy="290" r="4" fill="#818cf8" filter="url(#pl-glow)"/>
+  <rect x="159" y="345" width="6" height="6" rx="1.5" transform="rotate(45 162 348)" fill="#38bdf8" filter="url(#pl-glow)"/>
+
+  <!-- Multi-Stakeholder Input Voice Nodes (Left Periphery) -->
+  <!-- Amber Tension Node -->
+  <g>
+    <circle cx="108" cy="136" r="16" fill="url(#pl-stream-amber)" opacity="0.18"/>
+    <circle cx="108" cy="136" r="12" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="2 3" opacity="0.65"/>
+    <circle cx="108" cy="136" r="7" fill="url(#pl-node-amber)" filter="url(#pl-glow)"/>
+    <circle cx="106" cy="134" r="2.5" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Emerald Represented Node -->
+  <g>
+    <circle cx="76" cy="214" r="18" fill="url(#pl-stream-emerald)" opacity="0.2"/>
+    <circle cx="76" cy="214" r="13" fill="none" stroke="#34d399" stroke-width="1" opacity="0.6"/>
+    <circle cx="76" cy="214" r="8" fill="url(#pl-node-emerald)" filter="url(#pl-glow)"/>
+    <circle cx="74" cy="212" r="2.8" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Electric Indigo Core Node -->
+  <g>
+    <circle cx="64" cy="298" r="20" fill="url(#pl-stream-indigo)" opacity="0.22"/>
+    <circle cx="64" cy="298" r="14" fill="none" stroke="#818cf8" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.75"/>
+    <circle cx="64" cy="298" r="9" fill="url(#pl-node-indigo)" filter="url(#pl-glow)"/>
+    <circle cx="61.5" cy="295.5" r="3.2" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Cyan Evidence Node -->
+  <g>
+    <circle cx="98" cy="376" r="17" fill="url(#pl-stream-cyan)" opacity="0.2"/>
+    <circle cx="98" cy="376" r="12" fill="none" stroke="#38bdf8" stroke-width="1" opacity="0.6"/>
+    <circle cx="98" cy="376" r="7.5" fill="url(#pl-node-cyan)" filter="url(#pl-glow)"/>
+    <circle cx="96" cy="374" r="2.5" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- THE CENTRAL ANALYTICAL CRYSTAL LENS (Synthesis Prism) -->
+  <g id="pl-synthesis-lens" filter="url(#pl-glow)">
+    <!-- Facet 1: North-West (Inflow Facet) -->
+    <polygon points="170,206 256,156 256,212 212,256" fill="url(#pl-facet-nw)" stroke="#818cf8" stroke-width="1" stroke-opacity="0.75"/>
+
+    <!-- Facet 2: North-East (Specular Transmission / Synthesis Facet) -->
+    <polygon points="256,156 342,206 300,256 256,212" fill="url(#pl-facet-ne)" stroke="#e0f2fe" stroke-width="1.2" stroke-opacity="0.85"/>
+
+    <!-- Facet 3: East (Output Aperture) -->
+    <polygon points="342,206 342,306 300,256" fill="url(#pl-facet-e)" stroke="#6366f1" stroke-width="1" stroke-opacity="0.65"/>
+
+    <!-- Facet 4: South-East (Grounding / Metric Facet) -->
+    <polygon points="300,256 342,306 256,356 256,300" fill="url(#pl-facet-se)" stroke="#4f46e5" stroke-width="1" stroke-opacity="0.75"/>
+
+    <!-- Facet 5: South-West (Tension & Dissipation Facet) -->
+    <polygon points="212,256 256,300 256,356 170,306" fill="url(#pl-facet-sw)" stroke="#4338ca" stroke-width="1" stroke-opacity="0.75"/>
+
+    <!-- Facet 6: West (Voice Reception Facet) -->
+    <polygon points="170,206 212,256 170,306" fill="url(#pl-facet-w)" stroke="#6366f1" stroke-width="1" stroke-opacity="0.65"/>
+
+    <!-- Specular Highlight Ridge on Top Edge of Lens -->
+    <line x1="256" y1="156" x2="342" y2="206" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" opacity="0.95"/>
+    <line x1="256" y1="156" x2="170" y2="206" stroke="#c7d2fe" stroke-width="1.6" stroke-linecap="round" opacity="0.8"/>
+
+    <!-- Central Verification Crucible / Diamond Aperture -->
+    <polygon points="256,212 300,256 256,300 212,256" fill="url(#pl-crucible-grad)" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.9" filter="url(#pl-glow)"/>
+
+    <!-- Optical Alignment Reticle Crosshairs inside Crucible -->
+    <line x1="236" y1="256" x2="276" y2="256" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.95"/>
+    <line x1="256" y1="236" x2="256" y2="276" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.95"/>
+
+    <!-- Focal Singularity Core -->
+    <circle cx="256" cy="256" r="9" fill="url(#pl-node-cyan)" filter="url(#pl-glow-intense)"/>
+    <circle cx="256" cy="256" r="4" fill="#ffffff"/>
+  </g>
+
+  <!-- Synthesis Flare & Laser Emergence (Exiting to Right) -->
+  <polygon points="342,244 444,250 444,262 342,268" fill="url(#pl-beam-flare)"/>
+  <line x1="342" y1="256" x2="444" y2="256" stroke="url(#pl-beam-laser)" stroke-width="5" stroke-linecap="round" filter="url(#pl-glow)"/>
+  <line x1="342" y1="256" x2="444" y2="256" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Upper Topic Representation Thread (Emerald/Sky Consensus) -->
+  <path d="M 342 210 C 378 205, 398 182, 430 180" fill="none" stroke="#38bdf8" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <path d="M 342 220 C 375 220, 395 195, 430 180" fill="none" stroke="url(#pl-out-emerald)" stroke-width="3" stroke-linecap="round" filter="url(#pl-glow)"/>
+
+  <!-- Lower Tension / Divergence Verification Thread (Amber/Violet) -->
+  <path d="M 342 302 C 378 308, 398 330, 430 332" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <path d="M 342 292 C 375 292, 395 318, 430 332" fill="none" stroke="url(#pl-out-amber)" stroke-width="3" stroke-linecap="round" filter="url(#pl-glow)"/>
+
+  <!-- Output Nodes (Audited Synthesized Representation) -->
+  <!-- Upper Consensus Topic Node -->
+  <g>
+    <circle cx="430" cy="180" r="11" fill="url(#pl-stream-emerald)" opacity="0.2"/>
+    <circle cx="430" cy="180" r="6" fill="url(#pl-node-emerald)" filter="url(#pl-glow)"/>
+    <circle cx="428.5" cy="178.5" r="2" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Lower Tension Topic Node -->
+  <g>
+    <circle cx="430" cy="332" r="11" fill="url(#pl-stream-amber)" opacity="0.2"/>
+    <circle cx="430" cy="332" r="6" fill="url(#pl-node-amber)" filter="url(#pl-glow)"/>
+    <circle cx="428.5" cy="330.5" r="2" fill="#ffffff" opacity="0.9"/>
+  </g>
+
+  <!-- Master Synthesis Summary Anchor Node (Center Right) -->
+  <g>
+    <!-- Outer Diamond Reticle Bracket -->
+    <polygon points="444,238 462,256 444,274 426,256" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.8"/>
+    <circle cx="444" cy="256" r="16" fill="url(#pl-stream-cyan)" opacity="0.25" filter="url(#pl-glow)"/>
+    <circle cx="444" cy="256" r="8" fill="url(#pl-node-cyan)" filter="url(#pl-glow)"/>
+    <circle cx="444" cy="256" r="3.5" fill="#ffffff"/>
+  </g>
+
+  <!-- Subtle Topology Inspection Markers (Verification Threads) -->
+  <circle cx="384" cy="235" r="2.5" fill="#34d399" opacity="0.85"/>
+  <circle cx="392" cy="278" r="2.5" fill="#38bdf8" opacity="0.85"/>
+  <circle cx="188" cy="178" r="2.5" fill="#fbbf24" opacity="0.85"/>
+  <circle cx="176" cy="336" r="2.5" fill="#06b6d4" opacity="0.85"/>
+</svg>

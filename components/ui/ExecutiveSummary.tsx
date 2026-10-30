@@ -11,9 +11,9 @@ interface ExecutiveSummaryProps {
 }
 
 /**
- * Descriptive audit snapshot. It deliberately avoids an overall quality/fairness
- * grade because the component indicators have different constructs and no
- * validated weighting scheme.
+ * Descriptive audit snapshot.
+ * Deliberately avoids an overall quality/fairness grade because the component
+ * indicators have different constructs and no validated weighting scheme.
  */
 export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
   data,
@@ -76,94 +76,114 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
   }, [data]);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900 to-slate-800 shadow-xl" aria-labelledby="audit-snapshot-title">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 px-6 py-4">
+    <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-xs" aria-labelledby="audit-snapshot-title">
+      {/* Header */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/20" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 shadow-2xs" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 4-7" />
             </svg>
           </div>
           <div>
-            <h2 id="audit-snapshot-title" className="text-lg font-bold text-white">Semantic-alignment Audit Snapshot</h2>
-            <p className="text-xs text-slate-400">{data.config.datasetName} · {analysis.total} source records · {data.embeddingTierUsed ?? 'unknown'} embedding tier</p>
+            <h2 id="audit-snapshot-title" className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              Semantic-Alignment Audit Snapshot
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              {data.config.datasetName} · {analysis.total} source records · {data.embeddingTierUsed ?? 'unknown'} embedding tier
+            </p>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-blue-300">
+          <div className="text-2xl font-black text-indigo-600 tracking-tight">
             {analysis.average === null ? '—' : analysis.average.toFixed(2)}
           </div>
-          <div className="text-[10px] text-slate-400">Mean strongest-sentence cosine · descriptive</div>
+          <div className="text-[10px] text-slate-400 font-medium">Mean strongest-sentence cosine</div>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 divide-x divide-y divide-slate-700 border-b border-slate-700 md:grid-cols-4 md:divide-y-0">
+      {/* 4 Core Quantitative Metric Blocks */}
+      <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 border-b border-slate-100 md:grid-cols-4 md:divide-y-0 bg-white">
         <div className="p-4 text-center">
-          <div className="text-2xl font-bold text-slate-100">{analysis.validCount}/{analysis.total}</div>
-          <div className="text-xs text-slate-400">Valid comparisons</div>
-          <div className="text-[10px] text-slate-500">aggregate denominator</div>
+          <div className="text-2xl font-extrabold text-slate-900">{analysis.validCount}/{analysis.total}</div>
+          <div className="text-xs font-semibold text-slate-600 mt-0.5">Valid Comparisons</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Aggregate denominator</div>
         </div>
         <div className="p-4 text-center">
-          <div className="text-2xl font-bold text-emerald-300">{analysis.aboveTarget}</div>
-          <div className="text-xs text-slate-400">At/above target band</div>
-          <div className="text-[10px] text-slate-500">score ≥ {analysis.bands.target.toFixed(2)}</div>
+          <div className="text-2xl font-extrabold text-emerald-600">{analysis.aboveTarget}</div>
+          <div className="text-xs font-semibold text-slate-600 mt-0.5">At/Above Target</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Score ≥ {analysis.bands.target.toFixed(2)}</div>
         </div>
         <div className="p-4 text-center">
-          <div className="text-2xl font-bold text-amber-300">{analysis.reviewBand}</div>
-          <div className="text-xs text-slate-400">Intermediate band</div>
-          <div className="text-[10px] text-slate-500">{analysis.bands.atRisk.toFixed(2)}–{analysis.bands.target.toFixed(2)}</div>
+          <div className="text-2xl font-extrabold text-amber-600">{analysis.reviewBand}</div>
+          <div className="text-xs font-semibold text-slate-600 mt-0.5">Intermediate Band</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">{analysis.bands.atRisk.toFixed(2)}–{analysis.bands.target.toFixed(2)}</div>
         </div>
         <div className="p-4 text-center">
-          <div className="text-2xl font-bold text-rose-300">{analysis.belowMarker}</div>
-          <div className="text-xs text-slate-400">Below review marker</div>
-          <div className="text-[10px] text-slate-500">score &lt; {analysis.bands.atRisk.toFixed(2)}</div>
+          <div className="text-2xl font-extrabold text-rose-600">{analysis.belowMarker}</div>
+          <div className="text-xs font-semibold text-slate-600 mt-0.5">Below Marker</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Score &lt; {analysis.bands.atRisk.toFixed(2)}</div>
         </div>
       </div>
 
-      <div className="grid gap-3 border-b border-slate-700 px-6 py-4 text-sm md:grid-cols-3">
-        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Gini of valid scores</div>
-          <div className="mt-1 text-xl font-bold text-slate-100">{data.metrics.giniCoefficient.toFixed(3)}</div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Score inequality only; not a fairness or quality verdict.</p>
+      {/* Statistical Details Trio */}
+      <div className="grid gap-3 border-b border-slate-100 bg-slate-50/40 px-6 py-4 text-sm md:grid-cols-3">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gini of Valid Scores</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{data.metrics.giniCoefficient.toFixed(3)}</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Score inequality only; not a quality verdict.</p>
         </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Distinct-record gap</div>
-          <div className="mt-1 text-xl font-bold text-slate-100">{data.metrics.distinctRepresentationGap.toFixed(3)}</div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Remaining records minus centroid-distant quartile.</p>
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Distinct-Record Gap</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{data.metrics.distinctRepresentationGap.toFixed(3)}</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Remaining records minus centroid-distant quartile.</p>
         </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Interpretation</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-300">Semantic association is not entailment, observed influence, authorship, affective preservation, or population representation.</p>
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-2xs">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Epistemic Guardrail</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-600">Semantic association is not causal influence, authorship, or population representation.</p>
         </div>
       </div>
 
-      <div className="border-b border-slate-700 px-6 py-4">
-        <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Review flags</div>
+      {/* Review Flags */}
+      <div className="border-b border-slate-100 px-6 py-4 bg-white">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">Source-score review flags</div>
         {analysis.reviewFlags.length > 0 ? (
           <ul className="space-y-2">
             {analysis.reviewFlags.map(flag => (
-              <li key={flag} className="flex items-start gap-2 text-sm text-amber-200">
-                <span className="mt-0.5 text-amber-400" aria-hidden="true">•</span><span>{flag}</span>
+              <li key={flag} className="flex items-start gap-2.5 text-xs text-amber-900 bg-amber-50/70 border border-amber-200/60 rounded-xl p-2.5">
+                <span className="mt-0.5 text-amber-600 flex-shrink-0 font-bold" aria-hidden="true">⚠️</span>
+                <span className="leading-relaxed font-medium">{flag}</span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-300">No records cross the current review rules. This does not establish completeness or validity; inspect exact evidence and enrichment coverage.</p>
+          <p className="text-xs text-slate-500">No records cross these source-score rules. The evidence review queue may contain language, claim, or tension suggestions.</p>
         )}
       </div>
 
-      <footer className="flex flex-wrap gap-3 px-6 py-4">
-        <button onClick={() => onViewDetails?.('blindspot')} className="flex-1 rounded-lg bg-slate-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-600">
-          Inspect evidence
+      {/* Footer Actions */}
+      <footer className="flex flex-wrap items-center gap-3 px-6 py-3.5 bg-slate-50/70">
+        <button
+          onClick={() => onViewDetails?.('blindspot')}
+          className="flex-1 min-h-[38px] rounded-lg bg-white border border-slate-200 hover:bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700 transition-all shadow-2xs"
+        >
+          Inspect Evidence
         </button>
         {onRevise && (
-          <button onClick={onRevise} disabled={isRevising} className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-wait disabled:bg-slate-600">
-            {isRevising ? 'Preparing revision…' : 'Review or revise summary'}
+          <button
+            onClick={onRevise}
+            disabled={isRevising}
+            className="flex-1 min-h-[38px] rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition-all shadow-2xs disabled:opacity-50"
+          >
+            {isRevising ? 'Preparing Revision…' : 'Review or Revise Summary'}
           </button>
         )}
         {onExportReport && (
-          <button onClick={onExportReport} className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500">
-            Export audit record
+          <button
+            onClick={onExportReport}
+            className="flex-1 min-h-[38px] rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white transition-all shadow-2xs"
+          >
+            Export Audit Record
           </button>
         )}
       </footer>

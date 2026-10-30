@@ -18,7 +18,7 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({ message }) => 
             <div className="w-20 h-20 border-t-2 border-r-2 border-b-2 border-blue-400 rounded-full animate-spin"></div>
             <div className="absolute top-0 left-0 w-20 h-20 border-t-2 border-blue-600 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
             <div className="absolute inset-0 flex items-center justify-center">
-                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-10 w-10 rounded-lg" />
+                <img src={`${import.meta.env.BASE_URL}logo-new.svg`} alt="" className="h-10 w-10 rounded-lg" />
             </div>
         </div>
         

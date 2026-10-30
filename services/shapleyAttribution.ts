@@ -163,6 +163,10 @@ export const computeShapleyValues = async (
   const mean = new Array(n).fill(0);
   const m2 = new Array(n).fill(0);
   const count = new Array(n).fill(0);
+  const pairMean = new Array(n).fill(0);
+  const pairM2 = new Array(n).fill(0);
+  let pairCount = 0;
+  let firstInPair: number[] | null = null;
   // Split-half accumulators: odd/even permutations give two independent
   // estimates, so rank stability comes free (no additional evaluations).
   const halfSum = [new Array(n).fill(0), new Array(n).fill(0)];
@@ -226,14 +230,32 @@ export const computeShapleyValues = async (
       m2[p] += delta * (marginals[p] - mean[p]);
       halfSum[half][p] += marginals[p];
     }
+    if (antithetic) {
+      if (firstInPair) {
+        pairCount++;
+        for (let p = 0; p < n; p++) {
+          const pairValue = (firstInPair[p] + marginals[p]) / 2;
+          const delta = pairValue - pairMean[p];
+          pairMean[p] += delta / pairCount;
+          pairM2[p] += delta * (pairValue - pairMean[p]);
+        }
+        firstInPair = null;
+      } else {
+        firstInPair = marginals;
+      }
+    }
     halfCount[half]++;
 
     samplesUsed++;
     onProgress?.(s + 1, samples);
   }
 
-  const standardErrors = m2.map((v2, i) =>
-    count[i] > 1 ? Math.sqrt(v2 / (count[i] - 1) / count[i]) : Number.NaN);
+  // Reverse permutations share the same random draw. Estimate Monte Carlo
+  // variation across independent PAIR means, never across the two dependent
+  // members. An unmatched forward draw cannot support a pair-based SE.
+  const standardErrors = antithetic
+    ? pairM2.map(v2 => pairCount > 1 && !firstInPair ? Math.sqrt(v2 / (pairCount - 1) / pairCount) : Number.NaN)
+    : m2.map((v2, i) => count[i] > 1 ? Math.sqrt(v2 / (count[i] - 1) / count[i]) : Number.NaN);
 
   const total = mean.reduce((a, b) => a + b, 0);
   const efficiencyGap = Math.abs(total - (vFull - vEmpty));
@@ -396,8 +418,8 @@ export const makeCoverageCharacteristic = (
  * that is not a cosmetic problem: it invites a facilitator to treat one
  * contributor as more deserving than another on the strength of noise.
  *
- * Two contributions are placed in different tiers only when their estimates are
- * separated by more than the combined uncertainty:
+ * Adjacent contributions are placed in different tiers only when their estimates
+ * are separated by more than the combined uncertainty:
  *
  *     |phi_i - phi_j| > 2 * sqrt(SE_i^2 + SE_j^2)
  *
@@ -418,7 +440,7 @@ export const computeEquivalenceTiers = (
   standardErrors: number[]
 ): EquivalenceTier[] => {
   const items = participantIds
-    .map((id, i) => ({ id, phi: values[i], se: Number.isNaN(standardErrors[i]) ? 0 : standardErrors[i] }))
+    .map((id, i) => ({ id, phi: values[i], se: Number.isFinite(standardErrors[i]) ? Math.max(0, standardErrors[i]) : Number.POSITIVE_INFINITY }))
     .sort((a, b) => b.phi - a.phi);
   if (items.length === 0) return [];
 
@@ -426,12 +448,12 @@ export const computeEquivalenceTiers = (
   let current = [items[0]];
 
   const separated = (a: { phi: number; se: number }, b: { phi: number; se: number }) =>
-    Math.abs(a.phi - b.phi) > 2 * Math.sqrt(a.se * a.se + b.se * b.se);
+    Math.abs(a.phi - b.phi) > 2 * Math.sqrt(a.se * a.se + b.se * b.se) + 1e-12;
 
   for (let i = 1; i < items.length; i++) {
-    // Compare against the strongest member of the open tier: a tier stays open
-    // while its members remain statistically inseparable from its leader.
-    if (separated(current[0], items[i])) {
+    // Check neighboring estimates. A chain of unresolved adjacent differences
+    // stays together instead of implying an unsupported between-tier boundary.
+    if (separated(items[i - 1], items[i])) {
       tiers.push(finaliseTier(tiers.length, current));
       current = [items[i]];
     } else {

@@ -141,7 +141,7 @@ export const MissedPerspectives: React.FC<MissedPerspectivesProps> = ({
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
         </div>
-        <h3 className="font-bold text-green-800 mb-1">No current review flags</h3>
+        <h3 className="font-bold text-green-800 mb-1">No source-score flags under this rule</h3>
         <p className="text-green-600 text-sm">
           No records cross this heuristic. This does not prove complete representation; inspect transformation, claim, and unassessed evidence.
         </p>

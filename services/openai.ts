@@ -28,10 +28,10 @@ export const setOpenAIApiKey = (key: string): void => {
 };
 
 export const getOpenAIApiKey = (): string =>
-    sessionStorage.getItem(OPENAI_KEY_STORAGE) || buildTimeKey;
+    (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(OPENAI_KEY_STORAGE) : null) || buildTimeKey;
 
 export const isOpenAIKeyFromEnv = (): boolean =>
-    !sessionStorage.getItem(OPENAI_KEY_STORAGE) && !!buildTimeKey;
+    !(typeof sessionStorage !== 'undefined' && sessionStorage.getItem(OPENAI_KEY_STORAGE)) && !!buildTimeKey;
 
 export const checkOpenAIConnection = (): boolean => !!getOpenAIApiKey();
 

@@ -6,7 +6,7 @@ import { checkOpenAIConnection, generateOpenAIEmbedding } from './openai';
 import { checkClaudeConnection } from './claude';
 import { checkApertusConnection } from './apertus';
 import { checkBgeM3Connection, generateBgeM3Embedding, generateBgeM3EmbeddingsBatch } from './bgeM3';
-import { cosineSimilarity, maxSentenceCosineScore, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeGlobalCentroid, computeMutualKNN, chooseMutualKnnK, analyzeNetworkGraph } from './mathUtils';
+import { cosineSimilarity, maxSentenceCosineScore, computePCA, computeAutoKMeans, calculateGini, computeAveragePairwiseDistance, computeDistinctRepresentationGap, computeGlobalCentroid, computeMutualKNN, chooseMutualKnnK, analyzeNetworkGraph } from './mathUtils';
 import { LocalVectorizer } from './vectorizer';
 import { extractContrastiveClusterLabel, extractKeywords } from './textUtils';
 import { computeUncertaintyMetrics } from './uncertainty';
@@ -562,18 +562,10 @@ export const runCoreAnalysis = async (
   const validEmbeddings = inputEmbeddings.filter((_, i) => !participants[i].embeddingFailed);
   const inputDiversity = computeAveragePairwiseDistance(validEmbeddings.length >= 2 ? validEmbeddings : inputEmbeddings);
 
-  const { isolationPercentile } = ANALYSIS_CONFIG.thresholds;
+  const { isolationPercentile } = activeConfig.thresholds ?? ANALYSIS_CONFIG.thresholds;
 
   const sortedByIsolation = [...validParticipants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
-  const splitIndex = Math.floor(validParticipants.length * isolationPercentile);
-  let distinctGap = 0;
-  if (splitIndex > 0) {
-    const distinctGroup = sortedByIsolation.slice(0, splitIndex);
-    const majorityGroup = sortedByIsolation.slice(splitIndex);
-    const avgRepDistinct = distinctGroup.reduce((sum, p) => sum + p.representationScore, 0) / distinctGroup.length;
-    const avgRepMajority = majorityGroup.reduce((sum, p) => sum + p.representationScore, 0) / majorityGroup.length;
-    distinctGap = avgRepMajority - avgRepDistinct;
-  }
+  const distinctGap = computeDistinctRepresentationGap(validParticipants, isolationPercentile);
 
   // Language equity analysis (detectedLanguage is now set on each participant)
   const languageAnalysis = analyzeLanguageEquity(participants);
@@ -701,7 +693,7 @@ export const runCoreAnalysis = async (
   // 9. Compute Uncertainty Metrics (Bootstrap CI)
   const { bootstrapSamples } = ANALYSIS_CONFIG.algorithms;
   onProgress?.("Computing uncertainty estimates...");
-  const uncertaintyMetrics = computeUncertaintyMetrics(validParticipants, bootstrapSamples, 0.95);
+  const uncertaintyMetrics = computeUncertaintyMetrics(validParticipants, bootstrapSamples, 0.95, isolationPercentile);
 
   // 10. Compute Group Analysis (if groups are defined)
   onProgress?.("Analyzing stakeholder groups...");

@@ -1,4 +1,4 @@
-import { ParticipantInput, ThresholdConfig } from './types';
+import type { ParticipantInput, ThresholdConfig } from './types';
 
 /**
  * Statistical Configuration Constants

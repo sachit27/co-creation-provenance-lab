@@ -2,7 +2,8 @@
  * Regression tests: Newman modularity diagonal + production retrieval score.
  * Run: node --experimental-strip-types tests/core-math.test.ts
  */
-import { maxSentenceCosineScore, cosineSimilarity } from '../tests/.modules/services/mathUtils.ts';
+import { maxSentenceCosineScore, cosineSimilarity, computeAveragePairwiseDistance, computeDistinctRepresentationGap } from '../tests/.modules/services/mathUtils.ts';
+import { computeUncertaintyMetrics } from '../tests/.modules/services/uncertainty.ts';
 
 let pass = 0, fail = 0;
 const check = (n: string, c: boolean, d = '') => {
@@ -51,6 +52,17 @@ check('negative similarities floor at zero', maxSentenceCosineScore([-0.8, -0.2]
 check('non-finite similarities are ignored', maxSentenceCosineScore([Number.NaN, 0.4]) === 0.4);
 check('empty evidence is zero', maxSentenceCosineScore([]) === 0);
 check('dimension mismatch cannot yield NaN', cosineSimilarity([1, 0], [1]) === 0);
+
+console.log('\n[3] Diversity and gap consistency');
+const periodic = Array.from({ length: 150 }, (_, i) => i % 3 === 0 ? [1, 0] : [0, 1]);
+const expectedDiversity = (100 * 50) / (150 * 149 / 2);
+check('all-pairs diversity is exact for periodic row ordering', approx(computeAveragePairwiseDistance(periodic), expectedDiversity, 1e-12));
+check('all-pairs diversity is invariant to row order', approx(computeAveragePairwiseDistance(periodic), computeAveragePairwiseDistance([...periodic].reverse()), 1e-12));
+const gapRecords = [0, .4, .6, .8, 1].map((score, i) => ({ id: `P${i}`, representationScore: score, semanticIsolation: 5 - i })) as any;
+const gap = computeDistinctRepresentationGap(gapRecords, .25);
+const uncertainty = computeUncertaintyMetrics(gapRecords, 50, .95, .25);
+check('resampling point matches headline gap', approx(uncertainty.gapCI.point, gap));
+check('configured percentile applies to resampling point', approx(computeUncertaintyMetrics(gapRecords, 50, .95, .4).gapCI.point, computeDistinctRepresentationGap(gapRecords, .4)));
 
 console.log(`\n${fail === 0 ? 'ALL CHECKS PASSED' : 'FAILURES'} — passed ${pass}, failed ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

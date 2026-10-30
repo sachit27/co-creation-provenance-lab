@@ -84,7 +84,7 @@ export const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onDismiss 
                 {/* Content — key triggers fade animation on step change */}
                 <div key={currentStep} className="p-8 text-center animate-fadeIn">
                     {currentStep === 0 ? (
-                      <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-16 w-16 mx-auto mb-4 rounded-xl" />
+                      <img src={`${import.meta.env.BASE_URL}logo-new.svg`} alt="" className="h-16 w-16 mx-auto mb-4 rounded-xl" />
                     ) : (
                       <div className="text-5xl mb-4">{step.emoji}</div>
                     )}

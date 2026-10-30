@@ -104,31 +104,40 @@ export const computeGlobalCentroid = (vectors: number[][]): number[] => {
 // Calculate average pairwise cosine distance (1 - similarity)
 export const computeAveragePairwiseDistance = (vectors: number[][]): number => {
     if (vectors.length < 2) return 0;
-
-    // Optimization: Sampling for large datasets (>100)
-    let targetVectors = vectors;
-    if (vectors.length > 100) {
-        // Deterministic stride-based systematic sampling (≤ ~50 vectors).
-        // Using Math.random() would produce non-deterministic results on the
-        // same data — a reproducibility concern for repeated analyses.
-        // Stride sampling: take every k-th vector so the sample is always the
-        // same for the same input, and coverage is uniform across the dataset.
-        const targetSize = 50;
-        const stride = Math.ceil(vectors.length / targetSize);
-        targetVectors = vectors.filter((_, i) => i % stride === 0);
-    }
-
-    let totalDist = 0;
-    let count = 0;
-
-    for (let i = 0; i < targetVectors.length; i++) {
-        for (let j = i + 1; j < targetVectors.length; j++) {
-            totalDist += (1 - cosineSimilarity(targetVectors[i], targetVectors[j]));
-            count++;
+    const dim = vectors[0].length;
+    // For unit vectors u_i, Σ_{i≠j} u_i·u_j = ||Σu_i||² − Σ||u_i||².
+    // This is the exact all-pairs mean in O(n*d), independent of row order.
+    // Invalid or zero vectors contribute zero cosine, as cosineSimilarity does.
+    if (vectors.some(v => v.length !== dim)) {
+        let total = 0, pairs = 0;
+        for (let i = 0; i < vectors.length; i++) for (let j = i + 1; j < vectors.length; j++) {
+            total += 1 - cosineSimilarity(vectors[i], vectors[j]); pairs++;
         }
+        return total / pairs;
     }
+    const sum = new Array(dim).fill(0);
+    let nonzero = 0;
+    for (const vector of vectors) {
+        const norm = vector.every(Number.isFinite) ? magnitude(vector) : 0;
+        if (!(norm > 0)) continue;
+        nonzero++;
+        for (let d = 0; d < dim; d++) sum[d] += vector[d] / norm;
+    }
+    const sumSquared = sum.reduce((acc, value) => acc + value * value, 0);
+    const meanCosine = (sumSquared - nonzero) / (vectors.length * (vectors.length - 1));
+    return Math.max(0, Math.min(2, 1 - meanCosine));
+};
 
-    return count === 0 ? 0 : totalDist / count;
+export const computeDistinctRepresentationGap = <T extends { semanticIsolation: number; representationScore: number }>(
+    participants: T[], isolationPercentile: number,
+): number => {
+    const split = Math.floor(participants.length * isolationPercentile);
+    if (split < 1 || split >= participants.length) return 0;
+    const ranked = [...participants].sort((a, b) => b.semanticIsolation - a.semanticIsolation);
+    const distinct = ranked.slice(0, split);
+    const rest = ranked.slice(split);
+    const mean = (items: T[]) => items.reduce((sum, item) => sum + item.representationScore, 0) / items.length;
+    return mean(rest) - mean(distinct);
 };
 
 /**
